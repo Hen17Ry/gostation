@@ -1,0 +1,68 @@
+{{define "layout"}}<!doctype html>
+<html lang="fr" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{.Title}}</title>
+<style>
+  /* Palette GoStation (orange 50→950) : 50 #FFF7ED · 100 #FFEDD5 · 200 #FED7AA · 300 #FDBA74 · 400 #FB923C
+     500 #F97316 · 600 #EA580C · 700 #C2410C · 800 #9A3412 · 900 #7C2D12 · 950 #431407.
+     Contrastes AA vérifiés : blanc sur 700 (5,2:1), 950 sur 50 (15:1), #475569 sur blanc (7,6:1). */
+  body { margin: 0; padding: 0; }
+  .code { font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace; }
+  @media (prefers-color-scheme: dark) {
+    .bg { background-color: #0C0A09 !important; }
+    .card { background-color: #1C1917 !important; }
+    .text { color: #FAFAF9 !important; }
+    .muted { color: #D6D3D1 !important; }
+    .codebox { background-color: #431407 !important; border-color: #9A3412 !important; }
+    .code { color: #FFEDD5 !important; }
+    .rule { border-color: #44403C !important; }
+    .link { color: #FDBA74 !important; }
+  }
+  @media (max-width: 620px) {
+    .container { width: 100% !important; }
+    .pad { padding-left: 24px !important; padding-right: 24px !important; }
+    .code { font-size: 30px !important; letter-spacing: 6px !important; }
+  }
+</style>
+</head>
+<body class="bg" style="margin:0;padding:0;background-color:#FFF7ED;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">{{.Preheader}}</div>
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FFF7ED;">
+  <tr>
+    <td align="center" style="padding:32px 12px;">
+      <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+        <tr>
+          <td style="background-color:#C2410C;border-radius:16px 16px 0 0;padding:22px 40px;" class="pad">
+            <span style="font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:24px;line-height:28px;font-weight:700;color:#FFFFFF;letter-spacing:-0.3px;">GoStation</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="height:4px;line-height:4px;font-size:0;background-color:#F97316;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td class="card pad" style="background-color:#FFFFFF;border-radius:0 0 16px 16px;padding:40px;font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+            <h1 class="text" style="margin:0 0 16px;font-size:24px;line-height:32px;font-weight:700;color:#0F172A;">{{.Title}}</h1>
+            {{template "content" .}}
+            <hr class="rule" style="border:none;border-top:1px solid #FED7AA;margin:32px 0 20px;">
+            <p class="muted" style="margin:0;font-size:13px;line-height:20px;color:#475569;">
+              Cet email automatique a été envoyé par GoStation. Merci de ne pas y répondre.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:20px 24px 0;font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+            <p class="muted" style="margin:0;font-size:12px;line-height:18px;color:#7C2D12;">
+              GoStation · la station la plus proche qui a votre produit en stock · Bénin<br>© {{.Year}} GoStation
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>{{end}}

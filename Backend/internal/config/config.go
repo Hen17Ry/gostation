@@ -4,6 +4,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net"
@@ -35,6 +36,9 @@ type Config struct {
 	Redis     Redis
 	OSRM      OSRM
 	RateLimit RateLimit
+	Auth      Auth
+	Documents Documents
+	SMTP      SMTP
 }
 
 // HTTP regroupe les paramètres du serveur HTTP.
@@ -77,6 +81,44 @@ type OSRM struct {
 type RateLimit struct {
 	IPRequests int
 	IPWindow   time.Duration
+}
+
+// SigningKey est une clé de signature Ed25519 des access tokens (graine de 32 octets).
+type SigningKey struct {
+	ID   string
+	Seed []byte
+}
+
+// Auth regroupe les réglages d'authentification.
+type Auth struct {
+	// SigningKeys : la première signe, toutes vérifient (rotation par kid).
+	SigningKeys     []SigningKey
+	Issuer          string
+	Audience        string
+	AccessTTL       time.Duration
+	RefreshTTL      time.Duration
+	AdminRefreshTTL time.Duration
+	// AppSecret est le secret maître des dérivations HKDF (HMAC des codes, CSRF, secrets TOTP…).
+	AppSecret            []byte
+	PrivacyPolicyVersion string
+	CookieSecure         bool
+}
+
+// Documents regroupe les réglages des justificatifs IFU.
+type Documents struct {
+	EncryptionKey []byte
+	StorageDir    string
+	MaxBytes      int64
+}
+
+// SMTP regroupe les réglages d'envoi des emails.
+type SMTP struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+	TLSMode  string
 }
 
 // ValidationError liste toutes les variables invalides.
@@ -134,6 +176,39 @@ func Load(getenv func(string) string) (Config, error) {
 		l.fail("RATE_LIMIT_IP_WINDOW", "must be at least 1s")
 	}
 
+	c.Auth = Auth{
+		SigningKeys:          l.signingKeys("JWT_SIGNING_KEYS"),
+		Issuer:               l.str("JWT_ISSUER", "gostation-api"),
+		Audience:             l.str("JWT_AUDIENCE", "gostation"),
+		AccessTTL:            l.duration("JWT_ACCESS_TTL", 15*time.Minute),
+		RefreshTTL:           l.duration("JWT_REFRESH_TTL", 30*24*time.Hour),
+		AdminRefreshTTL:      l.duration("ADMIN_REFRESH_TTL", 12*time.Hour),
+		AppSecret:            l.hexKey("APP_SECRET", 32, 64),
+		PrivacyPolicyVersion: l.str("PRIVACY_POLICY_VERSION", "1.0"),
+		CookieSecure:         l.boolean("COOKIE_SECURE", true),
+	}
+	c.Documents = Documents{
+		EncryptionKey: l.hexKey("DOCUMENTS_ENCRYPTION_KEY", 32, 32),
+		StorageDir:    l.str("DOCUMENTS_STORAGE_DIR", "./var/documents"),
+		MaxBytes:      int64(l.integer("DOCUMENTS_MAX_BYTES", 5<<20, 1024, 20<<20)),
+	}
+	c.SMTP = SMTP{
+		Host:     l.str("SMTP_HOST", "localhost"),
+		Port:     l.integer("SMTP_PORT", 1025, 1, 65535),
+		Username: l.raw("SMTP_USERNAME"),
+		Password: l.raw("SMTP_PASSWORD"),
+		From:     l.str("SMTP_FROM", "GoStation <no-reply@gostation.local>"),
+		TLSMode:  l.oneOf("SMTP_TLS", "none", "none", "starttls", "tls"),
+	}
+	if c.Env == EnvProduction {
+		if c.SMTP.TLSMode == "none" {
+			l.fail("SMTP_TLS", "must be starttls or tls in production")
+		}
+		if !c.Auth.CookieSecure {
+			l.fail("COOKIE_SECURE", "must be true in production")
+		}
+	}
+
 	if len(l.problems) > 0 {
 		return Config{}, &ValidationError{Problems: l.problems}
 	}
@@ -150,6 +225,9 @@ func (c Config) LogValue() slog.Value {
 		slog.String("osrm_timeout", c.OSRM.Timeout.String()),
 		slog.Int("cors_origins", len(c.HTTP.CORSAllowedOrigins)),
 		slog.Int("trusted_proxies", len(c.HTTP.TrustedProxies)),
+		slog.Int("signing_keys", len(c.Auth.SigningKeys)),
+		slog.String("smtp", fmt.Sprintf("%s:%d (%s)", c.SMTP.Host, c.SMTP.Port, c.SMTP.TLSMode)),
+		slog.Bool("cookie_secure", c.Auth.CookieSecure),
 	)
 }
 
@@ -165,6 +243,69 @@ func (l *loader) fail(key, format string, args ...any) {
 
 func (l *loader) raw(key string) string {
 	return strings.TrimSpace(l.getenv(key))
+}
+
+func (l *loader) str(key, def string) string {
+	if v := l.raw(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func (l *loader) boolean(key string, def bool) bool {
+	switch l.raw(key) {
+	case "":
+		return def
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		l.fail(key, "must be true or false")
+		return def
+	}
+}
+
+// hexKey lit une clé obligatoire encodée en hexadécimal, de minBytes à maxBytes octets.
+// Le message d'erreur ne reprend jamais la valeur.
+func (l *loader) hexKey(key string, minBytes, maxBytes int) []byte {
+	v := l.raw(key)
+	if v == "" {
+		l.fail(key, "is required (generate one with: openssl rand -hex %d)", minBytes)
+		return nil
+	}
+	b, err := hex.DecodeString(v)
+	if err != nil || len(b) < minBytes || len(b) > maxBytes {
+		if minBytes == maxBytes {
+			l.fail(key, "must be %d bytes encoded in hex (%d characters)", minBytes, 2*minBytes)
+		} else {
+			l.fail(key, "must be %d to %d bytes encoded in hex", minBytes, maxBytes)
+		}
+		return nil
+	}
+	return b
+}
+
+// signingKeys lit « kid:graine_hex[,kid:graine_hex…] » (graines Ed25519 de 32 octets).
+func (l *loader) signingKeys(key string) []SigningKey {
+	items := l.list(key)
+	if len(items) == 0 {
+		l.fail(key, "is required (format kid:hexseed, seed from: openssl rand -hex 32)")
+		return nil
+	}
+	var out []SigningKey
+	seen := map[string]bool{}
+	for i, item := range items {
+		kid, seedHex, ok := strings.Cut(item, ":")
+		seed, err := hex.DecodeString(seedHex)
+		if !ok || kid == "" || seen[kid] || err != nil || len(seed) != 32 {
+			l.fail(key, "entry %d must be kid:hexseed with a unique kid and a 32-byte hex seed", i+1)
+			continue
+		}
+		seen[kid] = true
+		out = append(out, SigningKey{ID: kid, Seed: seed})
+	}
+	return out
 }
 
 func (l *loader) oneOf(key, def string, allowed ...string) string {

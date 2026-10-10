@@ -17,22 +17,24 @@ import (
 
 // KEYS[1] = fenêtre courante, KEYS[2] = fenêtre précédente.
 // ARGV[1] = limite, ARGV[2] = durée de fenêtre (ms), ARGV[3] = temps écoulé dans la fenêtre courante (ms).
-// Retourne {autorisé (0|1), nombre de requêtes estimé après cette requête}.
+// Retourne {autorisé (0|1), nombre de requêtes estimé (arrondi au supérieur) après cette requête}.
+// La décision compare l'estimation exacte, sans arrondi : un arrondi inférieur laisserait passer
+// une requête de trop juste après un changement de fenêtre (sensible pour les petites limites).
 const slidingWindowScript = `
 local limit   = tonumber(ARGV[1])
 local window  = tonumber(ARGV[2])
 local elapsed = tonumber(ARGV[3])
 local current  = tonumber(redis.call('GET', KEYS[1]) or '0')
 local previous = tonumber(redis.call('GET', KEYS[2]) or '0')
-local estimate = math.floor(previous * (window - elapsed) / window) + current
-if estimate >= limit then
-  return {0, estimate}
+local estimate = previous * (window - elapsed) / window + current
+if estimate + 1 > limit then
+  return {0, math.ceil(estimate)}
 end
 current = redis.call('INCR', KEYS[1])
 if current == 1 then
   redis.call('PEXPIRE', KEYS[1], window * 2)
 end
-return {1, estimate + 1}
+return {1, math.ceil(estimate + 1)}
 `
 
 // Result décrit la décision du limiteur.

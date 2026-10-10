@@ -1,0 +1,888 @@
+openapi: 3.1.0
+info:
+  title: GoStation API
+  version: 0.3.0
+  summary: Trouver la station la plus proche qui a le produit recherché en stock (Bénin).
+  description: |
+    API REST de GoStation. Source des types générés pour les clients mobile (Expo) et web (admin).
+
+    - Toutes les routes métier sont sous `/api/v1`, en JSON (`camelCase`), dates RFC 3339 UTC.
+    - Erreurs en `application/problem+json` (RFC 9457) avec un `code` stable : les clients
+      s'appuient sur ce code, jamais sur `title`/`detail` (anglais, pour les développeurs).
+    - Authentification : `Authorization: Bearer <accessToken>` (mobile) ; l'admin web utilise des
+      cookies httpOnly et doit renvoyer le jeton CSRF dans `X-CSRF-Token` sur les requêtes non GET.
+    - Access token : JWT EdDSA (Ed25519) de 15 min, clés publiques sur `/.well-known/jwks.json`.
+      Refresh token opaque, renouvelé à chaque usage ; réutiliser un ancien token révoque la session.
+      Les clients doivent sérialiser leurs appels à `/auth/refresh` (un seul à la fois).
+    - Chaque réponse porte `X-Request-ID` ; les routes `/api/v1` portent `RateLimit-*`.
+
+    Cette spec est vérifiée par un test : elle liste exactement les routes servies par l'API.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Développement local
+tags:
+  - name: health
+    description: Sondes d'infrastructure
+  - name: catalog
+    description: Catalogue des produits
+  - name: auth
+    description: Inscription, vérification de l'email, connexion et sessions (utilisateurs et gérants)
+  - name: admin-auth
+    description: Connexion admin en deux étapes (mot de passe puis TOTP), cookies de session
+  - name: me
+    description: Compte de l'utilisateur authentifié
+  - name: manager
+    description: Espace gérant (station approuvée uniquement)
+  - name: admin
+    description: Back-office (session admin ouverte après 2FA)
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: getLiveness
+      summary: Le processus répond
+      security: []
+      responses:
+        "200":
+          description: Vivant
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Liveness" }
+  /readyz:
+    get:
+      tags: [health]
+      operationId: getReadiness
+      summary: Les dépendances (PostgreSQL, Redis, OSRM) répondent
+      security: []
+      responses:
+        "200":
+          description: Prêt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+        "503":
+          description: Une dépendance est indisponible ou l'arrêt est en cours (extension `checks`)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /.well-known/jwks.json:
+    get:
+      tags: [auth]
+      operationId: getJWKS
+      summary: Clés publiques de vérification des access tokens (RFC 7517, OKP/Ed25519)
+      security: []
+      responses:
+        "200":
+          description: Jeu de clés
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JWKS" }
+
+  /api/v1/products:
+    get:
+      tags: [catalog]
+      operationId: listProducts
+      summary: Produits actifs, dans l'ordre d'affichage
+      security: []
+      responses:
+        "200":
+          description: Catalogue (cache client 5 min)
+          headers:
+            RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductList" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Inscription d'un utilisateur (10 par heure et par IP)
+      description: Envoie un code de vérification par email et ouvre une session (un compte non vérifié peut se connecter).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Compte créé, session ouverte
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/register/manager:
+    post:
+      tags: [auth]
+      operationId: registerManager
+      summary: Inscription d'un gérant et de sa station (statut pending)
+      description: |
+        Formulaire multipart. Le justificatif (PDF, JPEG ou PNG, 5 Mo max) est contrôlé par ses
+        magic bytes, débarrassé de ses métadonnées (images) et chiffré ; il n'est jamais servi
+        publiquement. Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié.
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/ManagerRegistration" }
+            encoding:
+              document:
+                contentType: application/pdf, image/jpeg, image/png
+      responses:
+        "201":
+          description: Compte et station créés, session ouverte
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/verify-email:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Consomme le code de vérification à 6 chiffres
+      description: Code valable 15 min, 5 essais. Email inconnu ou code faux → même réponse `auth.invalid_code`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerifyEmailRequest" }
+      responses:
+        "204": { description: Email vérifié }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/resend-verification:
+    post:
+      tags: [auth]
+      operationId: resendVerification
+      summary: Renvoie le code de vérification (1 par minute, 5 par heure)
+      description: Réponse identique que le compte existe ou non.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailRequest" }
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Connexion d'un utilisateur ou d'un gérant (5 par minute, par IP et par email)
+      description: Les comptes admin passent par `/auth/admin/login`. Échec → réponse générique `auth.invalid_credentials`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Session ouverte
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth, admin-auth]
+      operationId: refreshTokens
+      summary: Renouvelle les tokens (rotation du refresh token)
+      description: |
+        Mobile : `refreshToken` dans le corps, nouvelle paire dans la réponse.
+        Admin web : corps vide, refresh token dans le cookie, `X-CSRF-Token` obligatoire ; nouveaux cookies.
+        Un refresh token déjà utilisé révoque toute la session.
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: Tokens renouvelés
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/TokenPair"
+                  - $ref: "#/components/schemas/AdminRefreshResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth, admin-auth]
+      operationId: logout
+      summary: Révoque la session courante (idempotent)
+      description: Session identifiée par l'access token, sinon par le refresh token (corps ou cookie + CSRF).
+      security: [{}, { bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "204": { description: Déconnecté (cookies effacés le cas échéant) }
+  /api/v1/auth/logout-all:
+    post:
+      tags: [auth]
+      operationId: logoutAll
+      summary: Révoque toutes les sessions de l'utilisateur
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      responses:
+        "204": { description: Toutes les sessions révoquées }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/auth/password/forgot:
+    post:
+      tags: [auth]
+      operationId: forgotPassword
+      summary: Envoie un code de réinitialisation (mêmes limites que la vérification)
+      description: Réponse identique que le compte existe ou non.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailRequest" }
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/password/reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: Nouveau mot de passe avec le code reçu ; révoque toutes les sessions
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordRequest" }
+      responses:
+        "204": { description: Mot de passe changé }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/admin/login:
+    post:
+      tags: [admin-auth]
+      operationId: adminLogin
+      summary: Étape 1 du login admin — mot de passe, ouverture du défi 2FA
+      description: Aucune session n'est créée sans 2FA. À la première connexion, la réponse contient le secret TOTP à enregistrer.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Défi 2FA ouvert (5 min, 5 essais)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminChallenge" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/auth/admin/2fa:
+    post:
+      tags: [admin-auth]
+      operationId: adminSecondFactor
+      summary: Étape 2 du login admin — code TOTP (mise en place ou vérification) ou code de secours
+      description: Pose les cookies de session. À la mise en place, renvoie les 10 codes de secours (une seule fois).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminSecondFactorRequest" }
+      responses:
+        "200":
+          description: Session admin ouverte
+          headers:
+            Set-Cookie:
+              description: "`__Host-gs_at` (access, httpOnly), `__Secure-gs_rt` (refresh, httpOnly, Path=/api/v1/auth), `gs_csrf` (lisible) ; tous Secure et SameSite=Strict"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminSession" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: Profil, statut de la politique de confidentialité et station (gérant)
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Profil
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [me]
+      operationId: updateMe
+      summary: Modifie prénom et/ou nom
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Profil mis à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [me]
+      operationId: deleteMe
+      summary: Supprime le compte (anonymisation, révocation de toutes les sessions)
+      description: La station d'un gérant est suspendue. Les comptes admin se suppriment par la CLI.
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteAccountRequest" }
+      responses:
+        "204": { description: Compte supprimé }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/change-password:
+    post:
+      tags: [me]
+      operationId: changePassword
+      summary: Change le mot de passe ; révoque les autres sessions
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "204": { description: Mot de passe changé }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/accept-privacy-policy:
+    post:
+      tags: [me]
+      operationId: acceptPrivacyPolicy
+      summary: Accepte la version courante de la politique de confidentialité
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AcceptPrivacyPolicyRequest" }
+      responses:
+        "200":
+          description: Profil à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/sessions:
+    get:
+      tags: [me]
+      operationId: listSessions
+      summary: Sessions actives (la plus récemment utilisée d'abord)
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/me/sessions/{id}:
+    delete:
+      tags: [me]
+      operationId: revokeSession
+      summary: Révoque une de ses sessions
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204": { description: Session révoquée }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/manager/station:
+    get:
+      tags: [manager]
+      operationId: getManagerStation
+      summary: Station du gérant (approuvée)
+      description: Un gérant dont la station n'est pas approuvée reçoit 403 `station.not_approved` avec l'extension `stationStatus`.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Station
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManagerStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/admin/stations/{id}/document:
+    get:
+      tags: [admin]
+      operationId: getStationDocument
+      summary: Justificatif IFU déchiffré (téléchargement, audité)
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/StationId"
+      responses:
+        "200":
+          description: Fichier (Content-Disposition attachment, Cache-Control no-store, CSP sandbox)
+          content:
+            application/pdf:
+              schema: { type: string, contentMediaType: application/pdf }
+            image/jpeg:
+              schema: { type: string, contentMediaType: image/jpeg }
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token EdDSA de 15 min (clients mobiles).
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-gs_at
+      description: Cookie de session de l'admin web (httpOnly, Secure, SameSite=Strict).
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Valeur du cookie `gs_csrf`, exigée sur les requêtes non GET authentifiées par cookie.
+
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StationId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  headers:
+    RateLimitLimit:
+      description: Quota de la fenêtre
+      schema: { type: integer }
+    RateLimitRemaining:
+      description: Requêtes restantes dans la fenêtre
+      schema: { type: integer }
+    RateLimitReset:
+      description: Secondes avant la fin de la fenêtre
+      schema: { type: integer }
+    RetryAfter:
+      description: Secondes avant de réessayer
+      schema: { type: integer }
+
+  responses:
+    Accepted:
+      description: Demande prise en compte (réponse identique que le compte existe ou non)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Accepted" }
+    BadRequest:
+      description: "Requête mal formée ou code invalide (`request.invalid_json`, `request.invalid_parameter`, `auth.invalid_code`)"
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: "Non authentifié (`auth.unauthorized`, `auth.invalid_credentials`, `auth.invalid_refresh_token`, `auth.invalid_mfa_token`, `auth.invalid_second_factor`)"
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: "Interdit (`auth.forbidden`, `auth.csrf_failed`, `auth.email_not_verified`, `station.not_approved`)"
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: Ressource ou route inexistante (`resource.not_found`, `route.not_found`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: Conflit (`auth.email_taken`, `resource.conflict`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    PayloadTooLarge:
+      description: Corps ou justificatif trop gros (`request.body_too_large`, `upload.too_large`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    UnsupportedMediaType:
+      description: Type refusé (`upload.unsupported_type`, ou Content-Type de requête incorrect)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ValidationFailed:
+      description: Validation échouée (`request.validation_failed`, détail par champ dans `errors`, ou `upload.invalid_file`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooManyRequests:
+      description: Quota dépassé (`rate_limit.exceeded`)
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      description: Erreur RFC 9457. Des membres d'extension peuvent s'ajouter (`checks`, `stationStatus`…).
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri, examples: ["urn:gostation:problem:resource.not_found"] }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string, description: Code stable, examples: ["auth.invalid_credentials"] }
+        requestId: { type: string }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/FieldError" }
+      additionalProperties: true
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field: { type: string, examples: ["password"] }
+        code: { type: string, description: "required, invalid, too_short, too_long, too_common, too_predictable, outdated, incorrect, unknown_field…" }
+        message: { type: string }
+
+    Liveness:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    Readiness:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, const: ready }
+        checks:
+          type: object
+          additionalProperties: { type: string, enum: [ok, fail] }
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/JWK" }
+    JWK:
+      type: object
+      required: [kty, crv, x, kid, use, alg]
+      properties:
+        kty: { type: string, const: OKP }
+        crv: { type: string, const: Ed25519 }
+        x: { type: string, description: "Clé publique, base64url" }
+        kid: { type: string }
+        use: { type: string, const: sig }
+        alg: { type: string, const: EdDSA }
+
+    Product:
+      type: object
+      required: [id, code, kind, unit, sizeKg, label]
+      properties:
+        id: { type: integer }
+        code: { type: string, examples: ["lpg_10kg"] }
+        kind: { type: string, enum: [lpg, petrol, diesel] }
+        unit: { type: string, enum: [cylinder, liter] }
+        sizeKg: { type: [number, "null"], description: Taille de la bouteille (gaz uniquement) }
+        label: { type: string, examples: ["Gaz 10 kg"] }
+    ProductList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Product" }
+
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+    NewPassword:
+      type: string
+      minLength: 8
+      maxLength: 128
+      description: Refusé s'il est courant ou contient l'email ou « gostation ».
+    RegisterRequest:
+      type: object
+      required: [firstName, lastName, email, password, privacyPolicyVersion]
+      additionalProperties: false
+      properties:
+        firstName: { type: string, minLength: 1, maxLength: 100 }
+        lastName: { type: string, minLength: 1, maxLength: 100 }
+        email: { $ref: "#/components/schemas/Email" }
+        password: { $ref: "#/components/schemas/NewPassword" }
+        privacyPolicyVersion: { type: string, description: Version acceptée ; doit être la version courante, examples: ["1.0"] }
+    ManagerRegistration:
+      type: object
+      required: [firstName, lastName, email, password, privacyPolicyVersion, stationName, ifu, rccm, address, phone, document]
+      properties:
+        firstName: { type: string, minLength: 1, maxLength: 100 }
+        lastName: { type: string, minLength: 1, maxLength: 100 }
+        email: { $ref: "#/components/schemas/Email" }
+        password: { $ref: "#/components/schemas/NewPassword" }
+        privacyPolicyVersion: { type: string, examples: ["1.0"] }
+        stationName: { type: string, minLength: 2, maxLength: 120 }
+        brand: { type: string, maxLength: 60 }
+        ifu: { type: string, pattern: "^[0-9]{13}$", description: Identifiant fiscal unique (13 chiffres) }
+        rccm: { type: string, examples: ["RB/COT/24 B 12345"] }
+        address: { type: string, minLength: 5, maxLength: 255 }
+        city: { type: string, maxLength: 100 }
+        phone: { type: string, description: "Format international ; espaces, points et tirets acceptés", examples: ["+229 01 90 00 00 00"] }
+        document:
+          type: string
+          contentMediaType: application/octet-stream
+          description: Justificatif PDF, JPEG ou PNG, 5 Mo max (type réel vérifié)
+    EmailRequest:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email: { type: string }
+    VerifyEmailRequest:
+      type: object
+      required: [email, code]
+      additionalProperties: false
+      properties:
+        email: { type: string }
+        code: { type: string, pattern: "^[0-9]{6}$" }
+    ResetPasswordRequest:
+      type: object
+      required: [email, code, newPassword]
+      additionalProperties: false
+      properties:
+        email: { type: string }
+        code: { type: string, pattern: "^[0-9]{6}$" }
+        newPassword: { $ref: "#/components/schemas/NewPassword" }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: { type: string }
+        password: { type: string }
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        refreshToken: { type: string, description: Absent pour l'admin web (cookie) }
+
+    TokenPair:
+      type: object
+      required: [accessToken, tokenType, expiresIn, refreshToken, refreshExpiresIn]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, const: Bearer }
+        expiresIn: { type: integer, description: Secondes, examples: [900] }
+        refreshToken: { type: string, description: "Opaque, préfixe gsr_ ; à conserver dans expo-secure-store" }
+        refreshExpiresIn: { type: integer, description: Secondes }
+    SessionResponse:
+      allOf:
+        - $ref: "#/components/schemas/TokenPair"
+        - type: object
+          required: [user]
+          properties:
+            user: { $ref: "#/components/schemas/Profile" }
+    Accepted:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: accepted }
+
+    Profile:
+      type: object
+      required: [id, email, firstName, lastName, role, emailVerified, twoFactorEnabled, privacyPolicy, station, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        firstName: { type: string }
+        lastName: { type: string }
+        role: { type: string, enum: [user, manager, admin] }
+        emailVerified: { type: boolean, description: "Requis pour signaler, ajouter des favoris et activer les notifications" }
+        twoFactorEnabled: { type: boolean }
+        privacyPolicy: { $ref: "#/components/schemas/PrivacyPolicyStatus" }
+        station:
+          oneOf:
+            - $ref: "#/components/schemas/StationSummary"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+    PrivacyPolicyStatus:
+      type: object
+      required: [acceptedVersion, acceptedAt, currentVersion, reacceptRequired]
+      properties:
+        acceptedVersion: { type: string }
+        acceptedAt: { type: string, format: date-time }
+        currentVersion: { type: string }
+        reacceptRequired: { type: boolean, description: "true : afficher la nouvelle politique et appeler /me/accept-privacy-policy" }
+    StationSummary:
+      type: object
+      required: [id, name, status, statusReason]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [pending, approved, rejected, suspended] }
+        statusReason: { type: [string, "null"], description: Motif de rejet ou de suspension }
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        firstName: { type: string, minLength: 1, maxLength: 100 }
+        lastName: { type: string, minLength: 1, maxLength: 100 }
+    AcceptPrivacyPolicyRequest:
+      type: object
+      required: [version]
+      additionalProperties: false
+      properties:
+        version: { type: string, examples: ["1.0"] }
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      additionalProperties: false
+      properties:
+        currentPassword: { type: string }
+        newPassword: { $ref: "#/components/schemas/NewPassword" }
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password: { type: string }
+    SessionInfo:
+      type: object
+      required: [id, client, userAgent, createdAt, lastUsedAt, current]
+      properties:
+        id: { type: string, format: uuid }
+        client: { type: string, enum: [mobile, web] }
+        userAgent: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+        current: { type: boolean }
+    SessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SessionInfo" }
+
+    AdminChallenge:
+      type: object
+      required: [mfaToken, twoFactor, expiresIn]
+      properties:
+        mfaToken: { type: string, description: "Opaque, préfixe gsm_ ; 5 min, 5 essais" }
+        twoFactor: { type: string, enum: [setup_required, required] }
+        expiresIn: { type: integer }
+        setup:
+          type: object
+          description: Présent seulement à la mise en place de la 2FA
+          required: [secret, otpauthUri]
+          properties:
+            secret: { type: string, description: Secret TOTP en base32 (saisie manuelle) }
+            otpauthUri: { type: string, description: URI à afficher en QR code }
+    AdminSecondFactorRequest:
+      type: object
+      required: [mfaToken]
+      additionalProperties: false
+      description: Exactement un de `code` ou `recoveryCode`.
+      properties:
+        mfaToken: { type: string }
+        code: { type: string, pattern: "^[0-9 ]{6,7}$" }
+        recoveryCode: { type: string, examples: ["ABCD-EFGH-IJKL-MNOP"] }
+    AdminSession:
+      type: object
+      required: [user, csrfToken, expiresIn]
+      properties:
+        user: { $ref: "#/components/schemas/Profile" }
+        csrfToken: { type: string, description: À envoyer dans X-CSRF-Token (aussi disponible dans le cookie gs_csrf) }
+        expiresIn: { type: integer }
+        recoveryCodes:
+          type: array
+          items: { type: string }
+          description: Les 10 codes de secours, renvoyés une seule fois, à la mise en place
+    AdminRefreshResponse:
+      type: object
+      required: [csrfToken, expiresIn]
+      properties:
+        csrfToken: { type: string }
+        expiresIn: { type: integer }
+
+    LatLng:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lng: { type: number, minimum: -180, maximum: 180 }
+    ManagerStation:
+      type: object
+      required: [id, status, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, lastStockUpdateAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, approved, rejected, suspended] }
+        name: { type: string }
+        brand: { type: [string, "null"] }
+        ifu: { type: string }
+        rccm: { type: string }
+        address: { type: string }
+        city: { type: [string, "null"] }
+        phone: { type: string }
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/LatLng"
+            - type: "null"
+        locationSetAt: { type: [string, "null"], format: date-time }
+        lastStockUpdateAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }

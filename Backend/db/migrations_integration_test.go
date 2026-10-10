@@ -37,7 +37,7 @@ func runTests(m *testing.M) int {
 
 // appTables sont les tables créées par les migrations (ARCHITECTURE §3).
 var appTables = []string{
-	"audit_logs", "data_requests", "device_tokens", "favorites", "products", "reports",
+	"admin_recovery_codes", "audit_logs", "data_requests", "device_tokens", "favorites", "products", "reports",
 	"search_stats", "station_opening_hours", "station_stocks", "stations", "stock_history", "users",
 }
 

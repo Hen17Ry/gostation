@@ -4,7 +4,7 @@ Trouver la station la plus proche qui a **en stock** le produit recherché (gaz 
 
 | Dossier | Contenu | État |
 |---|---|---|
-| `Backend/` | API Go (chi, pgx/sqlc, goose, Redis) : socle, migrations, `/healthz`, `/readyz`, `/api/v1/products` | ✔ socle |
+| `Backend/` | API Go (chi, pgx/sqlc, goose, Redis) : socle, migrations, authentification et rôles, spec [OpenAPI 3.1](Backend/api/openapi.yaml) | ✔ socle + auth |
 | `Mobile/` | App Expo React Native (user + gérant) | à initialiser |
 | `Web/` | Admin React (Vite, Tailwind, shadcn/ui) | à initialiser |
 | `docs/` | [Architecture](docs/ARCHITECTURE.md) : modèle de données, endpoints, algorithme de recherche | ✔ |
@@ -19,7 +19,7 @@ Prérequis : Docker Engine avec Compose v2, `make`, `curl`, `openssl`, et pour l
 ```bash
 make env            # 1. crée .env avec des secrets aléatoires
 make osrm-prepare   # 2. télécharge l'extrait Bénin (~48 Mo) et prépare le routage (~1 min)
-make up             # 3. démarre PostGIS, Redis, OSRM et attend les healthchecks
+make up             # 3. démarre PostGIS, Redis, OSRM et Mailpit, attend les healthchecks
 make check          # 4. vérifie PostGIS, Redis et un itinéraire OSRM à Cotonou
 ```
 
@@ -73,7 +73,15 @@ curl -s localhost:8080/readyz   # {"status":"ready","checks":{"osrm":"ok","postg
 | `make migrate-new name=add_x` | Nouvelle migration horodatée (UTC) dans `Backend/db/migrations` |
 | `make build` | Binaire `Backend/bin/api` |
 
-Endpoints disponibles : `GET /healthz`, `GET /readyz`, `GET /api/v1/products`. Les erreurs sont en `application/problem+json` (RFC 9457), avec des codes stables listés dans [ARCHITECTURE §5](docs/ARCHITECTURE.md).
+Endpoints : voir [ARCHITECTURE §5](docs/ARCHITECTURE.md) et la spec OpenAPI. Les erreurs sont en `application/problem+json` (RFC 9457), avec des codes stables.
+
+### Authentification
+
+- **Emails de dev** : tous les emails (codes de vérification, réinitialisation) sont capturés par Mailpit : <http://127.0.0.1:8025>.
+- **Créer un admin** (aucune route publique ne le permet) : `make admin-create email=ada@gostation.bj first=Ada last=Admin`. Le mot de passe est saisi au clavier, deux fois. La 2FA TOTP est configurée au premier login (`POST /api/v1/auth/admin/login` puis `/auth/admin/2fa`).
+- **2FA perdue** : `make admin-reset-2fa email=…`.
+- **Nouvelles variables** après un `git pull` : `make env-sync` complète `.env` sans toucher aux valeurs existantes.
+- **Contrat d'API** : [`Backend/api/openapi.yaml`](Backend/api/openapi.yaml) (OpenAPI 3.1). Les types TypeScript des clients se génèrent avec `npx openapi-typescript Backend/api/openapi.yaml -o api.d.ts`.
 
 ## Services locaux
 
@@ -85,6 +93,7 @@ Exposés uniquement sur `127.0.0.1` ; ports modifiables dans `.env`.
 | Redis | `redis:8.10.2-alpine` | 6390 | `make redis-cli` (mot de passe requis) |
 | OSRM (car, MLD) | `ghcr.io/project-osrm/osrm-backend:v26.10.0-debian` | 5000 | `curl "http://127.0.0.1:5000/route/v1/driving/2.3844,6.3573;2.4300,6.3730"` |
 | API (profil `api`) | `gostation-api` (build `Backend/Dockerfile`) | 8080 | `make api-up`, puis `curl localhost:8080/readyz` |
+| Mailpit (profil `dev`) | `axllent/mailpit:v1.31.4` | 1025 (SMTP), 8025 (web) | <http://127.0.0.1:8025> |
 
 ## Commandes
 

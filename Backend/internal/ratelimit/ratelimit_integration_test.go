@@ -73,21 +73,34 @@ func TestSlidingWindow(t *testing.T) {
 		t.Fatalf("4th request: %+v, want denied with RetryAfter 1m", res)
 	}
 
-	// 30 s dans la fenêtre suivante : la précédente (3) pèse 50 % → estimation 1.
+	// 30 s dans la fenêtre suivante : la précédente (3) pèse 50 % → estimation 1,5.
+	// 1,5 + 1 ≤ 3 : une requête passe ; 2,5 + 1 > 3 : la suivante est refusée.
 	c.Advance(90 * time.Second)
-	for i := range 2 {
-		if res := allow(t, l, "ip:a"); !res.Allowed {
-			t.Fatalf("after 90s, request %d denied: %+v", i+1, res)
-		}
+	if res := allow(t, l, "ip:a"); !res.Allowed {
+		t.Fatalf("after 90s, 1st request denied: %+v", res)
 	}
 	if res := allow(t, l, "ip:a"); res.Allowed || res.RetryAfter != 30*time.Second {
-		t.Fatalf("after 90s, 3rd request: %+v, want denied with RetryAfter 30s", res)
+		t.Fatalf("after 90s, 2nd request: %+v, want denied with RetryAfter 30s", res)
 	}
 
 	// Deux fenêtres plus tard, l'historique ne compte plus.
 	c.Advance(2 * time.Minute)
 	if res := allow(t, l, "ip:a"); !res.Allowed || res.Remaining != 2 {
 		t.Fatalf("after 2 windows: %+v, want fresh quota", res)
+	}
+}
+
+// Limite de 1 : pas de requête de trop juste après un changement de fenêtre (l'estimation
+// n'est pas arrondie à l'inférieur).
+func TestLimitOfOneIsStrict(t *testing.T) {
+	l, c := newLimiter(t)
+	c.Advance(59 * time.Second)
+	if res, _ := l.Allow(t.Context(), "k", 1, time.Minute); !res.Allowed {
+		t.Fatal("first request denied")
+	}
+	c.Advance(2 * time.Second) // nouvelle fenêtre, la précédente pèse encore ~98 %
+	if res, _ := l.Allow(t.Context(), "k", 1, time.Minute); res.Allowed {
+		t.Fatal("second request allowed 2 s after the first with a limit of 1 per minute")
 	}
 }
 

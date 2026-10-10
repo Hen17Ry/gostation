@@ -11,14 +11,16 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 4. Pas d'ORM ni de Drizzle : SQL écrit à la main, compilé par **sqlc** ; migrations **goose**.
 5. Les secrets vivent dans `.env` uniquement : jamais commités, jamais dans un bundle mobile ou web.
 6. Routage uniquement via notre OSRM auto-hébergé ; tuiles uniquement OpenFreeMap. Aucune API cartographique propriétaire.
+7. **Auth** : email vérifié par code à 6 chiffres (obligatoire pour signaler, favoris, notifications) ; 2FA TOTP obligatoire pour les admins ; réponses génériques (anti-énumération) sur login, forgot et resend ; toute action sensible écrit dans `audit_logs`.
+8. Les justificatifs IFU sont chiffrés (envelope AES-256-GCM) et ne sont jamais servis publiquement : seuls les admins les lisent, via un endpoint dédié et audité.
 
 ## Rôles
 
 | Rôle | Client | Périmètre |
 |---|---|---|
 | `user` | Mobile | Recherche, fiche station et itinéraire **sans compte** (rate limit par IP). Un compte (prénom, nom, email, mot de passe) est requis pour signaler, gérer ses favoris et recevoir des notifications. |
-| `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone, justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture. |
-| `admin` | Web | Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements, stats, journal d'audit, demandes RGPD/APDP. |
+| `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone (vérifié manuellement par l'admin, pas d'OTP SMS en V1), justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin. Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié. Gérant non approuvé : il se connecte et voit son statut (et le motif d'un rejet) via `GET /me`, rien d'autre. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture. |
+| `admin` | Web | Compte créé uniquement par la CLI `cmd/admin`, 2FA TOTP obligatoire. Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements, stats, journal d'audit, demandes RGPD/APDP. |
 
 ## Monorepo
 
@@ -36,7 +38,7 @@ GoStation/
 
 ## Stack (dernières versions stables, vérifiées le 2026-10-10)
 
-- **Backend** : Go 1.27, chi v5, pgx v5 (pgxpool), sqlc, goose v3, go-redis v9, golang-jwt v5 (access 15 min, HS256), refresh tokens opaques rotatifs dans Redis, argon2id (`golang.org/x/crypto/argon2`), asynq (jobs et rappels), uber/h3-go v4, `log/slog`.
+- **Backend** : Go 1.27, chi v5, pgx v5 (pgxpool), sqlc, goose v3, go-redis v9, golang-jwt v5 (access 15 min signé en **EdDSA/Ed25519** avec `kid`), refresh tokens opaques rotatifs dans Redis, argon2id aux paramètres OWASP (`golang.org/x/crypto/argon2`), TOTP RFC 6238, SMTP via `net/smtp` (Mailpit en dev), asynq (jobs et rappels), uber/h3-go v4, `log/slog`.
 - **Données** : PostgreSQL 18 + PostGIS 3.6 (`geography(Point,4326)`, index GiST, `uuidv7()` natif), Redis 8.10 (cache, refresh tokens, files asynq ; `maxmemory-policy noeviction`).
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
 - **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, Expo Router, Reanimated 4, FlashList 2, TanStack Query 5, Zustand 5, react-hook-form + zod 4, expo-secure-store, expo-location, expo-notifications. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
@@ -50,7 +52,8 @@ GoStation/
 # Infra (Docker)
 make env            # .env depuis .env.example + secrets aléatoires (n'écrase jamais)
 make osrm-prepare   # télécharge l'extrait Bénin + extract/partition/customize (FORCE=1 pour retraiter)
-make up             # démarre PostGIS, Redis, OSRM et attend qu'ils soient healthy
+make up             # démarre PostGIS, Redis, OSRM et Mailpit (emails de dev : http://127.0.0.1:8025)
+make env-sync       # ajoute à .env les variables apparues dans .env.example (secrets générés)
 make check          # vérifie healthchecks, PostGIS_Version(), Redis, OSRM /route et /table sur Cotonou
 make ps | logs s=osrm | db-shell | redis-cli | down
 
@@ -63,9 +66,11 @@ make lint           # golangci-lint (formatage gci + gofumpt vérifié)
 make sqlc           # régénère internal/store/dbgen depuis db/queries
 make migrate-up | migrate-down | migrate-status | migrate-new name=add_x
 make api-up         # API dans Docker (profil compose « api »), healthcheck sur /readyz
+make admin-create email=… first=… last=…   # crée un admin (mot de passe saisi au clavier, jamais en argument)
+make admin-reset-2fa email=…               # réinitialise la 2FA d'un admin
 ```
 
-Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Vite **5173**. Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
+Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), Vite **5173**. Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 
@@ -98,7 +103,11 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
   - `internal/http/{router,middleware,handler,respond,httpctx}` : routeur chi, middlewares, handlers qui renvoient `error`, rendu JSON et problem+json, valeurs de contexte (request ID, IP client).
   - `internal/store` : transactions (`InTx`) et traduction des erreurs pgx ; `internal/store/dbgen` contient le code **généré** par sqlc, à ne jamais éditer.
   - `internal/platform/{postgres,redis,osrm,h3,logging}` : clients d'infrastructure ; `internal/ratelimit` : fenêtre glissante Redis.
-  - `internal/<domaine>/` pour la logique métier, à partir de l'étape 3.
+  - `internal/app` : assemblage (`NewServices`, `NewHandler`), partagé par `cmd/api`, `cmd/admin` et les tests d'intégration.
+  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station`, `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`.
+  - `internal/platform/{crypto,storage}` : chiffrement (enveloppe, HKDF) et stockage d'objets (local, S3 plus tard).
+  - `cmd/admin` : CLI des comptes admin (`create`, `reset-2fa`).
+  - `api/openapi.yaml` : contrat OpenAPI 3.1, **mis à jour dans le même commit que toute route** (un test compare la spec aux routes servies). Les types des clients mobile et web en sont générés.
   - `db/migrations/` (goose, `YYYYMMDDHHMMSS_desc.sql` en **UTC**, créées par `make migrate-new`, toujours avec un Down, une migration de données à part) et `db/queries/` (sqlc). Les migrations sont embarquées (`db.Migrations`) pour les tests. Après modification d'une requête : `make sqlc`.
   - Piège SQL : un `CHECK` évalué à NULL passe. Toute condition sur une colonne nullable doit donc tester `IS NOT NULL` explicitement.
 - **Injection de dépendances explicite** : constructeurs `NewXxx(deps…)`, aucune variable globale mutable, pas d'`init()` qui configure quoi que ce soit, `context.Context` partout.

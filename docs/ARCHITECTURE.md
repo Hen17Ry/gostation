@@ -64,7 +64,7 @@ Principes :
 | Mobile | Recherche, carte, itinéraire (user) ; station, horaires, stocks (manager) | Expo SDK 57, MapLibre RN, TanStack Query, Zustand |
 | Web admin | Validation, catalogue, carte, pénuries, signalements, stats, audit, demandes APDP | Vite, React 19, Tailwind 4, shadcn/ui, 21st.dev, TanStack Router/Query, maplibre-gl |
 
-## 3. Modèle de données (prévisionnel)
+## 3. Modèle de données
 
 Conventions : PK `uuid DEFAULT uuidv7()` (natif PG 18, triable dans le temps), `timestamptz` en UTC, enums PostgreSQL, contraintes nommées. Extensions : `postgis`, `citext`.
 
@@ -76,6 +76,7 @@ erDiagram
   users ||--o{ data_requests : "demande"
   users ||--o{ audit_logs : "agit"
   users ||--o{ favorites : "met en favori"
+  users ||--o{ admin_recovery_codes : "secours 2FA"
   stations ||--o{ favorites : "favorite"
   stations ||--o{ station_opening_hours : "horaires"
   stations ||--o{ station_stocks : "stocke"
@@ -157,6 +158,12 @@ erDiagram
     uuid user_id PK
     uuid station_id PK
     timestamptz created_at
+  }
+  admin_recovery_codes {
+    uuid id PK
+    uuid user_id FK
+    bytea code_hash
+    timestamptz used_at
   }
 ```
 
@@ -362,6 +369,23 @@ CREATE TABLE search_stats (
   PRIMARY KEY (bucket, h3_r7, product_id)
 );
 
+-- Auth (étape 3) : 2FA TOTP des admins et date de changement du mot de passe.
+ALTER TABLE users
+  ADD COLUMN password_changed_at    timestamptz,
+  ADD COLUMN totp_secret_encrypted  bytea,        -- AES-256-GCM (clé dérivée d'APP_SECRET), lié à l'id
+  ADD COLUMN totp_enabled_at        timestamptz,
+  ADD CONSTRAINT ck_users_totp CHECK ((totp_secret_encrypted IS NULL) = (totp_enabled_at IS NULL));
+
+-- 10 codes de secours par admin : SHA-256 de codes à 80 bits d'entropie, usage unique.
+CREATE TABLE admin_recovery_codes (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash   bytea NOT NULL,
+  used_at     timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_admin_recovery_codes_code UNIQUE (user_id, code_hash)
+);
+
 -- Ajout (décision §9) : favoris, réservés aux utilisateurs connectés. Supprimés avec le compte.
 CREATE TABLE favorites (
   user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -510,9 +534,9 @@ On utilise des générations plutôt que `DEL` par motif, car une station qui re
 - **Hors du Bénin** (frontières) : OSRM ne couvre que l'extrait ; on gère les durées `null` et le code `NoRoute` sans échouer.
 - **Performance cible** : p95 < 150 ms sur miss, < 20 ms sur hit. Vérifier avec `EXPLAIN (ANALYZE, BUFFERS)` que l'index GiST partiel est bien utilisé.
 
-## 5. Endpoints API (prévus)
+## 5. Endpoints API
 
-Préfixe `/api/v1`, JSON, erreurs RFC 9457. Sondes `GET /healthz` (vivant) et `GET /readyz` (PG, Redis, OSRM) hors préfixe. 🔒 = JWT requis.
+Préfixe `/api/v1`, JSON, erreurs RFC 9457. **Contrat de référence : [`Backend/api/openapi.yaml`](../Backend/api/openapi.yaml)** (OpenAPI 3.1, source des types des clients). Un test vérifie que la spec liste exactement les routes servies. ✅ = disponible ; les autres routes sont prévues. 🔒 = authentification requise (Bearer mobile, ou cookie + `X-CSRF-Token` pour l'admin web).
 
 ### Format des erreurs (RFC 9457)
 
@@ -538,8 +562,20 @@ Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **
 | `request.body_too_large` | 413 | Corps plus gros que `HTTP_MAX_BODY_BYTES` |
 | `request.validation_failed` | 422 | Validation métier ; détail par champ dans `errors[]` |
 | `request.timeout` | 504 | Traitement plus long que `HTTP_REQUEST_TIMEOUT` |
-| `auth.unauthorized` | 401 | Token absent ou invalide (étape auth) |
-| `auth.forbidden` | 403 | Rôle ou statut insuffisant (étape auth) |
+| `auth.unauthorized` | 401 | Token absent, invalide, expiré, ou session révoquée |
+| `auth.forbidden` | 403 | Rôle insuffisant (ou admin sans 2FA) |
+| `auth.invalid_credentials` | 401 | Email ou mot de passe incorrect — message générique, quel que soit le cas |
+| `auth.email_taken` | 409 | Un compte existe déjà avec cet email |
+| `auth.invalid_code` | 400 | Code à 6 chiffres faux, expiré ou épuisé — générique, email inconnu compris |
+| `auth.invalid_refresh_token` | 401 | Refresh token inconnu, expiré ou réutilisé (session alors révoquée) |
+| `auth.invalid_mfa_token` | 401 | Défi 2FA expiré ou épuisé : recommencer le login admin |
+| `auth.invalid_second_factor` | 401 | Code TOTP ou code de secours incorrect |
+| `auth.email_not_verified` | 403 | Fonction réservée aux emails vérifiés (signaler, favoris, notifications) |
+| `auth.csrf_failed` | 403 | Jeton CSRF absent ou invalide (admin web) |
+| `station.not_approved` | 403 | Station du gérant non approuvée ; extension `stationStatus` |
+| `upload.unsupported_type` | 415 | Justificatif ni PDF, ni JPEG, ni PNG (type réel) |
+| `upload.too_large` | 413 | Justificatif de plus de 5 Mo |
+| `upload.invalid_file` | 422 | Fichier vide ou image corrompue |
 | `route.not_found` | 404 | Route inconnue |
 | `method.not_allowed` | 405 | Méthode non supportée sur cette route |
 | `resource.not_found` | 404 | Ressource inexistante |
@@ -548,30 +584,46 @@ Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **
 | `service.unavailable` | 503 | Dépendance indisponible ou arrêt en cours (`/readyz`) |
 | `internal.error` | 500 | Erreur interne : le détail n'est jamais exposé, il est journalisé avec le `requestId` |
 
-Les codes métier (`station.not_approved`, `auth.email_taken`…) s'ajoutent dans les domaines au fil des étapes ; on ne renomme jamais un code existant.
+Les codes métier s'ajoutent dans les domaines au fil des étapes ; on ne renomme jamais un code existant.
 
 En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est valide, sinon un UUIDv7 généré), `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, et `Retry-After` sur les 429.
 
-### Public
+### Santé, clés et catalogue (publics)
 | Méthode | Route | Description |
 |---|---|---|
-| POST | `/auth/register` | Inscription `user` (prénom, nom, email, mot de passe, version de politique acceptée) |
-| POST | `/auth/register/manager` | Inscription gérant + station (multipart : champs + justificatif PDF/JPG/PNG ≤ 5 Mo) → station `pending` |
-| POST | `/auth/login` | Email + mot de passe → access + refresh |
-| POST | `/auth/refresh` | Rotation du refresh token (corps JSON sur mobile, cookie httpOnly sur web) |
-| POST | `/auth/logout` | Révoque la famille de refresh tokens |
-| POST | `/auth/password/forgot` | Envoi d'un code ou lien (réponse identique que l'email existe ou non) |
-| POST | `/auth/password/reset` | Nouveau mot de passe ; révoque toutes les sessions |
-| GET | `/products` | Catalogue actif |
+| GET | `/healthz` | ✅ Le processus répond (hors `/api/v1`) |
+| GET | `/readyz` | ✅ PostgreSQL, Redis et OSRM répondent ; 503 pendant l'arrêt (hors `/api/v1`) |
+| GET | `/.well-known/jwks.json` | ✅ Clés publiques Ed25519 de vérification des access tokens |
+| GET | `/products` | ✅ Catalogue actif |
 
-### Tout utilisateur connecté 🔒
+### Authentification (publiques)
 | Méthode | Route | Description |
 |---|---|---|
-| GET / PATCH | `/me` | Profil (prénom, nom) |
-| PUT | `/me/password` | Changement de mot de passe ; révoque les autres sessions |
-| DELETE | `/me` | Suppression du compte (mot de passe requis) : désactivation immédiate, purge à 30 j |
+| POST | `/auth/register` | ✅ Inscription `user` ; envoie le code de vérification et ouvre une session (10/h par IP) |
+| POST | `/auth/register/manager` | ✅ Inscription gérant + station `pending` (multipart : champs + justificatif ≤ 5 Mo) |
+| POST | `/auth/verify-email` | ✅ `{ email, code }` : 15 min, 5 essais ; réponse générique |
+| POST | `/auth/resend-verification` | ✅ `{ email }` : 1/min et 5/h par compte ; 202 générique |
+| POST | `/auth/login` | ✅ Utilisateur ou gérant → access + refresh dans le corps (5/min par IP et par email) |
+| POST | `/auth/refresh` | ✅ Rotation : corps (mobile) ou cookie + CSRF (admin web) ; réutilisation → session révoquée |
+| POST | `/auth/logout` | ✅ Révoque la session courante (access, ou refresh dans le corps ou le cookie) ; 204 idempotent |
+| POST | `/auth/password/forgot` | ✅ `{ email }` : code de réinitialisation ; 202 générique |
+| POST | `/auth/password/reset` | ✅ `{ email, code, newPassword }` ; révoque toutes les sessions |
+| POST | `/auth/admin/login` | ✅ Étape 1 admin : mot de passe → défi 2FA (`setup_required` avec secret TOTP, ou `required`) |
+| POST | `/auth/admin/2fa` | ✅ Étape 2 admin : code TOTP ou code de secours → cookies de session (+ 10 codes de secours à la mise en place) |
+
+### Compte 🔒 (tous rôles, gérant non approuvé compris)
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/me` | ✅ Profil, `emailVerified`, `privacyPolicy.reacceptRequired`, station (gérant : statut et motif) |
+| PATCH | `/me` | ✅ Prénom, nom |
+| DELETE | `/me` | ✅ `{ password }` : anonymisation, révocation de toutes les sessions ; station du gérant suspendue (RGPD complet : étape 9) |
+| POST | `/me/change-password` | ✅ `{ currentPassword, newPassword }` ; révoque les autres sessions, email de notification |
+| POST | `/me/accept-privacy-policy` | ✅ `{ version }` : accepte la version courante |
+| GET | `/me/sessions` | ✅ Sessions actives (client, user agent, dates, `current`) |
+| DELETE | `/me/sessions/{id}` | ✅ Révoque une de ses sessions (404 pour celle d'un autre compte) |
+| POST | `/auth/logout-all` | ✅ Révoque toutes ses sessions |
 | POST / GET | `/me/data-requests` | Exercice des droits : accès, export, rectification, opposition ; suivi |
-| POST | `/me/devices` | Enregistre ou rafraîchit le token push Expo |
+| POST | `/me/devices` | Enregistre le token push Expo — 🔒 **email vérifié** |
 | DELETE | `/me/devices/{token}` | Désenregistre l'appareil |
 
 ### Recherche et itinéraire : publics, sans compte (rate limit par IP)
@@ -581,21 +633,21 @@ En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est v
 | GET | `/stations/{id}` | Fiche publique d'une station `approved` : infos, horaires, stocks > 0 avec leur âge et le flag `stale` |
 | GET | `/routes?fromLat&fromLng&stationId` | Itinéraire OSRM proxifié (`polyline6`, étapes, durée) ; origine jamais journalisée |
 
-### Fonctions réservées aux comptes 🔒 (tous rôles)
+### Fonctions réservées aux comptes vérifiés 🔒 (`RequireVerifiedEmail`)
 | Méthode | Route | Description |
 |---|---|---|
 | POST | `/stations/{id}/reports` | Signalement (limité à 3 par jour, par utilisateur et par station) |
 | GET | `/me/favorites` | Mes stations favorites |
 | PUT / DELETE | `/me/favorites/{stationId}` | Ajouter / retirer un favori (idempotent) |
 
-### Gérant 🔒 `manager`
-Toutes les routes exigent une station `approved`, sauf celles marquées *.
+### Gérant 🔒 `manager` + `RequireApprovedStation`
+Tant que la station n'est pas approuvée, le gérant n'a accès qu'à son compte (`/me` montre le statut et le motif d'un rejet) : toute route gérant répond 403 `station.not_approved`.
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/manager/station` * | Ma station, son statut et le motif éventuel |
-| PATCH | `/manager/station` * | Nom, adresse, téléphone, marque. Une modification de l'IFU ou du RCCM renvoie la station en `pending`. |
-| PUT | `/manager/station/document` * | Renvoi du justificatif (après un `rejected`) |
+| GET | `/manager/station` | ✅ Station du gérant |
+| PATCH | `/manager/station` | Nom, adresse, téléphone, marque. Une modification de l'IFU ou du RCCM renvoie la station en `pending`. |
+| PUT | `/manager/station/document` | Renvoi du justificatif après un rejet (exception à `RequireApprovedStation`, réservée au statut `rejected`) |
 | PUT | `/manager/station/location` | Épinglage `{ lat, lng, confirmStationLocation: true }` : l'avertissement UI doit être acquitté. Recalcule `h3_r8` et invalide le cache. |
 | GET / PUT | `/manager/station/opening-hours` | Lecture / remplacement de la semaine complète |
 | GET | `/manager/station/stocks` | Stocks courants |
@@ -605,9 +657,9 @@ Toutes les routes exigent une station `approved`, sauf celles marquées *.
 ### Admin 🔒 `admin` (chaque mutation écrit dans `audit_logs`)
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/admin/stations?status&q&cursor` | Stations et demandes de gérants (par défaut `pending`) |
+| GET | `/admin/stations?status&q&cursor` | Stations et demandes de gérants (par défaut `pending`) ; un dossier n'apparaît qu'une fois l'email du gérant vérifié (D5) |
 | GET | `/admin/stations/{id}` | Détail, historique de statut, signalements |
-| GET | `/admin/stations/{id}/document` | Justificatif déchiffré à la volée (streaming, `Cache-Control: no-store`, audité) |
+| GET | `/admin/stations/{id}/document` | ✅ Justificatif déchiffré (téléchargement forcé, `Cache-Control: no-store`, CSP `sandbox`, audité) |
 | POST | `/admin/stations/{id}/approve` · `/reject` · `/suspend` · `/reinstate` | Transitions de statut (`{ reason }` obligatoire pour reject et suspend) ; push au gérant |
 | GET | `/admin/map/stations?bbox&productId&status` | GeoJSON pour la carte (clustering côté client) |
 | GET / POST | `/admin/products` | Catalogue |
@@ -623,33 +675,127 @@ Toutes les routes exigent une station `approved`, sauf celles marquées *.
 | GET | `/admin/users?role&q&cursor` | Comptes |
 | PATCH | `/admin/users/{id}` | Désactivation / réactivation (révoque les sessions) |
 
-Les comptes admin se créent uniquement via la CLI `cmd/admin` : aucune route publique.
+Les comptes admin se créent uniquement via la CLI `cmd/admin` (`make admin-create`) : aucune route publique. Toutes les routes admin exigent une session ouverte après 2FA (claim `mfa`).
 
 ## 6. Authentification et sécurité
 
-- **Mots de passe** : argon2id, paramètres RFC 9106 (m = 64 MiB, t = 3, p = 4, sel de 16 o, tag de 32 o), stockés au format PHC. Re-hash automatique au login si les paramètres changent. Un sémaphore borne les hachages concurrents (mémoire).
-- **Access token** : JWT HS256, 15 min. Claims : `sub` (user id), `role`, `sid` (famille de session), `iss`, `iat`, `exp`, `jti`.
-- **Refresh token** : 256 bits aléatoires (base64url), opaques, rotatifs, valables 30 j. Redis :
-  - `auth:rt:{sha256(token)}` → `{uid, fid, exp}` (TTL = expiration) ;
-  - `auth:fam:{fid}` → hash du token courant ;
-  - `auth:user:{uid}:fams` → ensemble des familles (déconnexion globale).
+### 6.1 Flux utilisateur et gérant (mobile)
 
-  La rotation est atomique (script Lua) : l'ancien token est marqué `used`. **Réutiliser un token déjà consommé révoque toute la famille** (détection de vol).
-- **Stockage côté client** : sur mobile, les deux tokens vont dans `expo-secure-store`. Sur le web, l'access token reste en mémoire et le refresh token va dans un cookie `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`.
-- **Autorisation** : middleware de rôle et vérification du statut de la station en base pour les routes gérant (un JWT de 15 min ne suffit pas à refléter une suspension).
-- **Rate limiting** (Redis, fenêtre glissante) :
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as App mobile
+  participant A as API
+  participant R as Redis
+  participant P as PostgreSQL
+  participant S as SMTP (Mailpit en dev)
+  M->>A: POST /auth/register (ou /register/manager, multipart)
+  A->>P: INSERT user (argon2id) [+ station pending + justificatif chiffré]
+  A->>R: code 6 chiffres (HMAC, 15 min, 5 essais) + délai de renvoi 1 min
+  A-->>S: email « Confirmez votre adresse » (asynchrone)
+  A->>R: session sid + refresh token (SHA-256)
+  A-->>M: 201 accessToken (EdDSA, 15 min) + refreshToken + profil
+  M->>A: POST /auth/verify-email { email, code }
+  A->>R: vérification atomique (Lua) puis destruction du code
+  A->>P: email_verified_at = now()
+  A-->>M: 204
+  Note over M,A: 15 min plus tard
+  M->>A: POST /auth/refresh { refreshToken }
+  A->>R: rotation atomique : ancien → « used », nouveau courant
+  A-->>M: 200 nouvelle paire
+  M->>A: POST /auth/refresh { ancien refreshToken }
+  A->>R: « used » détecté → révocation de toute la session
+  A-->>M: 401 auth.invalid_refresh_token (audit : refresh_reuse_detected)
+```
+
+### 6.2 Flux admin (web, 2FA obligatoire)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant W as Admin web
+  participant A as API
+  participant R as Redis
+  participant P as PostgreSQL
+  W->>A: POST /auth/admin/login { email, password }
+  A->>P: vérification (temps constant, réponse générique)
+  alt 2FA pas encore configurée
+    A->>R: défi mfaToken (5 min, 5 essais) + secret TOTP en attente (chiffré)
+    A-->>W: 200 { mfaToken, twoFactor: setup_required, setup: { secret, otpauthUri } }
+  else 2FA configurée
+    A->>R: défi mfaToken
+    A-->>W: 200 { mfaToken, twoFactor: required }
+  end
+  W->>A: POST /auth/admin/2fa { mfaToken, code | recoveryCode }
+  A->>R: anti-rejeu : pas TOTP > dernier pas accepté
+  A->>P: (mise en place) secret chiffré + 10 codes de secours hachés
+  A->>R: session admin (mfa = true, 12 h glissantes)
+  A-->>W: 200 { user, csrfToken, recoveryCodes? } + Set-Cookie __Host-gs_at, __Secure-gs_rt, gs_csrf
+  W->>A: POST /me/... (cookie + X-CSRF-Token)
+  A->>R: session encore active ?
+  A-->>W: 200
+```
+
+### 6.3 Mécanismes
+
+- **Mots de passe** : argon2id aux paramètres **OWASP** (m = 19 MiB, t = 2, p = 1, sel de 16 o, clé de 32 o), format PHC. Re-hash automatique au login si les paramètres changent. Un sémaphore borne les calculs simultanés.
+  Politique : 8 à 128 caractères, refus des mots de passe courants (liste embarquée de plus de 2 000 entrées, dont des mots de passe courants en français et au Bénin), refus de l'email ou de « gostation » dans le mot de passe.
+- **Access token** : JWT **EdDSA (Ed25519)** de 15 min. En-tête `kid` ; claims `sub`, `role`, `sid` (session), `mfa` (admin), `iss`, `aud`, `iat`, `nbf`, `exp`, `jti`. Seul l'algorithme EdDSA est accepté (pas de confusion d'algorithme).
+  Rotation des clés : `JWT_SIGNING_KEYS=nouvelle,ancienne`. La première clé signe, toutes vérifient. On retire l'ancienne après 15 min. Les clés publiques sont sur `/.well-known/jwks.json`.
+- **Sessions et refresh tokens** (Redis) :
+  - `auth:sess:{sid}` (HASH : uid, rôle, client, user agent tronqué, mfa, dates, hash du token courant) ;
+  - `auth:rt:{sha256(token)}` → sid, puis `used:{sid}` après rotation ;
+  - `auth:user:{uid}:sess` (SET des sids).
+
+  Le token est opaque (256 bits, préfixe `gsr_`), stocké uniquement haché, renouvelé à chaque usage par un script Lua atomique. **Présenter un token déjà consommé révoque toute la session.** Durée : 30 j glissants (utilisateurs), 12 h (admins).
+  Chaque requête authentifiée vérifie que la session existe encore : logout, changement de mot de passe et révocation prennent effet immédiatement, sans attendre l'expiration de l'access token. Les clients doivent sérialiser leurs appels à `/auth/refresh`.
+- **Stockage côté client** :
+  - mobile : access et refresh tokens dans `expo-secure-store`, refresh transmis dans le corps des requêtes ;
+  - admin web : cookies posés par l'API. `__Host-gs_at` (access, `Path=/`) et `__Secure-gs_rt` (refresh, `Path=/api/v1/auth`) sont `HttpOnly; Secure; SameSite=Strict`. `gs_csrf` reste lisible par le JavaScript.
+- **CSRF** (admin web) : le jeton vaut `HMAC(clé CSRF, sid)`, lié à la session. Il est exigé dans `X-CSRF-Token` sur toute requête non GET authentifiée par cookie, refresh et logout compris. `SameSite=Strict` complète la protection.
+- **Codes à 6 chiffres** (vérification de l'email, réinitialisation) : `otp:{usage}:{uid}` dans Redis.
+  - Le code est stocké sous forme de HMAC-SHA256 (clé dérivée d'`APP_SECRET`), valable 15 min, avec 5 essais (détruit au 5e échec, vérification atomique en Lua).
+  - Renvoi : 1 par minute (`SET NX`) et 5 par heure (fenêtre glissante).
+  - Un compte non vérifié se connecte, mais `RequireVerifiedEmail` (état lu en base) bloque signalements, favoris et notifications.
+- **2FA admin** : TOTP RFC 6238 (HMAC-SHA1, 6 chiffres, 30 s, ± 1 pas), compatible avec toutes les applis d'authentification.
+  - Le secret est chiffré en AES-256-GCM, lié à l'id de l'admin.
+  - Anti-rejeu : un pas déjà accepté est refusé.
+  - 10 codes de secours de 80 bits, stockés en SHA-256, chacun utilisable une seule fois.
+  - Réinitialisation : `make admin-reset-2fa`.
+  - Aucune session admin sans 2FA, et `RequireRole(admin)` vérifie le claim `mfa`.
+- **Anti-énumération** : `login`, `admin/login`, `verify-email`, `password/reset`, `resend-verification` et `password/forgot` répondent pareil que le compte existe ou non. Le mot de passe d'un compte inexistant est quand même vérifié contre un hash factice (temps constant), et les emails partent en asynchrone (aucune différence de temps de réponse).
+- **Autorisation** : `Authenticate` (Bearer ou cookie) → `RequireRole` → `RequireVerifiedEmail` / `RequireApprovedStation`. Ces deux derniers lisent l'état en base à chaque requête : une suspension ou une vérification prend effet immédiatement.
+- **Rate limiting** (Redis, fenêtre glissante, sans arrondi : pas de requête de trop au changement de fenêtre) :
 
   | Action | Limite |
   |---|---|
-  | Login | 5/min par IP et par email |
-  | Inscription | 5/h par IP |
   | Global `/api/v1` | 300/min par IP (`RATE_LIMIT_IP_REQUESTS` / `RATE_LIMIT_IP_WINDOW`) |
-  | Recherche (publique) | 60/min par IP |
-  | `/routes` | 30/min |
+  | Login (`/auth/login`, `/auth/admin/login`) | 5/min par IP **et** 5/min par email (empreinte HMAC) |
+  | Inscription (utilisateur et gérant) | 10/h par IP |
+  | Vérification de codes (email, reset, 2FA) | 30 / 10 min par IP, et 5 essais par code ou défi |
+  | Envoi d'emails (resend, forgot) | 20/h par IP, et 1/min puis 5/h par compte |
+  | Recherche (publique) | 60/min par IP (étape 4) |
+  | `/routes` | 30/min (étape 4) |
   | Signalements | 3/jour par station |
 
-- **Divers** : CORS limité à `CORS_ALLOWED_ORIGINS`. En-têtes de sécurité. Taille des corps bornée (5 Mo pour le multipart). Type MIME réel des justificatifs vérifié par lecture des magic bytes.
-- **Chiffrement des justificatifs** : par enveloppe. Une DEK AES-256-GCM aléatoire par fichier, elle-même chiffrée par la KEK `DOCUMENTS_ENCRYPTION_KEY` (KMS en prod). La KEK est versionnée pour permettre sa rotation.
+  Les IP ne sont jamais écrites en clair dans Redis (empreinte SHA-256). Redis indisponible → la requête passe (fail open), mais l'authentification, elle, échoue (sessions indisponibles).
+- **Justificatifs IFU** :
+  - type contrôlé par les magic bytes : PDF, JPEG ou PNG, 5 Mo max, lecture en flux (jamais de fichier temporaire en clair) ;
+  - images débarrassées de leurs métadonnées sans recompression : segments EXIF, XMP, IPTC et COM pour le JPEG, chunks `eXIf`, `tEXt`, `zTXt`, `iTXt` et `tIME` pour le PNG ;
+  - chiffrement par enveloppe : une DEK AES-256-GCM par fichier, chiffrée par la KEK `DOCUMENTS_ENCRYPTION_KEY` (versionnée pour la rotation, KMS en prod), avec la clé de stockage comme AAD ;
+  - empreinte SHA-256 vérifiée à la lecture ;
+  - interface `Storage` : disque local (0600), S3 compatible au déploiement ;
+  - lecture réservée aux admins, auditée.
+- **Secrets dérivés** : `APP_SECRET` → sous-clés HKDF-SHA256 distinctes (`otp-hmac`, `csrf`, `email-fingerprint`, `totp-encryption`).
+- **Audit** (`audit_logs`, en ajout seul) :
+  - connexions et échecs, avec motif et empreinte HMAC de l'email, jamais l'email en clair ;
+  - 2FA (activation, échecs, codes de secours) ;
+  - réutilisation de refresh token ;
+  - logout, logout-all, révocation de session ;
+  - changement et réinitialisation de mot de passe ;
+  - suppression de compte ;
+  - actions admin : création et reset 2FA par la CLI, lecture de justificatif.
+- **Divers** : CORS limité à `CORS_ALLOWED_ORIGINS`, avec credentials. Corps bornés (1 Mo en JSON, 5 Mo + 256 Ko pour l'inscription gérant). `Cache-Control: no-store` sur les réponses contenant des tokens.
 
 ## 7. Jobs asynchrones (asynq)
 
@@ -663,6 +809,8 @@ Les comptes admin se créent uniquement via la CLI `cmd/admin` : aucune route pu
 
 Les tâches sont idempotentes (clé d'unicité asynq), avec retry et backoff exponentiel, et une file `critical` séparée pour les push.
 
+En attendant asynq, les **emails transactionnels** partent via une file en mémoire (`mail.Async` : 2 workers, file bornée, vidée à l'arrêt propre). Ils basculeront sur une tâche `email:send` pour survivre aux redémarrages.
+
 ## 8. Données personnelles et conservation
 
 | Donnée | Base légale / finalité | Conservation proposée* |
@@ -673,7 +821,9 @@ Les tâches sont idempotentes (clé d'unicité asynq), avec retry et backoff exp
 | Comptes inactifs | Minimisation | Relance à 24 mois, suppression à 36 mois |
 | Justificatif IFU d'une station approuvée | Obligation de vérification | Tant que la station est active + 12 mois |
 | Justificatif d'une demande rejetée | Idem | 90 j après le rejet |
-| Refresh tokens | Sécurité | 30 j (TTL Redis) |
+| Refresh tokens et sessions | Sécurité | 30 j glissants (12 h pour les admins), TTL Redis ; supprimés au logout et à la révocation |
+| Codes à 6 chiffres, défis 2FA | Sécurité | 15 min / 5 min (TTL Redis), détruits après usage ou 5 échecs |
+| Codes de secours 2FA | Sécurité | Jusqu'à usage, remplacement ou reset ; supprimés avec le compte |
 | Tokens push | Exécution du service | Jusqu'à la déconnexion, ou 90 j sans activité |
 | Historique des stocks | Intérêt légitime (fiabilité, stats) | 24 mois, puis agrégé |
 | Signalements | Modération | 12 mois après résolution ; `reporter_id` mis à NULL à la suppression du compte |
@@ -693,11 +843,15 @@ Les tâches sont idempotentes (clé d'unicité asynq), avec retry et backoff exp
 | D2 | Données périmées | Stock non mis à jour depuis **plus de 8 h** : flag `stale` (badge UI). **Plus de 24 h** : exclu de la recherche et listé côté admin. |
 | D3 | Recherche sans compte | **Autorisée** (recherche, fiche station, itinéraire), avec un rate limit par IP dans Redis. Un compte est requis pour signaler, gérer ses favoris et recevoir des notifications. |
 | D4 | Hébergement | Reporté à l'**étape déploiement** : localisation des données (APDP) et stockage objet des justificatifs. |
+| D5 | Vérification de l'email | **Obligatoire**, par code à 6 chiffres (pas de lien). Valable 15 min, 5 essais, stocké haché (HMAC) dans Redis. Renvoi limité à 1/min et 5/h. Un compte non vérifié peut se connecter, mais pas signaler, ajouter des favoris ni activer les notifications. Le dossier d'un gérant n'apparaît chez l'admin qu'une fois son email vérifié. |
+| D6 | OTP SMS des gérants | **Pas en V1**. Le téléphone est collecté et vérifié manuellement par l'admin. |
+| D7 | 2FA admin | **Obligatoire dès la V1** : TOTP (RFC 6238) et 10 codes de secours hachés. Aucune session admin n'est créée sans 2FA. |
+| D8 | Emails | Interface `Mailer` + implémentation SMTP générique, envoi asynchrone (pas de fuite par le temps de réponse). En dev, Mailpit (profil compose `dev`). Templates HTML + texte en français, aux couleurs de GoStation. |
+| D9 | Politique de confidentialité | Version courante `1.0`. Version et date d'acceptation enregistrées à l'inscription. Si la version change, `GET /me` renvoie `reacceptRequired: true` jusqu'à `POST /me/accept-privacy-policy`. |
+| D10 | Justificatifs IFU | PDF, JPG ou PNG, 5 Mo max, type vérifié par les magic bytes (jamais l'extension), métadonnées EXIF/XMP/IPTC retirées des images. Chiffrement AES-256-GCM avec une clé par fichier, elle-même chiffrée par `DOCUMENTS_ENCRYPTION_KEY` (envelope encryption). Stockage derrière l'interface `Storage` (disque local, S3 compatible plus tard). Jamais servis publiquement : lecture réservée aux admins, auditée. |
 
 ### Questions ouvertes
 
 1. **Réseaux de stations** : un gérant peut-il gérer plusieurs stations, et plusieurs stations peuvent-elles partager un même IFU ? (Le modèle actuel suppose un gérant = une station et ne rend pas l'IFU unique.)
-2. **Vérification à l'inscription** : vérification de l'email ? OTP SMS pour les gérants ?
-3. **Délais légaux** : délai de réponse aux demandes APDP et durées de conservation (§8), à confirmer.
-4. **Admins** : 2FA TOTP dès la V1 ?
-5. **Prix** des carburants et du gaz : hors périmètre V1 ?
+2. **Délais légaux** : délai de réponse aux demandes APDP et durées de conservation (§8), à confirmer.
+3. **Prix** des carburants et du gaz : hors périmètre V1 ?

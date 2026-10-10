@@ -6,6 +6,8 @@ import (
 	"context"
 	"log/slog"
 	"net/netip"
+
+	"github.com/google/uuid"
 )
 
 type ctxKey int
@@ -13,6 +15,7 @@ type ctxKey int
 const (
 	requestIDKey ctxKey = iota
 	clientIPKey
+	principalKey
 )
 
 // WithRequestID renvoie un context portant l'identifiant de requête.
@@ -37,11 +40,37 @@ func ClientIP(ctx context.Context) (netip.Addr, bool) {
 	return ip, ok && ip.IsValid()
 }
 
-// LogAttrs renvoie les attributs de log propres à la requête. L'IP n'en fait volontairement
-// pas partie (minimisation des données personnelles).
+// Principal est l'utilisateur authentifié de la requête.
+type Principal struct {
+	UserID    uuid.UUID
+	Role      string
+	SessionID string
+	// MFA vaut true pour une session admin ouverte après la 2FA.
+	MFA bool
+	// ViaCookie : authentifié par cookie (admin web), donc soumis au contrôle CSRF.
+	ViaCookie bool
+}
+
+// WithPrincipal renvoie un context portant l'utilisateur authentifié.
+func WithPrincipal(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, principalKey, p)
+}
+
+// PrincipalFrom renvoie l'utilisateur authentifié, s'il y en a un.
+func PrincipalFrom(ctx context.Context) (Principal, bool) {
+	p, ok := ctx.Value(principalKey).(Principal)
+	return p, ok
+}
+
+// LogAttrs renvoie les attributs de log propres à la requête : request_id et, si la requête est
+// authentifiée, user_id. L'IP n'en fait volontairement pas partie (minimisation).
 func LogAttrs(ctx context.Context) []slog.Attr {
+	var attrs []slog.Attr
 	if id := RequestID(ctx); id != "" {
-		return []slog.Attr{slog.String("request_id", id)}
+		attrs = append(attrs, slog.String("request_id", id))
 	}
-	return nil
+	if p, ok := PrincipalFrom(ctx); ok {
+		attrs = append(attrs, slog.String("user_id", p.UserID.String()))
+	}
+	return attrs
 }
