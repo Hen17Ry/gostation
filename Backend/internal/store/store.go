@@ -66,6 +66,9 @@ func Translate(err error) error {
 	return err
 }
 
+// IsNotFound indique qu'une requête :one n'a renvoyé aucune ligne.
+func IsNotFound(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
+
 // ConstraintName renvoie le nom de la contrainte violée, ou "".
 func ConstraintName(err error) string {
 	var pgErr *pgconn.PgError

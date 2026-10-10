@@ -104,12 +104,19 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       OSRM_URL: http://osrm:5000
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      DOCUMENTS_STORAGE_DIR: /var/lib/gostation/documents
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${API_PORT:-8080}:8080"
+    volumes:
+      # Justificatifs IFU chiffrés (stockage local en attendant un stockage objet).
+      - documents:/var/lib/gostation/documents
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       osrm: { condition: service_healthy }
+      mailpit: { condition: service_healthy, required: false }
     healthcheck:
       # Image distroless (ni shell ni curl) : le binaire interroge lui-même /readyz.
       test: ["CMD", "/app/api", "healthcheck"]
@@ -117,6 +124,21 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks: [net]
+
+  # Serveur SMTP de dev (profil « dev ») : capture tous les emails, interface web sur :8025.
+  mailpit:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.4}
+    profiles: [dev]
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "1000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${BIND_ADDR:-127.0.0.1}:${MAILPIT_UI_PORT:-8025}:8025"
+    # Healthcheck fourni par l'image (/mailpit readyz).
     networks: [net]
 
   # Outil ponctuel (jamais démarré par `up`) : osrm-extract / partition / customize.
@@ -133,6 +155,7 @@ volumes:
   pgdata:
   redisdata:
   osrmdata:
+  documents:
 
 networks:
   # Réseau dédié, scopé par projet : gostation_net.

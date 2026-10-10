@@ -14,9 +14,12 @@ import (
 
 func env(overrides map[string]string) func(string) string {
 	base := map[string]string{
-		"DATABASE_URL": "postgres://gostation:s3cret-pg@localhost:5440/gostation?sslmode=disable",
-		"REDIS_URL":    "redis://:s3cret-redis@localhost:6390/0",
-		"OSRM_URL":     "http://localhost:5000",
+		"DATABASE_URL":             "postgres://gostation:s3cret-pg@localhost:5440/gostation?sslmode=disable",
+		"REDIS_URL":                "redis://:s3cret-redis@localhost:6390/0",
+		"OSRM_URL":                 "http://localhost:5000",
+		"JWT_SIGNING_KEYS":         "k2:" + strings.Repeat("ab", 32) + ",k1:" + strings.Repeat("cd", 32),
+		"APP_SECRET":               strings.Repeat("ef", 32),
+		"DOCUMENTS_ENCRYPTION_KEY": strings.Repeat("01", 32),
 	}
 	for k, v := range overrides {
 		base[k] = v
@@ -45,6 +48,17 @@ func TestLoadDefaults(t *testing.T) {
 		{"RateLimit.IPRequests", cfg.RateLimit.IPRequests, 300},
 		{"RateLimit.IPWindow", cfg.RateLimit.IPWindow, time.Minute},
 		{"CORS", len(cfg.HTTP.CORSAllowedOrigins), 0},
+		{"Auth.SigningKeys", len(cfg.Auth.SigningKeys), 2},
+		{"Auth.SigningKeys[0].ID", cfg.Auth.SigningKeys[0].ID, "k2"},
+		{"Auth.AccessTTL", cfg.Auth.AccessTTL, 15 * time.Minute},
+		{"Auth.RefreshTTL", cfg.Auth.RefreshTTL, 720 * time.Hour},
+		{"Auth.AdminRefreshTTL", cfg.Auth.AdminRefreshTTL, 12 * time.Hour},
+		{"Auth.AppSecret", len(cfg.Auth.AppSecret), 32},
+		{"Auth.PrivacyPolicyVersion", cfg.Auth.PrivacyPolicyVersion, "1.0"},
+		{"Auth.CookieSecure", cfg.Auth.CookieSecure, true},
+		{"Documents.MaxBytes", cfg.Documents.MaxBytes, int64(5 << 20)},
+		{"SMTP.Port", cfg.SMTP.Port, 1025},
+		{"SMTP.TLSMode", cfg.SMTP.TLSMode, "none"},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -62,6 +76,7 @@ func TestLoadOverrides(t *testing.T) {
 		"HTTP_TRUSTED_PROXIES": " 10.0.0.0/8 , 192.168.1.10 ",
 		"CORS_ALLOWED_ORIGINS": "http://localhost:5173, https://admin.gostation.bj/",
 		"DATABASE_MAX_CONNS":   "50",
+		"SMTP_TLS":             "starttls",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -104,6 +119,17 @@ func TestLoadInvalid(t *testing.T) {
 		{"OSRM_TIMEOUT", "fast"},
 		{"RATE_LIMIT_IP_REQUESTS", "-5"},
 		{"RATE_LIMIT_IP_WINDOW", "500ms"},
+		{"JWT_SIGNING_KEYS", ""},
+		{"JWT_SIGNING_KEYS", "nokid"},
+		{"JWT_SIGNING_KEYS", "k1:abcd"},
+		{"JWT_SIGNING_KEYS", "k1:" + strings.Repeat("ab", 32) + ",k1:" + strings.Repeat("cd", 32)},
+		{"APP_SECRET", "tooshort"},
+		{"APP_SECRET", strings.Repeat("zz", 32)},
+		{"DOCUMENTS_ENCRYPTION_KEY", strings.Repeat("ab", 16)},
+		{"COOKIE_SECURE", "maybe"},
+		{"SMTP_TLS", "ssl"},
+		{"SMTP_PORT", "0"},
+		{"DOCUMENTS_MAX_BYTES", "10"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
@@ -132,6 +158,16 @@ func TestLoadReportsAllProblemsAtOnce(t *testing.T) {
 	}
 }
 
+func TestProductionRules(t *testing.T) {
+	_, err := config.Load(env(map[string]string{"APP_ENV": "production", "COOKIE_SECURE": "false"}))
+	if err == nil || !strings.Contains(err.Error(), "SMTP_TLS:") || !strings.Contains(err.Error(), "COOKIE_SECURE:") {
+		t.Fatalf("production must require SMTP TLS and secure cookies, got %v", err)
+	}
+	if _, err := config.Load(env(map[string]string{"APP_ENV": "production", "SMTP_TLS": "tls"})); err != nil {
+		t.Fatalf("valid production config rejected: %v", err)
+	}
+}
+
 func TestRequestTimeoutMustBeBelowWriteTimeout(t *testing.T) {
 	_, err := config.Load(env(map[string]string{"HTTP_REQUEST_TIMEOUT": "30s", "HTTP_WRITE_TIMEOUT": "30s"}))
 	if err == nil || !strings.Contains(err.Error(), "HTTP_REQUEST_TIMEOUT") {
@@ -144,6 +180,11 @@ func TestSecretsNeverLeak(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "hunter2") {
 		t.Fatalf("error leaks the password: %v", err)
 	}
+	badKey := "k1:" + strings.Repeat("9f", 31) // 31 octets : invalide
+	_, err = config.Load(env(map[string]string{"JWT_SIGNING_KEYS": badKey, "APP_SECRET": "deadbeef"}))
+	if err == nil || strings.Contains(err.Error(), strings.Repeat("9f", 31)) || strings.Contains(err.Error(), "deadbeef") {
+		t.Fatalf("error leaks key material: %v", err)
+	}
 
 	cfg, err := config.Load(env(nil))
 	if err != nil {
@@ -151,7 +192,8 @@ func TestSecretsNeverLeak(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("cfg", slog.Any("config", cfg))
-	if out := buf.String(); strings.Contains(out, "s3cret") || !strings.Contains(out, `"http_addr":":8080"`) {
+	if out := buf.String(); strings.Contains(out, "s3cret") || strings.Contains(out, strings.Repeat("ef", 32)) ||
+		!strings.Contains(out, `"http_addr":":8080"`) {
 		t.Fatalf("LogValue must hide secrets and keep safe fields, got %s", out)
 	}
 }

@@ -19,24 +19,20 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"gostation/backend/internal/app"
 	"gostation/backend/internal/config"
-	"gostation/backend/internal/http/handler"
 	"gostation/backend/internal/http/httpctx"
-	"gostation/backend/internal/http/respond"
-	"gostation/backend/internal/http/router"
+	"gostation/backend/internal/mail"
 	"gostation/backend/internal/platform/logging"
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
-	"gostation/backend/internal/ratelimit"
-	"gostation/backend/internal/store"
+	"gostation/backend/internal/platform/storage"
 )
 
 // version est injectée au build (-ldflags "-X main.version=…"). Seule variable de paquet,
 // imposée par le linker, jamais modifiée à l'exécution.
 var version = "dev"
-
-const readinessTimeout = 2 * time.Second
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
@@ -81,31 +77,28 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
-
-	st := store.New(pool)
-	rs := respond.New(log)
-	health := handler.NewHealth(rs, log, readinessTimeout, map[string]handler.Check{
-		"postgres": st.Ping,
-		"redis":    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-		"osrm":     osrmClient.Ping,
+	smtp, err := mail.NewSMTP(mail.SMTPConfig{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
+		From: cfg.SMTP.From, TLSMode: cfg.SMTP.TLSMode,
 	})
+	if err != nil {
+		return err
+	}
+	mailer := mail.NewAsync(smtp, log, 2, 256)
+	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
+	if err != nil {
+		return err
+	}
+
+	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Mailer: mailer, Storage: docs}, log)
+	if err != nil {
+		return err
+	}
+	handler, health := app.NewHandler(cfg, svc, rdb, osrmClient, log)
 
 	srv := &http.Server{
-		Addr: cfg.HTTP.Addr,
-		Handler: router.New(router.Config{
-			RequestTimeout:     cfg.HTTP.RequestTimeout,
-			MaxBodyBytes:       cfg.HTTP.MaxBodyBytes,
-			TrustedProxies:     cfg.HTTP.TrustedProxies,
-			CORSAllowedOrigins: cfg.HTTP.CORSAllowedOrigins,
-			IPRateLimit:        cfg.RateLimit.IPRequests,
-			IPRateWindow:       cfg.RateLimit.IPWindow,
-		}, router.Deps{
-			Log:       log,
-			Responder: rs,
-			Health:    health,
-			Products:  st,
-			Limiter:   ratelimit.New(rdb),
-		}),
+		Addr:              cfg.HTTP.Addr,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       cfg.HTTP.ReadTimeout,
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
@@ -137,6 +130,9 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 	}
 	if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("http server: %w", err)
+	}
+	if err := mailer.Close(shutdownCtx); err != nil {
+		log.WarnContext(ctx, "emails still queued at shutdown", slog.Any("err", err))
 	}
 	log.InfoContext(ctx, "stopped")
 	return nil

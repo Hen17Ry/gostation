@@ -26,8 +26,9 @@ WITH_ENV_IF_ANY := if [ -f .env ]; then set -a && . ./.env && set +a; fi &&
 # goose lit la base dans l'environnement : le mot de passe n'apparaît pas dans la liste des processus.
 GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATION_DIR=$(MIGRATIONS)
 
-.PHONY: help env up down logs ps db-shell redis-cli osrm-prepare check \
-	tools run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up
+.PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
+	tools run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up \
+	admin-create admin-reset-2fa
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-15s\033[0m %s\n", $$1, $$2}'
@@ -36,30 +37,26 @@ help: ## Affiche cette aide
 env: .env ## Crée .env depuis .env.example avec des secrets aléatoires (n'écrase jamais)
 
 .env:
-	@command -v openssl > /dev/null || { echo "openssl requis"; exit 1; }
-	@sed -e "s/change-me-postgres/$$(openssl rand -hex 24)/g" \
-	     -e "s/change-me-redis/$$(openssl rand -hex 24)/g" \
-	     -e "s/change-me-jwt-access-secret/$$(openssl rand -hex 32)/g" \
-	     -e "s/change-me-documents-key/$$(openssl rand -hex 32)/g" \
-	     .env.example > .env
-	@chmod 600 .env
-	@echo "✔ .env créé avec des secrets aléatoires"
+	@./scripts/env.sh init
 
-up: .env ## Démarre PostGIS, Redis et OSRM, attend qu'ils soient healthy
-	@$(COMPOSE) up -d --wait --wait-timeout 180 || { \
+env-sync: .env ## Ajoute à .env les variables apparues dans .env.example (secrets générés)
+	@./scripts/env.sh sync
+
+up: .env ## Démarre PostGIS, Redis, OSRM et Mailpit, attend qu'ils soient healthy
+	@$(COMPOSE) --profile dev up -d --wait --wait-timeout 180 || { \
 	  echo "✖ Démarrage incomplet (voir l'erreur ci-dessus et 'make ps')."; \
 	  echo "  OSRM en échec ? Prépare d'abord les données : make osrm-prepare"; \
 	  exit 1; }
-	@$(COMPOSE) ps
+	@$(COMPOSE) --profile dev ps
 
 down: ## Arrête tous les services, API comprise (les volumes sont conservés)
-	@$(COMPOSE) --profile api down
+	@$(COMPOSE) --profile dev --profile api down
 
 logs: ## Suit les logs (filtrer un service : make logs s=osrm)
-	@$(COMPOSE) --profile api logs -f --tail=200 $(s)
+	@$(COMPOSE) --profile dev --profile api logs -f --tail=200 $(s)
 
 ps: ## État des services et des healthchecks
-	@$(COMPOSE) --profile api ps
+	@$(COMPOSE) --profile dev --profile api ps
 
 db-shell: ## Ouvre psql dans le conteneur PostGIS
 	@$(COMPOSE) exec postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
@@ -114,7 +111,15 @@ migrate-new: ## Crée une migration SQL horodatée : make migrate-new name=add_x
 	@$(GOOSE) -dir $(MIGRATIONS) create $(name) sql
 
 api-up: .env ## Lance l'API dans Docker (profil api) après les migrations, attend /readyz
-	@$(COMPOSE) up -d --wait --wait-timeout 180
+	@$(COMPOSE) --profile dev up -d --wait --wait-timeout 180
 	@$(MAKE) --no-print-directory migrate-up
-	@API_VERSION=$(VERSION) $(COMPOSE) --profile api up -d --build --wait --wait-timeout 180 api
+	@API_VERSION=$(VERSION) $(COMPOSE) --profile dev --profile api up -d --build --wait --wait-timeout 180 api
 	@$(COMPOSE) --profile api ps api
+
+admin-create: .env ## Crée un admin : make admin-create email=… first=… last=… (mot de passe demandé)
+	@[[ -n "$(email)" && -n "$(first)" && -n "$(last)" ]] || { echo "usage : make admin-create email=… first=… last=…"; exit 1; }
+	@$(WITH_ENV) cd $(BACKEND) && go run ./cmd/admin create --email "$(email)" --first-name "$(first)" --last-name "$(last)"
+
+admin-reset-2fa: .env ## Réinitialise la 2FA d'un admin : make admin-reset-2fa email=…
+	@[[ -n "$(email)" ]] || { echo "usage : make admin-reset-2fa email=…"; exit 1; }
+	@$(WITH_ENV) cd $(BACKEND) && go run ./cmd/admin reset-2fa --email "$(email)"

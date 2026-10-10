@@ -11,11 +11,44 @@ import (
 )
 
 type Querier interface {
+	AcceptPrivacyPolicy(ctx context.Context, arg AcceptPrivacyPolicyParams) error
+	// Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
+	AnonymizeUser(ctx context.Context, arg AnonymizeUserParams) error
+	CountUnusedRecoveryCodes(ctx context.Context, userID uuid.UUID) (int64, error)
+	CreateStation(ctx context.Context, arg CreateStationParams) (CreateStationRow, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DeleteRecoveryCodes(ctx context.Context, userID uuid.UUID) error
+	DeleteUserDeviceTokens(ctx context.Context, userID uuid.UUID) error
+	DeleteUserFavorites(ctx context.Context, userID uuid.UUID) error
+	DisableUserTOTP(ctx context.Context, id uuid.UUID) error
+	EnableUserTOTP(ctx context.Context, arg EnableUserTOTPParams) error
 	// lat/lng sont les colonnes générées depuis location (NULL tant que la station n'est pas
 	// épinglée) : le type geography et les champs du justificatif ne sortent jamais de la base.
 	GetStationByID(ctx context.Context, id uuid.UUID) (GetStationByIDRow, error)
+	GetStationByManager(ctx context.Context, managerID *uuid.UUID) (GetStationByManagerRow, error)
+	// Métadonnées du justificatif chiffré : lecture réservée aux admins.
+	GetStationDocument(ctx context.Context, id uuid.UUID) (GetStationDocumentRow, error)
+	// État lu par les middlewares (email vérifié, compte actif).
+	GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAccessRow, error)
+	// Lecture pour le login : le hash du mot de passe ne sort jamais du paquet auth.
+	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
+	GetUserCredentials(ctx context.Context, id uuid.UUID) (GetUserCredentialsRow, error)
+	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
+	InsertRecoveryCodes(ctx context.Context, arg []InsertRecoveryCodesParams) (int64, error)
 	// Catalogue visible par les clients, dans l'ordre d'affichage.
 	ListActiveProducts(ctx context.Context) ([]ListActiveProductsRow, error)
+	// Lecture pour les tests et, plus tard, l'écran d'audit admin.
+	ListAuditLogsByEntity(ctx context.Context, arg ListAuditLogsByEntityParams) ([]AuditLog, error)
+	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	// Mise à niveau des paramètres argon2 au login : ne touche pas password_changed_at.
+	RehashUserPassword(ctx context.Context, arg RehashUserPasswordParams) error
+	SuspendManagerStation(ctx context.Context, arg SuspendManagerStationParams) error
+	TouchLastLogin(ctx context.Context, id uuid.UUID) error
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
+	// Consomme un code de secours (usage unique).
+	UseRecoveryCode(ctx context.Context, arg UseRecoveryCodeParams) (uuid.UUID, error)
 }
 
 var _ Querier = (*Queries)(nil)

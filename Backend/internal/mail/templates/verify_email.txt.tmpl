@@ -1,0 +1,9 @@
+{{define "content"}}Bonjour {{.FirstName}},
+
+Bienvenue sur GoStation ! Pour confirmer votre adresse email, saisissez ce code dans l'application :
+
+    {{.Code}}
+
+Ce code expire dans {{.ExpiresMinutes}} minutes. Ne le communiquez à personne : l'équipe GoStation ne vous le demandera jamais.
+
+Vous n'avez pas créé de compte GoStation ? Ignorez simplement cet email.{{end}}

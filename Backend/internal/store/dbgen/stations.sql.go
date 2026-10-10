@@ -12,6 +12,55 @@ import (
 	"github.com/google/uuid"
 )
 
+const createStation = `-- name: CreateStation :one
+INSERT INTO stations (manager_id, name, brand, ifu, rccm, address, city, phone,
+                      document_object_key, document_wrapped_key, document_sha256, document_mime)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12)
+RETURNING id, status, created_at
+`
+
+type CreateStationParams struct {
+	ManagerID          *uuid.UUID `json:"managerId"`
+	Name               string     `json:"name"`
+	Brand              *string    `json:"brand"`
+	Ifu                string     `json:"ifu"`
+	Rccm               string     `json:"rccm"`
+	Address            string     `json:"address"`
+	City               *string    `json:"city"`
+	Phone              string     `json:"phone"`
+	DocumentObjectKey  *string    `json:"documentObjectKey"`
+	DocumentWrappedKey []byte     `json:"documentWrappedKey"`
+	DocumentSha256     []byte     `json:"documentSha256"`
+	DocumentMime       *string    `json:"documentMime"`
+}
+
+type CreateStationRow struct {
+	ID        uuid.UUID     `json:"id"`
+	Status    StationStatus `json:"status"`
+	CreatedAt time.Time     `json:"createdAt"`
+}
+
+func (q *Queries) CreateStation(ctx context.Context, arg CreateStationParams) (CreateStationRow, error) {
+	row := q.db.QueryRow(ctx, createStation,
+		arg.ManagerID,
+		arg.Name,
+		arg.Brand,
+		arg.Ifu,
+		arg.Rccm,
+		arg.Address,
+		arg.City,
+		arg.Phone,
+		arg.DocumentObjectKey,
+		arg.DocumentWrappedKey,
+		arg.DocumentSha256,
+		arg.DocumentMime,
+	)
+	var i CreateStationRow
+	err := row.Scan(&i.ID, &i.Status, &i.CreatedAt)
+	return i, err
+}
+
 const getStationByID = `-- name: GetStationByID :one
 SELECT id, manager_id, status, name, brand, ifu, rccm, address, city, phone,
        lat, lng, location_set_at, h3_r8, status_reason, reviewed_by, reviewed_at,
@@ -71,4 +120,101 @@ func (q *Queries) GetStationByID(ctx context.Context, id uuid.UUID) (GetStationB
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getStationByManager = `-- name: GetStationByManager :one
+SELECT id, manager_id, status, name, brand, ifu, rccm, address, city, phone,
+       lat, lng, location_set_at, status_reason, reviewed_at, last_stock_update_at, created_at, updated_at
+FROM stations
+WHERE manager_id = $1
+`
+
+type GetStationByManagerRow struct {
+	ID                uuid.UUID     `json:"id"`
+	ManagerID         *uuid.UUID    `json:"managerId"`
+	Status            StationStatus `json:"status"`
+	Name              string        `json:"name"`
+	Brand             *string       `json:"brand"`
+	Ifu               string        `json:"ifu"`
+	Rccm              string        `json:"rccm"`
+	Address           string        `json:"address"`
+	City              *string       `json:"city"`
+	Phone             string        `json:"phone"`
+	Lat               *float64      `json:"lat"`
+	Lng               *float64      `json:"lng"`
+	LocationSetAt     *time.Time    `json:"locationSetAt"`
+	StatusReason      *string       `json:"statusReason"`
+	ReviewedAt        *time.Time    `json:"reviewedAt"`
+	LastStockUpdateAt *time.Time    `json:"lastStockUpdateAt"`
+	CreatedAt         time.Time     `json:"createdAt"`
+	UpdatedAt         time.Time     `json:"updatedAt"`
+}
+
+func (q *Queries) GetStationByManager(ctx context.Context, managerID *uuid.UUID) (GetStationByManagerRow, error) {
+	row := q.db.QueryRow(ctx, getStationByManager, managerID)
+	var i GetStationByManagerRow
+	err := row.Scan(
+		&i.ID,
+		&i.ManagerID,
+		&i.Status,
+		&i.Name,
+		&i.Brand,
+		&i.Ifu,
+		&i.Rccm,
+		&i.Address,
+		&i.City,
+		&i.Phone,
+		&i.Lat,
+		&i.Lng,
+		&i.LocationSetAt,
+		&i.StatusReason,
+		&i.ReviewedAt,
+		&i.LastStockUpdateAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getStationDocument = `-- name: GetStationDocument :one
+SELECT id, document_object_key, document_wrapped_key, document_sha256, document_mime
+FROM stations
+WHERE id = $1
+`
+
+type GetStationDocumentRow struct {
+	ID                 uuid.UUID `json:"id"`
+	DocumentObjectKey  *string   `json:"documentObjectKey"`
+	DocumentWrappedKey []byte    `json:"documentWrappedKey"`
+	DocumentSha256     []byte    `json:"documentSha256"`
+	DocumentMime       *string   `json:"documentMime"`
+}
+
+// Métadonnées du justificatif chiffré : lecture réservée aux admins.
+func (q *Queries) GetStationDocument(ctx context.Context, id uuid.UUID) (GetStationDocumentRow, error) {
+	row := q.db.QueryRow(ctx, getStationDocument, id)
+	var i GetStationDocumentRow
+	err := row.Scan(
+		&i.ID,
+		&i.DocumentObjectKey,
+		&i.DocumentWrappedKey,
+		&i.DocumentSha256,
+		&i.DocumentMime,
+	)
+	return i, err
+}
+
+const suspendManagerStation = `-- name: SuspendManagerStation :exec
+UPDATE stations SET status = 'suspended', status_reason = $1
+WHERE manager_id = $2 AND status <> 'rejected'
+`
+
+type SuspendManagerStationParams struct {
+	Reason    *string    `json:"reason"`
+	ManagerID *uuid.UUID `json:"managerId"`
+}
+
+func (q *Queries) SuspendManagerStation(ctx context.Context, arg SuspendManagerStationParams) error {
+	_, err := q.db.Exec(ctx, suspendManagerStation, arg.Reason, arg.ManagerID)
+	return err
 }
