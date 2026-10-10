@@ -12,6 +12,124 @@ import (
 	"github.com/google/uuid"
 )
 
+const applyLocationRequest = `-- name: ApplyLocationRequest :execrows
+UPDATE stations s
+SET location = r.location, location_set_at = now(), h3_r8 = r.h3_r8
+FROM station_location_requests r
+WHERE r.id = $1 AND r.station_id = s.id AND r.status = 'pending'
+`
+
+// Applique une demande en attente à la station (nouvelle position, nouvelle cellule H3).
+func (q *Queries) ApplyLocationRequest(ctx context.Context, requestID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, applyLocationRequest, requestID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const bumpStationVersion = `-- name: BumpStationVersion :one
+UPDATE stations SET version = version + 1
+WHERE id = $1 AND version = $2
+RETURNING version
+`
+
+type BumpStationVersionParams struct {
+	ID              uuid.UUID `json:"id"`
+	ExpectedVersion int32     `json:"expectedVersion"`
+}
+
+// Verrouillage optimiste : réussit seulement si la version attendue est la version courante.
+// Pose aussi le verrou de ligne pour le reste de la transaction.
+func (q *Queries) BumpStationVersion(ctx context.Context, arg BumpStationVersionParams) (int32, error) {
+	row := q.db.QueryRow(ctx, bumpStationVersion, arg.ID, arg.ExpectedVersion)
+	var version int32
+	err := row.Scan(&version)
+	return version, err
+}
+
+const checkStationPin = `-- name: CheckStationPin :one
+SELECT
+  EXISTS (
+    SELECT 1 FROM country_boundaries b
+    WHERE b.code = 'BEN'
+      AND ST_Covers(b.boundary_buffered, ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography)
+  )::boolean AS inside_benin,
+  COALESCE(ST_Distance(s.location, ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography), -1)::float8 AS move_m
+FROM stations s
+WHERE s.id = $3
+`
+
+type CheckStationPinParams struct {
+	Lng       float64   `json:"lng"`
+	Lat       float64   `json:"lat"`
+	StationID uuid.UUID `json:"stationId"`
+}
+
+type CheckStationPinRow struct {
+	InsideBenin bool    `json:"insideBenin"`
+	MoveM       float64 `json:"moveM"`
+}
+
+// Contrôle d'une épingle : dans le Bénin (marge de 2 km) ? À quelle distance de la position active
+// (-1 si la station n'est pas encore épinglée) ?
+func (q *Queries) CheckStationPin(ctx context.Context, arg CheckStationPinParams) (CheckStationPinRow, error) {
+	row := q.db.QueryRow(ctx, checkStationPin, arg.Lng, arg.Lat, arg.StationID)
+	var i CheckStationPinRow
+	err := row.Scan(&i.InsideBenin, &i.MoveM)
+	return i, err
+}
+
+const clearStationLocationFlag = `-- name: ClearStationLocationFlag :exec
+UPDATE stations
+SET location_flagged_at = NULL, location_flag_distance_m = NULL, location_flag_accuracy_m = NULL
+WHERE id = $1
+`
+
+func (q *Queries) ClearStationLocationFlag(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearStationLocationFlag, id)
+	return err
+}
+
+const createLocationRequest = `-- name: CreateLocationRequest :one
+INSERT INTO station_location_requests (station_id, requested_by, location, h3_r8, distance_m, device_distance_m, device_accuracy_m)
+VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3::float8, $4::float8), 4326)::geography,
+        $5, $6, $7, $8)
+RETURNING id, created_at
+`
+
+type CreateLocationRequestParams struct {
+	StationID       uuid.UUID  `json:"stationId"`
+	RequestedBy     *uuid.UUID `json:"requestedBy"`
+	Lng             float64    `json:"lng"`
+	Lat             float64    `json:"lat"`
+	H3R8            int64      `json:"h3R8"`
+	DistanceM       int32      `json:"distanceM"`
+	DeviceDistanceM *int32     `json:"deviceDistanceM"`
+	DeviceAccuracyM *int32     `json:"deviceAccuracyM"`
+}
+
+type CreateLocationRequestRow struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (q *Queries) CreateLocationRequest(ctx context.Context, arg CreateLocationRequestParams) (CreateLocationRequestRow, error) {
+	row := q.db.QueryRow(ctx, createLocationRequest,
+		arg.StationID,
+		arg.RequestedBy,
+		arg.Lng,
+		arg.Lat,
+		arg.H3R8,
+		arg.DistanceM,
+		arg.DeviceDistanceM,
+		arg.DeviceAccuracyM,
+	)
+	var i CreateLocationRequestRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
 const createStation = `-- name: CreateStation :one
 INSERT INTO stations (manager_id, name, brand, ifu, rccm, address, city, phone,
                       document_object_key, document_wrapped_key, document_sha256, document_mime)
@@ -58,6 +176,62 @@ func (q *Queries) CreateStation(ctx context.Context, arg CreateStationParams) (C
 	)
 	var i CreateStationRow
 	err := row.Scan(&i.ID, &i.Status, &i.CreatedAt)
+	return i, err
+}
+
+const flagStationLocation = `-- name: FlagStationLocation :exec
+UPDATE stations
+SET location_flagged_at = now(), location_flag_distance_m = $1, location_flag_accuracy_m = $2
+WHERE id = $3
+`
+
+type FlagStationLocationParams struct {
+	DistanceM *int32    `json:"distanceM"`
+	AccuracyM *int32    `json:"accuracyM"`
+	ID        uuid.UUID `json:"id"`
+}
+
+func (q *Queries) FlagStationLocation(ctx context.Context, arg FlagStationLocationParams) error {
+	_, err := q.db.Exec(ctx, flagStationLocation, arg.DistanceM, arg.AccuracyM, arg.ID)
+	return err
+}
+
+const getPendingLocationRequest = `-- name: GetPendingLocationRequest :one
+SELECT id, station_id, requested_by, lat, lng, h3_r8, distance_m, device_distance_m, device_accuracy_m, status, created_at
+FROM station_location_requests
+WHERE station_id = $1 AND status = 'pending'
+`
+
+type GetPendingLocationRequestRow struct {
+	ID              uuid.UUID             `json:"id"`
+	StationID       uuid.UUID             `json:"stationId"`
+	RequestedBy     *uuid.UUID            `json:"requestedBy"`
+	Lat             *float64              `json:"lat"`
+	Lng             *float64              `json:"lng"`
+	H3R8            int64                 `json:"h3R8"`
+	DistanceM       int32                 `json:"distanceM"`
+	DeviceDistanceM *int32                `json:"deviceDistanceM"`
+	DeviceAccuracyM *int32                `json:"deviceAccuracyM"`
+	Status          LocationRequestStatus `json:"status"`
+	CreatedAt       time.Time             `json:"createdAt"`
+}
+
+func (q *Queries) GetPendingLocationRequest(ctx context.Context, stationID uuid.UUID) (GetPendingLocationRequestRow, error) {
+	row := q.db.QueryRow(ctx, getPendingLocationRequest, stationID)
+	var i GetPendingLocationRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.StationID,
+		&i.RequestedBy,
+		&i.Lat,
+		&i.Lng,
+		&i.H3R8,
+		&i.DistanceM,
+		&i.DeviceDistanceM,
+		&i.DeviceAccuracyM,
+		&i.Status,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
@@ -123,31 +297,37 @@ func (q *Queries) GetStationByID(ctx context.Context, id uuid.UUID) (GetStationB
 }
 
 const getStationByManager = `-- name: GetStationByManager :one
-SELECT id, manager_id, status, name, brand, ifu, rccm, address, city, phone,
-       lat, lng, location_set_at, status_reason, reviewed_at, last_stock_update_at, created_at, updated_at
+SELECT id, manager_id, status, version, name, brand, ifu, rccm, address, city, phone,
+       lat, lng, h3_r8, location_set_at, location_flagged_at, location_flag_distance_m, location_flag_accuracy_m,
+       status_reason, reviewed_at, last_stock_update_at, created_at, updated_at
 FROM stations
 WHERE manager_id = $1
 `
 
 type GetStationByManagerRow struct {
-	ID                uuid.UUID     `json:"id"`
-	ManagerID         *uuid.UUID    `json:"managerId"`
-	Status            StationStatus `json:"status"`
-	Name              string        `json:"name"`
-	Brand             *string       `json:"brand"`
-	Ifu               string        `json:"ifu"`
-	Rccm              string        `json:"rccm"`
-	Address           string        `json:"address"`
-	City              *string       `json:"city"`
-	Phone             string        `json:"phone"`
-	Lat               *float64      `json:"lat"`
-	Lng               *float64      `json:"lng"`
-	LocationSetAt     *time.Time    `json:"locationSetAt"`
-	StatusReason      *string       `json:"statusReason"`
-	ReviewedAt        *time.Time    `json:"reviewedAt"`
-	LastStockUpdateAt *time.Time    `json:"lastStockUpdateAt"`
-	CreatedAt         time.Time     `json:"createdAt"`
-	UpdatedAt         time.Time     `json:"updatedAt"`
+	ID                    uuid.UUID     `json:"id"`
+	ManagerID             *uuid.UUID    `json:"managerId"`
+	Status                StationStatus `json:"status"`
+	Version               int32         `json:"version"`
+	Name                  string        `json:"name"`
+	Brand                 *string       `json:"brand"`
+	Ifu                   string        `json:"ifu"`
+	Rccm                  string        `json:"rccm"`
+	Address               string        `json:"address"`
+	City                  *string       `json:"city"`
+	Phone                 string        `json:"phone"`
+	Lat                   *float64      `json:"lat"`
+	Lng                   *float64      `json:"lng"`
+	H3R8                  *int64        `json:"h3R8"`
+	LocationSetAt         *time.Time    `json:"locationSetAt"`
+	LocationFlaggedAt     *time.Time    `json:"locationFlaggedAt"`
+	LocationFlagDistanceM *int32        `json:"locationFlagDistanceM"`
+	LocationFlagAccuracyM *int32        `json:"locationFlagAccuracyM"`
+	StatusReason          *string       `json:"statusReason"`
+	ReviewedAt            *time.Time    `json:"reviewedAt"`
+	LastStockUpdateAt     *time.Time    `json:"lastStockUpdateAt"`
+	CreatedAt             time.Time     `json:"createdAt"`
+	UpdatedAt             time.Time     `json:"updatedAt"`
 }
 
 func (q *Queries) GetStationByManager(ctx context.Context, managerID *uuid.UUID) (GetStationByManagerRow, error) {
@@ -157,6 +337,7 @@ func (q *Queries) GetStationByManager(ctx context.Context, managerID *uuid.UUID)
 		&i.ID,
 		&i.ManagerID,
 		&i.Status,
+		&i.Version,
 		&i.Name,
 		&i.Brand,
 		&i.Ifu,
@@ -166,12 +347,49 @@ func (q *Queries) GetStationByManager(ctx context.Context, managerID *uuid.UUID)
 		&i.Phone,
 		&i.Lat,
 		&i.Lng,
+		&i.H3R8,
 		&i.LocationSetAt,
+		&i.LocationFlaggedAt,
+		&i.LocationFlagDistanceM,
+		&i.LocationFlagAccuracyM,
 		&i.StatusReason,
 		&i.ReviewedAt,
 		&i.LastStockUpdateAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getStationContact = `-- name: GetStationContact :one
+SELECT s.id, s.name, s.status, u.id AS manager_id, u.email, u.first_name, u.email_verified_at
+FROM stations s
+JOIN users u ON u.id = s.manager_id
+WHERE s.id = $1
+`
+
+type GetStationContactRow struct {
+	ID              uuid.UUID     `json:"id"`
+	Name            string        `json:"name"`
+	Status          StationStatus `json:"status"`
+	ManagerID       uuid.UUID     `json:"managerId"`
+	Email           string        `json:"email"`
+	FirstName       string        `json:"firstName"`
+	EmailVerifiedAt *time.Time    `json:"emailVerifiedAt"`
+}
+
+// Destinataire des emails de statut.
+func (q *Queries) GetStationContact(ctx context.Context, id uuid.UUID) (GetStationContactRow, error) {
+	row := q.db.QueryRow(ctx, getStationContact, id)
+	var i GetStationContactRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Status,
+		&i.ManagerID,
+		&i.Email,
+		&i.FirstName,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
@@ -204,8 +422,294 @@ func (q *Queries) GetStationDocument(ctx context.Context, id uuid.UUID) (GetStat
 	return i, err
 }
 
+const getStationForAdmin = `-- name: GetStationForAdmin :one
+SELECT s.id, s.status, s.version, s.name, s.brand, s.ifu, s.rccm, s.address, s.city, s.phone,
+       s.lat, s.lng, s.h3_r8, s.location_set_at, s.location_flagged_at, s.location_flag_distance_m, s.location_flag_accuracy_m,
+       s.status_reason, s.reviewed_by, s.reviewed_at, s.last_stock_update_at, s.document_mime, s.created_at, s.updated_at,
+       u.id AS manager_id, u.first_name AS manager_first_name, u.last_name AS manager_last_name,
+       u.email AS manager_email, u.email_verified_at AS manager_email_verified_at
+FROM stations s
+LEFT JOIN users u ON u.id = s.manager_id
+WHERE s.id = $1
+`
+
+type GetStationForAdminRow struct {
+	ID                     uuid.UUID     `json:"id"`
+	Status                 StationStatus `json:"status"`
+	Version                int32         `json:"version"`
+	Name                   string        `json:"name"`
+	Brand                  *string       `json:"brand"`
+	Ifu                    string        `json:"ifu"`
+	Rccm                   string        `json:"rccm"`
+	Address                string        `json:"address"`
+	City                   *string       `json:"city"`
+	Phone                  string        `json:"phone"`
+	Lat                    *float64      `json:"lat"`
+	Lng                    *float64      `json:"lng"`
+	H3R8                   *int64        `json:"h3R8"`
+	LocationSetAt          *time.Time    `json:"locationSetAt"`
+	LocationFlaggedAt      *time.Time    `json:"locationFlaggedAt"`
+	LocationFlagDistanceM  *int32        `json:"locationFlagDistanceM"`
+	LocationFlagAccuracyM  *int32        `json:"locationFlagAccuracyM"`
+	StatusReason           *string       `json:"statusReason"`
+	ReviewedBy             *uuid.UUID    `json:"reviewedBy"`
+	ReviewedAt             *time.Time    `json:"reviewedAt"`
+	LastStockUpdateAt      *time.Time    `json:"lastStockUpdateAt"`
+	DocumentMime           *string       `json:"documentMime"`
+	CreatedAt              time.Time     `json:"createdAt"`
+	UpdatedAt              time.Time     `json:"updatedAt"`
+	ManagerID              *uuid.UUID    `json:"managerId"`
+	ManagerFirstName       *string       `json:"managerFirstName"`
+	ManagerLastName        *string       `json:"managerLastName"`
+	ManagerEmail           *string       `json:"managerEmail"`
+	ManagerEmailVerifiedAt *time.Time    `json:"managerEmailVerifiedAt"`
+}
+
+func (q *Queries) GetStationForAdmin(ctx context.Context, id uuid.UUID) (GetStationForAdminRow, error) {
+	row := q.db.QueryRow(ctx, getStationForAdmin, id)
+	var i GetStationForAdminRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Version,
+		&i.Name,
+		&i.Brand,
+		&i.Ifu,
+		&i.Rccm,
+		&i.Address,
+		&i.City,
+		&i.Phone,
+		&i.Lat,
+		&i.Lng,
+		&i.H3R8,
+		&i.LocationSetAt,
+		&i.LocationFlaggedAt,
+		&i.LocationFlagDistanceM,
+		&i.LocationFlagAccuracyM,
+		&i.StatusReason,
+		&i.ReviewedBy,
+		&i.ReviewedAt,
+		&i.LastStockUpdateAt,
+		&i.DocumentMime,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ManagerID,
+		&i.ManagerFirstName,
+		&i.ManagerLastName,
+		&i.ManagerEmail,
+		&i.ManagerEmailVerifiedAt,
+	)
+	return i, err
+}
+
+const listStationsForAdmin = `-- name: ListStationsForAdmin :many
+SELECT s.id, s.name, s.brand, s.ifu, s.city, s.status, s.version, s.created_at, s.updated_at,
+       s.location_flagged_at, s.lat, s.lng,
+       (u.email_verified_at IS NOT NULL)::boolean AS manager_email_verified,
+       EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move
+FROM stations s
+LEFT JOIN users u ON u.id = s.manager_id
+WHERE s.status = $1
+  AND (s.status <> 'pending' OR u.email_verified_at IS NOT NULL)
+  AND ($2::text IS NULL
+       OR s.name ILIKE '%' || $2::text || '%' ESCAPE '\'
+       OR s.ifu LIKE $2::text || '%' ESCAPE '\')
+  AND (NOT $3::boolean
+       OR s.location_flagged_at IS NOT NULL
+       OR EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending'))
+  AND ($4::timestamptz IS NULL
+       OR (s.created_at, s.id) < ($4::timestamptz, $5::uuid))
+ORDER BY s.created_at DESC, s.id DESC
+LIMIT $6
+`
+
+type ListStationsForAdminParams struct {
+	Status          StationStatus `json:"status"`
+	Query           *string       `json:"query"`
+	NeedsReview     bool          `json:"needsReview"`
+	CursorCreatedAt *time.Time    `json:"cursorCreatedAt"`
+	CursorID        *uuid.UUID    `json:"cursorId"`
+	PageSize        int32         `json:"pageSize"`
+}
+
+type ListStationsForAdminRow struct {
+	ID                   uuid.UUID     `json:"id"`
+	Name                 string        `json:"name"`
+	Brand                *string       `json:"brand"`
+	Ifu                  string        `json:"ifu"`
+	City                 *string       `json:"city"`
+	Status               StationStatus `json:"status"`
+	Version              int32         `json:"version"`
+	CreatedAt            time.Time     `json:"createdAt"`
+	UpdatedAt            time.Time     `json:"updatedAt"`
+	LocationFlaggedAt    *time.Time    `json:"locationFlaggedAt"`
+	Lat                  *float64      `json:"lat"`
+	Lng                  *float64      `json:"lng"`
+	ManagerEmailVerified bool          `json:"managerEmailVerified"`
+	HasPendingMove       bool          `json:"hasPendingMove"`
+}
+
+// Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
+// Pagination par curseur (created_at, id) décroissants.
+func (q *Queries) ListStationsForAdmin(ctx context.Context, arg ListStationsForAdminParams) ([]ListStationsForAdminRow, error) {
+	rows, err := q.db.Query(ctx, listStationsForAdmin,
+		arg.Status,
+		arg.Query,
+		arg.NeedsReview,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStationsForAdminRow
+	for rows.Next() {
+		var i ListStationsForAdminRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Brand,
+			&i.Ifu,
+			&i.City,
+			&i.Status,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LocationFlaggedAt,
+			&i.Lat,
+			&i.Lng,
+			&i.ManagerEmailVerified,
+			&i.HasPendingMove,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const replaceStationDocument = `-- name: ReplaceStationDocument :exec
+UPDATE stations
+SET document_object_key = $1, document_wrapped_key = $2,
+    document_sha256 = $3, document_mime = $4
+WHERE id = $5
+`
+
+type ReplaceStationDocumentParams struct {
+	DocumentObjectKey  *string   `json:"documentObjectKey"`
+	DocumentWrappedKey []byte    `json:"documentWrappedKey"`
+	DocumentSha256     []byte    `json:"documentSha256"`
+	DocumentMime       *string   `json:"documentMime"`
+	ID                 uuid.UUID `json:"id"`
+}
+
+func (q *Queries) ReplaceStationDocument(ctx context.Context, arg ReplaceStationDocumentParams) error {
+	_, err := q.db.Exec(ctx, replaceStationDocument,
+		arg.DocumentObjectKey,
+		arg.DocumentWrappedKey,
+		arg.DocumentSha256,
+		arg.DocumentMime,
+		arg.ID,
+	)
+	return err
+}
+
+const resolveLocationRequest = `-- name: ResolveLocationRequest :execrows
+UPDATE station_location_requests
+SET status = $1, review_reason = $2, reviewed_by = $3, reviewed_at = now()
+WHERE id = $4 AND station_id = $5 AND status = 'pending'
+`
+
+type ResolveLocationRequestParams struct {
+	Status     LocationRequestStatus `json:"status"`
+	Reason     *string               `json:"reason"`
+	ReviewedBy *uuid.UUID            `json:"reviewedBy"`
+	ID         uuid.UUID             `json:"id"`
+	StationID  uuid.UUID             `json:"stationId"`
+}
+
+func (q *Queries) ResolveLocationRequest(ctx context.Context, arg ResolveLocationRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolveLocationRequest,
+		arg.Status,
+		arg.Reason,
+		arg.ReviewedBy,
+		arg.ID,
+		arg.StationID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setStationLocation = `-- name: SetStationLocation :exec
+UPDATE stations
+SET location = ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography,
+    location_set_at = now(), h3_r8 = $3
+WHERE id = $4
+`
+
+type SetStationLocationParams struct {
+	Lng  float64   `json:"lng"`
+	Lat  float64   `json:"lat"`
+	H3R8 *int64    `json:"h3R8"`
+	ID   uuid.UUID `json:"id"`
+}
+
+func (q *Queries) SetStationLocation(ctx context.Context, arg SetStationLocationParams) error {
+	_, err := q.db.Exec(ctx, setStationLocation,
+		arg.Lng,
+		arg.Lat,
+		arg.H3R8,
+		arg.ID,
+	)
+	return err
+}
+
+const setStationStatus = `-- name: SetStationStatus :exec
+UPDATE stations
+SET status        = $1,
+    status_reason = $2,
+    reviewed_by   = $3,
+    reviewed_at   = CASE WHEN $3::uuid IS NULL THEN reviewed_at ELSE now() END
+WHERE id = $4
+`
+
+type SetStationStatusParams struct {
+	Status     StationStatus `json:"status"`
+	Reason     *string       `json:"reason"`
+	ReviewedBy *uuid.UUID    `json:"reviewedBy"`
+	ID         uuid.UUID     `json:"id"`
+}
+
+// Changement de statut. reviewed_by/at ne sont renseignés que pour une décision admin.
+func (q *Queries) SetStationStatus(ctx context.Context, arg SetStationStatusParams) error {
+	_, err := q.db.Exec(ctx, setStationStatus,
+		arg.Status,
+		arg.Reason,
+		arg.ReviewedBy,
+		arg.ID,
+	)
+	return err
+}
+
+const supersedeLocationRequests = `-- name: SupersedeLocationRequests :exec
+UPDATE station_location_requests SET status = 'superseded'
+WHERE station_id = $1 AND status = 'pending'
+`
+
+func (q *Queries) SupersedeLocationRequests(ctx context.Context, stationID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, supersedeLocationRequests, stationID)
+	return err
+}
+
 const suspendManagerStation = `-- name: SuspendManagerStation :exec
-UPDATE stations SET status = 'suspended', status_reason = $1
+UPDATE stations SET status = 'suspended', status_reason = $1, version = version + 1
 WHERE manager_id = $2 AND status <> 'rejected'
 `
 
@@ -216,5 +720,55 @@ type SuspendManagerStationParams struct {
 
 func (q *Queries) SuspendManagerStation(ctx context.Context, arg SuspendManagerStationParams) error {
 	_, err := q.db.Exec(ctx, suspendManagerStation, arg.Reason, arg.ManagerID)
+	return err
+}
+
+const touchStationStockActivity = `-- name: TouchStationStockActivity :exec
+UPDATE stations SET last_stock_update_at = now() WHERE id = $1
+`
+
+func (q *Queries) TouchStationStockActivity(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchStationStockActivity, id)
+	return err
+}
+
+const updateStationProfile = `-- name: UpdateStationProfile :exec
+UPDATE stations
+SET name    = COALESCE($1, name),
+    brand   = CASE WHEN $2::boolean THEN $3 ELSE brand END,
+    address = COALESCE($4, address),
+    city    = CASE WHEN $5::boolean THEN $6 ELSE city END,
+    phone   = COALESCE($7, phone),
+    ifu     = COALESCE($8, ifu),
+    rccm    = COALESCE($9, rccm)
+WHERE id = $10
+`
+
+type UpdateStationProfileParams struct {
+	Name     *string   `json:"name"`
+	SetBrand bool      `json:"setBrand"`
+	Brand    *string   `json:"brand"`
+	Address  *string   `json:"address"`
+	SetCity  bool      `json:"setCity"`
+	City     *string   `json:"city"`
+	Phone    *string   `json:"phone"`
+	Ifu      *string   `json:"ifu"`
+	Rccm     *string   `json:"rccm"`
+	ID       uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateStationProfile(ctx context.Context, arg UpdateStationProfileParams) error {
+	_, err := q.db.Exec(ctx, updateStationProfile,
+		arg.Name,
+		arg.SetBrand,
+		arg.Brand,
+		arg.Address,
+		arg.SetCity,
+		arg.City,
+		arg.Phone,
+		arg.Ifu,
+		arg.Rccm,
+		arg.ID,
+	)
 	return err
 }

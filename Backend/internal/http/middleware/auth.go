@@ -169,10 +169,16 @@ type StationStatusReader interface {
 	ManagerStationStatus(ctx context.Context, managerID uuid.UUID) (string, error)
 }
 
-// RequireApprovedStation exige que la station du gérant soit approuvée, vérifié en base à
-// chaque requête (une suspension prend effet immédiatement). Le statut est renvoyé en
-// extension pour que l'application affiche le bon écran.
+// RequireApprovedStation exige que la station du gérant soit approuvée.
 func RequireApprovedStation(rs *respond.Responder, s StationStatusReader) func(http.Handler) http.Handler {
+	return RequireStationStatus(rs, s, "approved")
+}
+
+// RequireStationStatus exige que la station du gérant ait l'un des statuts donnés, vérifié en base
+// à chaque requête (une suspension prend effet immédiatement). Sert l'exception « rejected »
+// (correction et renvoi du justificatif, D15). Le statut est renvoyé en extension pour que
+// l'application affiche le bon écran.
+func RequireStationStatus(rs *respond.Responder, s StationStatusReader, statuses ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := httpctx.PrincipalFrom(r.Context())
@@ -185,9 +191,12 @@ func RequireApprovedStation(rs *respond.Responder, s StationStatusReader) func(h
 				rs.Error(w, r, err)
 				return
 			}
-			if status != "approved" {
-				rs.Error(w, r, apperr.New(http.StatusForbidden, auth.CodeStationNotApproved,
-					"Your station has not been approved yet.").WithMeta("stationStatus", status))
+			if !slices.Contains(statuses, status) {
+				detail := "Your station has not been approved yet."
+				if status == "suspended" {
+					detail = "Your station is suspended."
+				}
+				rs.Error(w, r, apperr.New(http.StatusForbidden, auth.CodeStationNotApproved, detail).WithMeta("stationStatus", status))
 				return
 			}
 			next.ServeHTTP(w, r)

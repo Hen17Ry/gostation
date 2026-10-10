@@ -1,0 +1,24 @@
+{{define "content"}}
+<p class="text" style="margin:0 0 16px;font-size:16px;line-height:24px;color:#0F172A;">Bonjour {{.FirstName}},</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+  <tr>
+    {{if eq .Tone "success"}}
+    <td style="background-color:#F0FDF4;border:1px solid #BBF7D0;border-radius:999px;padding:6px 14px;font-size:14px;line-height:20px;font-weight:700;color:#15803D;">&#10003;&nbsp;{{.Badge}}</td>
+    {{else}}
+    <td style="background-color:#FEF2F2;border:1px solid #FECACA;border-radius:999px;padding:6px 14px;font-size:14px;line-height:20px;font-weight:700;color:#B91C1C;">&#9888;&nbsp;{{.Badge}}</td>
+    {{end}}
+  </tr>
+</table>
+<p class="text" style="margin:0 0 16px;font-size:16px;line-height:24px;color:#0F172A;">{{.Lead}}</p>
+{{if .Reason}}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 20px;">
+  <tr>
+    <td class="codebox" style="background-color:#FFF7ED;border-left:4px solid #EA580C;border-radius:8px;padding:16px 20px;">
+      <p class="muted" style="margin:0 0 6px;font-size:13px;line-height:18px;font-weight:700;color:#7C2D12;text-transform:uppercase;letter-spacing:0.4px;">Motif</p>
+      <p class="text" style="margin:0;font-size:15px;line-height:22px;color:#0F172A;">{{.Reason}}</p>
+    </td>
+  </tr>
+</table>
+{{end}}
+<p class="muted" style="margin:0;font-size:14px;line-height:22px;color:#475569;">{{.Next}}</p>
+{{end}}

@@ -20,6 +20,7 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 
 	"gostation/backend/db"
+	"gostation/backend/internal/platform/postgres"
 )
 
 // Images par défaut, alignées sur .env.example.
@@ -115,7 +116,8 @@ func StartMigratedPostgres(ctx context.Context) (pool *pgxpool.Pool, dsn string,
 		stopContainer()
 		return nil, "", nil, err
 	}
-	pool, err = pgxpool.New(ctx, dsn)
+	// Même pool que l'API (sessions et lecture des dates en UTC).
+	pool, err = postgres.Connect(ctx, postgres.Options{URL: dsn, AppName: "gostation-tests"})
 	if err != nil {
 		stopContainer()
 		return nil, "", nil, fmt.Errorf("open pool: %w", err)

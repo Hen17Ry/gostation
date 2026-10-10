@@ -39,6 +39,16 @@ type Config struct {
 	Auth      Auth
 	Documents Documents
 	SMTP      SMTP
+	Stock     Stock
+}
+
+// Stock regroupe les plafonds de saisie et les seuils de fraîcheur des stocks (D16).
+type Stock struct {
+	MaxCylinders int
+	MaxLiters    int
+	// StaleAfter : au-delà, le résultat porte le flag stale ; ExpiredAfter : exclu de la recherche.
+	StaleAfter   time.Duration
+	ExpiredAfter time.Duration
 }
 
 // HTTP regroupe les paramètres du serveur HTTP.
@@ -200,6 +210,16 @@ func Load(getenv func(string) string) (Config, error) {
 		From:     l.str("SMTP_FROM", "GoStation <no-reply@gostation.local>"),
 		TLSMode:  l.oneOf("SMTP_TLS", "none", "none", "starttls", "tls"),
 	}
+	c.Stock = Stock{
+		MaxCylinders: l.integer("STOCK_MAX_CYLINDERS", 10_000, 1, 1_000_000),
+		MaxLiters:    l.integer("STOCK_MAX_LITERS", 200_000, 1, 10_000_000),
+		StaleAfter:   l.duration("STOCK_STALE_AFTER", 8*time.Hour),
+		ExpiredAfter: l.duration("STOCK_EXPIRED_AFTER", 24*time.Hour),
+	}
+	if c.Stock.ExpiredAfter <= c.Stock.StaleAfter {
+		l.fail("STOCK_EXPIRED_AFTER", "must be greater than STOCK_STALE_AFTER (%s)", c.Stock.StaleAfter)
+	}
+
 	if c.Env == EnvProduction {
 		if c.SMTP.TLSMode == "none" {
 			l.fail("SMTP_TLS", "must be starttls or tls in production")

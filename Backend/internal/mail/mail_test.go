@@ -50,6 +50,33 @@ func TestTemplates(t *testing.T) {
 	}
 }
 
+func TestStationStatusEmails(t *testing.T) {
+	loc, _ := time.LoadLocation("Africa/Porto-Novo")
+	r, err := NewRenderer(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := r.StationStatus("k@example.bj", "Kofi", "Station <Akpakpa>", StationRejected, "Justificatif illisible")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Refusée", "Justificatif illisible", "Station &lt;Akpakpa&gt;", "#B91C1C"} {
+		if !strings.Contains(rejected.HTML, want) {
+			t.Errorf("rejection HTML missing %q", want)
+		}
+	}
+	if !strings.Contains(rejected.Text, "[Refusée]") || !strings.Contains(rejected.Text, "Motif : Justificatif illisible") {
+		t.Errorf("rejection text = %q", rejected.Text)
+	}
+	approved, _ := r.StationStatus("k@example.bj", "Kofi", "Station Akpakpa", StationApproved, "ignored")
+	if strings.Contains(approved.HTML, "Motif") || strings.Contains(approved.HTML, "ignored") || !strings.Contains(approved.HTML, "Approuvée") {
+		t.Error("an approval must show the Approuvée label and never a reason")
+	}
+	if _, err := r.StationStatus("k@example.bj", "Kofi", "S", StationStatusChange("bogus"), ""); err == nil {
+		t.Error("unknown change accepted")
+	}
+}
+
 func TestBuildMIME(t *testing.T) {
 	from, _ := mail.ParseAddress("GoStation <no-reply@gostation.bj>")
 	to, _ := mail.ParseAddress("afi@example.bj")

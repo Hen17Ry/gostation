@@ -17,6 +17,7 @@ const (
 	tmplVerifyEmail     = "verify_email"
 	tmplResetPassword   = "reset_password"
 	tmplPasswordChanged = "password_changed"
+	tmplStationStatus   = "station_status"
 )
 
 // Renderer produit les messages à partir des templates embarqués.
@@ -35,7 +36,7 @@ func NewRenderer(loc *time.Location) (*Renderer, error) {
 		loc:  loc,
 		now:  time.Now,
 	}
-	for _, name := range []string{tmplVerifyEmail, tmplResetPassword, tmplPasswordChanged} {
+	for _, name := range []string{tmplVerifyEmail, tmplResetPassword, tmplPasswordChanged, tmplStationStatus} {
 		h, err := htmltemplate.ParseFS(templateFS, "templates/layout.html.tmpl", "templates/code.html.tmpl", "templates/"+name+".html.tmpl")
 		if err != nil {
 			return nil, fmt.Errorf("mail: parse %s html: %w", name, err)
@@ -57,6 +58,12 @@ type templateData struct {
 	ExpiresMinutes int
 	When           string
 	Year           int
+	// Changement de statut d'une station.
+	Badge  string
+	Tone   string // success | danger
+	Lead   string
+	Reason string
+	Next   string
 }
 
 func (r *Renderer) render(name, to, subject string, d templateData) (Message, error) {
@@ -101,4 +108,45 @@ func (r *Renderer) PasswordChanged(to, firstName string, at time.Time) (Message,
 		FirstName: firstName,
 		When:      at.In(r.loc).Format("02/01/2006 à 15h04"),
 	})
+}
+
+// StationStatusChange décrit un changement de statut décidé par l'admin.
+type StationStatusChange string
+
+// Changements de statut notifiés au gérant.
+const (
+	StationApproved   StationStatusChange = "approved"
+	StationRejected   StationStatusChange = "rejected"
+	StationSuspended  StationStatusChange = "suspended"
+	StationReinstated StationStatusChange = "reinstated"
+)
+
+// StationStatus notifie le gérant d'une décision de l'admin sur sa station. Le statut est porté
+// par un libellé, jamais par la seule couleur.
+func (r *Renderer) StationStatus(to, firstName, stationName string, change StationStatusChange, reason string) (Message, error) {
+	d := templateData{FirstName: firstName, Reason: reason}
+	var subject string
+	switch change {
+	case StationApproved:
+		d.Reason = "" // une approbation n'a pas de motif
+		subject, d.Title, d.Badge, d.Tone = "Votre station est validée – GoStation", "Station validée", "Approuvée", "success"
+		d.Lead = "Bonne nouvelle : « " + stationName + " » est validée. Épinglez sa position, renseignez vos horaires et vos stocks pour apparaître dans la recherche."
+		d.Next = "Ouvrez l'application GoStation pour terminer la configuration de votre station."
+	case StationRejected:
+		subject, d.Title, d.Badge, d.Tone = "Votre demande doit être corrigée – GoStation", "Demande à corriger", "Refusée", "danger"
+		d.Lead = "Votre demande pour « " + stationName + " » n'a pas pu être validée en l'état."
+		d.Next = "Corrigez vos informations ou renvoyez un justificatif depuis l'application : votre demande sera de nouveau examinée."
+	case StationSuspended:
+		subject, d.Title, d.Badge, d.Tone = "Votre station est suspendue – GoStation", "Station suspendue", "Suspendue", "danger"
+		d.Lead = "« " + stationName + " » est suspendue : elle n'apparaît plus dans la recherche."
+		d.Next = "Pour toute question, répondez à l'équipe GoStation depuis l'application."
+	case StationReinstated:
+		subject, d.Title, d.Badge, d.Tone = "Votre station est réactivée – GoStation", "Station réactivée", "Réactivée", "success"
+		d.Lead = "« " + stationName + " » est de nouveau active et visible dans la recherche."
+		d.Next = "Pensez à vérifier vos stocks et vos horaires dans l'application."
+	default:
+		return Message{}, fmt.Errorf("mail: unknown station status change %q", change)
+	}
+	d.Preheader = d.Lead
+	return r.render(tmplStationStatus, to, subject, d)
 }

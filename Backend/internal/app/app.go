@@ -28,6 +28,7 @@ import (
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/storage"
 	"gostation/backend/internal/ratelimit"
+	"gostation/backend/internal/searchcache"
 	"gostation/backend/internal/station"
 	"gostation/backend/internal/store"
 )
@@ -108,8 +109,15 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		EmailKey:   emailKey,
 		Log:        log,
 	})
+	stationSvc := station.NewService(station.Config{
+		Timezone: cfg.Timezone, MaxCylinders: cfg.Stock.MaxCylinders, MaxLiters: cfg.Stock.MaxLiters,
+		StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
+	}, station.Deps{
+		Store: st, Documents: docs, Audit: auditLog, Cache: searchcache.New(infra.Redis),
+		Mailer: infra.Mailer, Templates: renderer, Log: log,
+	})
 	return &Services{
-		Store: st, Auth: authSvc, Station: station.NewService(st, docs, auditLog), Limiter: limiter,
+		Store: st, Auth: authSvc, Station: stationSvc, Limiter: limiter,
 		Sessions: sessions, Tokens: tokens, CSRFKey: csrfKey, EmailKey: emailKey,
 	}, nil
 }
