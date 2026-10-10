@@ -1,0 +1,40 @@
+# golangci-lint v2 — `make lint` (lint + vérification du formatage gci/gofumpt).
+version: "2"
+
+run:
+  build-tags: [integration]
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - errname
+    - errorlint
+    - gocritic
+    - gosec
+    - nilerr
+    - noctx
+    - revive
+    - sloglint
+    - unconvert
+    - usestdlibvars
+  settings:
+    sloglint:
+      attr-only: true
+      context: scope
+  exclusions:
+    generated: lax # internal/store/dbgen (en-tête « Code generated »)
+    presets: [comments, common-false-positives, std-error-handling]
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx]
+
+formatters:
+  enable: [gci, gofumpt]
+  settings:
+    gci:
+      # Ordre imposé des groupes d'imports : bibliothèque standard, dépendances, module local.
+      sections: [standard, default, localmodule]
+    gofumpt:
+      # Sans point dans son premier élément, le module serait pris pour la bibliothèque standard.
+      module-path: gostation/backend

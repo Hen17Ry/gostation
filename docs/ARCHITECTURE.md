@@ -75,6 +75,8 @@ erDiagram
   users ||--o{ reports : "signale"
   users ||--o{ data_requests : "demande"
   users ||--o{ audit_logs : "agit"
+  users ||--o{ favorites : "met en favori"
+  stations ||--o{ favorites : "favorite"
   stations ||--o{ station_opening_hours : "horaires"
   stations ||--o{ station_stocks : "stocke"
   stations ||--o{ stock_history : "historise"
@@ -151,6 +153,11 @@ erDiagram
     smallint product_id PK
     int searches
   }
+  favorites {
+    uuid user_id PK
+    uuid station_id PK
+    timestamptz created_at
+  }
 ```
 
 ### 3.1 Types énumérés
@@ -204,6 +211,8 @@ CREATE TABLE stations (
   city                  text,
   phone                 text NOT NULL,                       -- E.164 (+229…)
   location              geography(Point, 4326),              -- NULL tant que non épinglée
+  lat                   double precision GENERATED ALWAYS AS (ST_Y(location::geometry)) STORED,
+  lng                   double precision GENERATED ALWAYS AS (ST_X(location::geometry)) STORED,
   location_set_at       timestamptz,
   h3_r8                 bigint,                              -- cellule H3 res 8 (h3-go), stats et pénuries
   document_object_key   text,                                -- justificatif chiffré (stockage objet)
@@ -224,6 +233,9 @@ CREATE INDEX idx_stations_location_approved ON stations USING gist (location)
   WHERE status = 'approved' AND location IS NOT NULL;
 CREATE INDEX idx_stations_status  ON stations (status, created_at DESC);
 CREATE INDEX idx_stations_ifu     ON stations (ifu);           -- non unique : un IFU peut couvrir un réseau (§9)
+-- Données périmées (admin) et rappels : stations approuvées triées par fraîcheur.
+CREATE INDEX idx_stations_last_stock_update ON stations (last_stock_update_at)
+  WHERE status = 'approved';
 
 -- Horaires (ISO 8601 : 1 = lundi). 24 h/24 : 00:00 → 24:00. closes_at < opens_at = passe minuit.
 CREATE TABLE station_opening_hours (
@@ -247,7 +259,7 @@ CREATE TABLE products (
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_products_kind_unit CHECK (
-    (kind = 'lpg' AND unit = 'cylinder' AND size_kg > 0)
+    (kind = 'lpg' AND unit = 'cylinder' AND size_kg IS NOT NULL AND size_kg > 0)
     OR (kind IN ('petrol', 'diesel') AND unit = 'liter' AND size_kg IS NULL)),
   CONSTRAINT uq_products_kind_size UNIQUE NULLS NOT DISTINCT (kind, size_kg)
 );
@@ -263,6 +275,7 @@ CREATE TABLE station_stocks (
 );
 CREATE INDEX idx_station_stocks_available ON station_stocks (product_id, station_id)
   WHERE quantity > 0;
+CREATE INDEX idx_station_stocks_updated_at ON station_stocks (updated_at);  -- stale (> 8 h) / expiré (> 24 h)
 
 -- Historique des stocks : écrit dans la même transaction que station_stocks (pas de trigger).
 CREATE TABLE stock_history (
@@ -348,14 +361,37 @@ CREATE TABLE search_stats (
   empty_within_5km integer    NOT NULL DEFAULT 0,   -- aucun stock à ≤ 5 km : signal de pénurie
   PRIMARY KEY (bucket, h3_r7, product_id)
 );
+
+-- Ajout (décision §9) : favoris, réservés aux utilisateurs connectés. Supprimés avec le compte.
+CREATE TABLE favorites (
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  station_id  uuid NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, station_id)
+);
+CREATE INDEX idx_favorites_station ON favorites (station_id);
 ```
 
-Données initiales (migration de seed) : `petrol`, `diesel`, et les tailles de gaz courantes (6 kg et 12,5 kg, à confirmer sur le terrain), toutes modifiables par l'admin.
+**Colonnes `lat` / `lng` générées** : l'application ne lit jamais le type `geography`. Elle écrit `location` à partir de `lat`/`lng` (`ST_MakePoint(lng, lat)`) et lit les colonnes générées, que sqlc type correctement en `*float64` nullables. Une expression `ST_Y(...)` dans un SELECT serait typée non nullable par sqlc. `STORED` est imposé : PostgreSQL 18 interdit les fonctions d'extension dans une colonne virtuelle.
+
+**Trigger `updated_at`** : une fonction `set_updated_at()` est appelée `BEFORE UPDATE` sur `users`, `stations`, `products` et `station_stocks`. Elle pose `now()`, sauf si la requête fixe elle-même `updated_at` (reprises de données, tests de péremption).
+
+**Catalogue initial** (migration de données séparée) : gaz 5 kg, 10 kg et 25 kg (unité : bouteille), essence et gasoil (unité : litre). Tout est modifiable par l'admin.
 
 ## 4. Algorithme de recherche
 
-**Entrée** : `productId`, `lat`, `lng` (position courante, jamais stockée).
-**Sortie** : jusqu'à 10 stations `approved` avec `quantity > 0`, classées par temps de trajet réel.
+**Entrée** : `productId`, `lat`, `lng` (position courante, jamais stockée). Endpoint **public**, sans compte, protégé par un rate limit par IP (Redis, fenêtre glissante).
+**Sortie** : jusqu'à 10 stations `approved`, avec `quantity > 0`, **ouvertes maintenant** et dont le stock date de moins de 24 h, classées par temps de trajet réel. S'il n'y a aucune station ouverte à 50 km, on renvoie les plus proches fermées avec leur heure de réouverture.
+
+**Fraîcheur du stock** (âge = `now() - station_stocks.updated_at`) :
+
+| Âge | Effet |
+|---|---|
+| ≤ 8 h (`STOCK_STALE_AFTER`) | Normal |
+| 8 h à 24 h | `stale: true` : badge « à vérifier » côté UI |
+| > 24 h (`STOCK_EXPIRED_AFTER`) | Exclu de la recherche, listé dans `/admin/stale-stocks` |
+
+**Ouverture** : calculée à partir de `station_opening_hours` dans le fuseau `APP_TIMEZONE` (`Africa/Porto-Novo`). Les plages qui passent minuit (`closes_at <= opens_at`) et le 24 h/24 (`00:00 → 24:00`) sont gérés. Le jour ISO et l'heure locale sont calculés en Go puis passés en paramètres SQL. Une station sans horaires renseignés n'apparaît pas, comme une station sans position.
 
 ```mermaid
 sequenceDiagram
@@ -365,32 +401,36 @@ sequenceDiagram
   participant R as Redis
   participant P as PostGIS
   participant O as OSRM
-  C->>A: GET /api/v1/search?productId&lat&lng
+  C->>A: GET /api/v1/search?productId&lat&lng (sans compte)
+  A->>R: rate limit par IP (fenêtre glissante)
   A->>A: cell = H3(lat,lng, res 8) · compteur stats (cellule res 7)
   A->>R: GET search:v1:p{id}:g{gen}:c{cell}
   alt cache hit
     R-->>A: résultats classés
   else cache miss
-    loop rayons 500 m → 50 km
+    loop rayons 500 m → 50 km, stations ouvertes
       A->>P: ST_DWithin(centre de cellule, r + marge)
       P-->>A: candidats (≤ 20)
     end
-    opt aucun candidat à 50 km
+    opt aucune station ouverte à 50 km
+      A->>P: stations fermées à 50 km au plus
+    end
+    opt toujours rien
       A->>P: KNN ORDER BY location <-> point LIMIT 10
     end
     A->>O: /table 1 → N (sources=0)
     O-->>A: durées et distances routières
     A->>R: SET … EX 60
   end
-  A->>A: distance à vol d'oiseau recalculée depuis la position exacte
+  A->>A: distance et flag stale recalculés à la volée
   A-->>C: 200 résultats + stockUpdatedAt
 ```
 
 ### 4.1 Étapes
 
-1. **Cache.** `cell = h3.LatLngToCell(lat, lng, 8)`. Clé : `search:v1:p{productId}:g{gen}:c{cell}`, où `gen = GET search:gen:p{productId}`. En cas de hit, on passe à l'étape 5.
+1. **Cache.** `cell = h3.LatLngToCell(lat, lng, 8)`. Clé : `search:v1:p{productId}:g{gen}:c{cell}`, où `gen = GET search:gen:p{productId}`. En cas de hit, on passe à l'étape 6.
    Le calcul se fait depuis le **centre de la cellule**, pas depuis la position exacte. Deux utilisateurs de la même cellule partagent donc le résultat, et la position précise n'entre jamais dans le calcul mis en cache.
-2. **Rayons progressifs** `[500, 1000, 2000, 5000, 10000, 25000, 50000]` m. Chaque rayon est augmenté de la distance centre → sommet de la cellule (≈ 0,5 km en res 8) : ainsi aucune station située dans le rayon autour de la position réelle n'est manquée.
+2. **Rayons progressifs sur les stations ouvertes** `[500, 1000, 2000, 5000, 10000, 25000, 50000]` m. Chaque rayon est augmenté de la distance centre → sommet de la cellule (≈ 0,5 km en res 8) : ainsi aucune station située dans le rayon autour de la position réelle n'est manquée.
    ```sql
    -- name: ListAvailableStationsWithinRadius :many
    SELECT s.id, s.name, s.brand, s.address,
@@ -401,27 +441,38 @@ sequenceDiagram
    JOIN station_stocks ss ON ss.station_id = s.id
    WHERE ss.product_id = @product_id
      AND ss.quantity > 0
+     AND ss.updated_at > now() - @expired_after::interval       -- STOCK_EXPIRED_AFTER (24 h)
      AND s.status = 'approved'
      AND s.location IS NOT NULL
      AND ST_DWithin(s.location, @point::geography, @radius_m)
+     AND EXISTS (                                                -- ouverte maintenant
+       SELECT 1 FROM station_opening_hours h
+       WHERE h.station_id = s.id AND (
+         (h.opens_at < h.closes_at AND h.weekday = @isodow
+            AND @local_time >= h.opens_at AND @local_time < h.closes_at)
+         OR (h.closes_at <= h.opens_at AND (                     -- plage qui passe minuit
+            (h.weekday = @isodow      AND @local_time >= h.opens_at) OR
+            (h.weekday = @prev_isodow AND @local_time <  h.closes_at)))))
    ORDER BY s.location <-> @point::geography
-   LIMIT @max_candidates;                       -- SEARCH_MAX_CANDIDATES = 20
+   LIMIT @max_candidates;                                        -- SEARCH_MAX_CANDIDATES = 20
    ```
    On s'arrête au premier rayon qui renvoie au moins `SEARCH_MIN_RESULTS` candidats (3 par défaut, pour que le re-classement OSRM ait du sens ; mettre 1 pour le comportement strict). Si le dernier rayon ne renvoie que 1 ou 2 candidats, on les garde.
    `@point` = `ST_SetSRID(ST_MakePoint(lng, lat), 4326)` : **lng d'abord**.
-3. **Repli KNN illimité** si rien n'est trouvé à 50 km : même requête sans `ST_DWithin`, `LIMIT 10`. L'opérateur `<->` sur `geography` utilise l'index GiST. On renvoie donc toujours un résultat tant qu'une station du pays a du stock ; sinon `strategy: "none"` et l'UI propose d'autres tailles ou produits.
-4. **Re-classement OSRM.** `GET /table/v1/driving/{lng,lat};{s1};…;{sN}?sources=0&annotations=duration,distance`, timeout `OSRM_TIMEOUT` (800 ms).
+3. **Repli sur les stations fermées** si aucune station ouverte n'est trouvée à 50 km. Même requête, rayon 50 km, `LIMIT 10`, en remplaçant le filtre d'ouverture par « a des horaires mais n'est pas ouverte maintenant ». Pour chaque station, l'API calcule `reopensAt`, la prochaine ouverture d'après ses horaires. `strategy: "closed"`.
+4. **Repli KNN illimité** si rien n'est trouvé à 50 km, même parmi les fermées. Requête sans `ST_DWithin` ni filtre d'ouverture, `ORDER BY location <-> point LIMIT 10` ; l'opérateur `<->` sur `geography` utilise l'index GiST. Les stations ouvertes passent en premier, les fermées portent leur `reopensAt`. `strategy: "knn"`. Il y a donc toujours un résultat tant qu'une station du pays a un stock frais. Sinon `strategy: "none"`, et l'UI propose d'autres tailles ou produits.
+5. **Re-classement OSRM.** `GET /table/v1/driving/{lng,lat};{s1};…;{sN}?sources=0&annotations=duration,distance`, timeout `OSRM_TIMEOUT` (800 ms).
    - On trie par `duration` croissante. Une durée `null` (non joignable par la route) passe en fin de liste.
    - Si OSRM échoue ou dépasse le timeout, on garde l'ordre par distance, `ranking: "distance"`, et on ne met **pas** le résultat en cache.
    - On tronque à 10 résultats.
    - `SET` de la clé avec `EX = SEARCH_CACHE_TTL` (60 s).
-5. **Réponse.** L'API recalcule `distanceM` (haversine) depuis la position exacte, en mémoire. La durée affichée est celle calculée depuis le centre de la cellule (≈), suffisante pour classer ; l'itinéraire précis vient de `/routes`.
+6. **Réponse.** L'API recalcule en mémoire `distanceM` (haversine) depuis la position exacte, ainsi que `stale` à partir de `stockUpdatedAt`. La durée affichée est celle calculée depuis le centre de la cellule (≈), suffisante pour classer ; l'itinéraire précis vient de `/routes`.
 
 ### 4.2 Invalidation du cache
 
 Toute écriture qui peut changer un résultat incrémente une **génération** : `INCR search:gen:p{productId}`. Les anciennes clés deviennent inaccessibles immédiatement et expirent par TTL. Sont concernées :
 - mise à jour de stock (le produit concerné) ;
 - changement de statut, de position ou d'horaires d'une station (tous les produits) ;
+- l'ouverture et la fermeture des stations ne bumpent pas la génération : le TTL de 60 s borne le décalage aux heures d'ouverture.
 - activation ou désactivation d'un produit.
 
 On utilise des générations plutôt que `DEL` par motif, car une station qui repasse de 0 à > 0 doit apparaître dans des cellules dont le cache ne la contient pas encore ; un index inverse ne suffit pas. À l'échelle du Bénin (quelques milliers de stations), invalider tout le produit reste bon marché.
@@ -438,9 +489,11 @@ On utilise des générations plutôt que `DEL` par motif, car une station qui re
   "results": [
     {
       "station": { "id": "0192…", "name": "Station Akpakpa", "brand": "…", "address": "…",
-                   "location": { "lat": 6.3601, "lng": 2.4498 }, "isOpenNow": true },
+                   "location": { "lat": 6.3601, "lng": 2.4498 },
+                   "isOpenNow": true, "reopensAt": null },
       "quantity": 14,
       "stockUpdatedAt": "2026-10-10T14:03:00Z",
+      "stale": false,
       "distanceM": 1830,
       "durationS": 420,
       "routeDistanceM": 2400
@@ -449,7 +502,7 @@ On utilise des générations plutôt que `DEL` par motif, car une station qui re
   "generatedAt": "2026-10-10T14:05:12Z"
 }
 ```
-« Mis à jour il y a X min » est calculé côté client à partir de `stockUpdatedAt` : le texte reste juste même quand la réponse vient du cache.
+`strategy` vaut `radius`, `closed`, `knn` ou `none`. « Mis à jour il y a X min » est calculé côté client à partir de `stockUpdatedAt` : le texte reste juste même quand la réponse vient du cache. `stale` signale un stock vieux de 8 à 24 h.
 
 ### 4.4 Points d'attention
 - **Ordre des coordonnées** : JSON `{lat,lng}`, mais PostGIS (`ST_MakePoint`) et OSRM attendent `lng,lat`. Des tests unitaires dédiés couvrent ce point.
@@ -460,6 +513,44 @@ On utilise des générations plutôt que `DEL` par motif, car une station qui re
 ## 5. Endpoints API (prévus)
 
 Préfixe `/api/v1`, JSON, erreurs RFC 9457. Sondes `GET /healthz` (vivant) et `GET /readyz` (PG, Redis, OSRM) hors préfixe. 🔒 = JWT requis.
+
+### Format des erreurs (RFC 9457)
+
+Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **stable** : les clients s'appuient dessus pour afficher un message en français, jamais sur `title` ni `detail`, qui sont en anglais et destinés aux développeurs.
+
+```json
+{
+  "type": "urn:gostation:problem:request.validation_failed",
+  "title": "Unprocessable Entity",
+  "status": 422,
+  "detail": "One or more fields are invalid.",
+  "instance": "/api/v1/search",
+  "code": "request.validation_failed",
+  "requestId": "01929b3e-7c41-7d2a-9f1e-3b8c2d4a5e6f",
+  "errors": [{ "field": "lat", "code": "out_of_range", "message": "must be between -90 and 90" }]
+}
+```
+
+| Code | HTTP | Sens |
+|---|---|---|
+| `request.invalid_json` | 400 | Corps JSON illisible ou champ inconnu |
+| `request.invalid_parameter` | 400 | Paramètre de chemin ou de requête mal formé |
+| `request.body_too_large` | 413 | Corps plus gros que `HTTP_MAX_BODY_BYTES` |
+| `request.validation_failed` | 422 | Validation métier ; détail par champ dans `errors[]` |
+| `request.timeout` | 504 | Traitement plus long que `HTTP_REQUEST_TIMEOUT` |
+| `auth.unauthorized` | 401 | Token absent ou invalide (étape auth) |
+| `auth.forbidden` | 403 | Rôle ou statut insuffisant (étape auth) |
+| `route.not_found` | 404 | Route inconnue |
+| `method.not_allowed` | 405 | Méthode non supportée sur cette route |
+| `resource.not_found` | 404 | Ressource inexistante |
+| `resource.conflict` | 409 | Conflit (unicité, état incompatible) |
+| `rate_limit.exceeded` | 429 | Quota dépassé (voir `Retry-After`) |
+| `service.unavailable` | 503 | Dépendance indisponible ou arrêt en cours (`/readyz`) |
+| `internal.error` | 500 | Erreur interne : le détail n'est jamais exposé, il est journalisé avec le `requestId` |
+
+Les codes métier (`station.not_approved`, `auth.email_taken`…) s'ajoutent dans les domaines au fil des étapes ; on ne renomme jamais un code existant.
+
+En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est valide, sinon un UUIDv7 généré), `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, et `Retry-After` sur les 429.
 
 ### Public
 | Méthode | Route | Description |
@@ -483,13 +574,19 @@ Préfixe `/api/v1`, JSON, erreurs RFC 9457. Sondes `GET /healthz` (vivant) et `G
 | POST | `/me/devices` | Enregistre ou rafraîchit le token push Expo |
 | DELETE | `/me/devices/{token}` | Désenregistre l'appareil |
 
-### Recherche et itinéraire 🔒 (tous rôles)
+### Recherche et itinéraire : publics, sans compte (rate limit par IP)
 | Méthode | Route | Description |
 |---|---|---|
 | GET | `/search?productId&lat&lng` | Recherche (§4) |
-| GET | `/stations/{id}` | Fiche publique d'une station `approved` : infos, horaires, stocks > 0 avec leur âge |
+| GET | `/stations/{id}` | Fiche publique d'une station `approved` : infos, horaires, stocks > 0 avec leur âge et le flag `stale` |
 | GET | `/routes?fromLat&fromLng&stationId` | Itinéraire OSRM proxifié (`polyline6`, étapes, durée) ; origine jamais journalisée |
+
+### Fonctions réservées aux comptes 🔒 (tous rôles)
+| Méthode | Route | Description |
+|---|---|---|
 | POST | `/stations/{id}/reports` | Signalement (limité à 3 par jour, par utilisateur et par station) |
+| GET | `/me/favorites` | Mes stations favorites |
+| PUT / DELETE | `/me/favorites/{stationId}` | Ajouter / retirer un favori (idempotent) |
 
 ### Gérant 🔒 `manager`
 Toutes les routes exigent une station `approved`, sauf celles marquées *.
@@ -516,7 +613,7 @@ Toutes les routes exigent une station `approved`, sauf celles marquées *.
 | GET / POST | `/admin/products` | Catalogue |
 | PATCH | `/admin/products/{id}` | Libellé, ordre, activation (pas de suppression) |
 | GET | `/admin/shortage-zones?productId&from&to` | Cellules H3 res 7 en GeoJSON : demande et absence de stock (k ≥ 5) |
-| GET | `/admin/stale-stocks?olderThan=6h` | Stations ouvertes dont le stock n'a pas été mis à jour depuis plus que le seuil |
+| GET | `/admin/stale-stocks?olderThan=24h` | Stocks expirés (> 24 h, donc exclus de la recherche) ; `olderThan=8h` liste aussi les stocks `stale` |
 | GET | `/admin/reports?status&cursor` | Signalements |
 | PATCH | `/admin/reports/{id}` | Résoudre ou classer |
 | GET | `/admin/stats/overview` · `/admin/stats/searches?productId&granularity` | Indicateurs (stations, stocks, recherches agrégées) |
@@ -546,7 +643,8 @@ Les comptes admin se créent uniquement via la CLI `cmd/admin` : aucune route pu
   |---|---|
   | Login | 5/min par IP et par email |
   | Inscription | 5/h par IP |
-  | Recherche | 60/min par utilisateur |
+  | Global `/api/v1` | 300/min par IP (`RATE_LIMIT_IP_REQUESTS` / `RATE_LIMIT_IP_WINDOW`) |
+  | Recherche (publique) | 60/min par IP |
   | `/routes` | 30/min |
   | Signalements | 3/jour par station |
 
@@ -585,14 +683,21 @@ Les tâches sont idempotentes (clé d'unicité asynq), avec retry et backoff exp
 
 \* Durées à valider avec un juriste ou DPO au regard du Code du numérique (Livre V) et des délibérations de l'APDP.
 
-## 9. Questions ouvertes
+## 9. Décisions et questions ouvertes
 
-1. **Stations fermées** : faut-il les afficher avec un badge « Fermé, ouvre à 6 h » et les classer après les stations ouvertes, ou les exclure de la recherche ?
-2. **Données périmées** : au-delà de quel âge un stock est-il signalé (proposition : 6 h) ou masqué (proposition : 24 h) ?
-3. **Réseaux de stations** : un gérant peut-il gérer plusieurs stations, et plusieurs stations peuvent-elles partager un même IFU ? (Le modèle actuel suppose un gérant = une station et ne rend pas l'IFU unique.)
-4. **Recherche sans compte** : faut-il ouvrir la recherche en anonyme (moins de friction) ou garder un compte obligatoire comme le prévoit la spec ?
-5. **Hébergement** : où héberger les données (contraintes APDP sur les transferts hors du Bénin) ? Quel stockage objet en prod (S3 compatible ou MinIO auto-hébergé) ?
-6. **Vérification à l'inscription** : vérification de l'email ? OTP SMS pour les gérants ?
-7. **Délais légaux** : délai de réponse aux demandes APDP et durées de conservation (§8), à confirmer.
-8. **Admins** : 2FA TOTP dès la V1 ?
-9. **Prix** des carburants et du gaz : hors périmètre V1 ?
+### Décisions (2026-10-10)
+
+| # | Sujet | Décision |
+|---|---|---|
+| D1 | Stations fermées | **Masquées** de la recherche. Si aucune station ouverte n'est trouvée à 50 km, on renvoie les plus proches fermées avec leur heure de réouverture (§4, étape 3). |
+| D2 | Données périmées | Stock non mis à jour depuis **plus de 8 h** : flag `stale` (badge UI). **Plus de 24 h** : exclu de la recherche et listé côté admin. |
+| D3 | Recherche sans compte | **Autorisée** (recherche, fiche station, itinéraire), avec un rate limit par IP dans Redis. Un compte est requis pour signaler, gérer ses favoris et recevoir des notifications. |
+| D4 | Hébergement | Reporté à l'**étape déploiement** : localisation des données (APDP) et stockage objet des justificatifs. |
+
+### Questions ouvertes
+
+1. **Réseaux de stations** : un gérant peut-il gérer plusieurs stations, et plusieurs stations peuvent-elles partager un même IFU ? (Le modèle actuel suppose un gérant = une station et ne rend pas l'IFU unique.)
+2. **Vérification à l'inscription** : vérification de l'email ? OTP SMS pour les gérants ?
+3. **Délais légaux** : délai de réponse aux demandes APDP et durées de conservation (§8), à confirmer.
+4. **Admins** : 2FA TOTP dès la V1 ?
+5. **Prix** des carburants et du gaz : hors périmètre V1 ?
