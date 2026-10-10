@@ -35,6 +35,22 @@ const (
 	ActionAdminCreated         = "admin.created"
 	ActionAdminTwoFactorReset  = "admin.2fa_reset"
 	ActionDocumentViewed       = "admin.document_viewed"
+
+	ActionStationUpdated          = "manager.station_updated"
+	ActionStationResubmitted      = "manager.station_resubmitted"
+	ActionLocationSet             = "manager.location_set"
+	ActionLocationMoveRequested   = "manager.location_move_requested"
+	ActionHoursUpdated            = "manager.hours_updated"
+	ActionClosureAdded            = "manager.closure_added"
+	ActionClosureRemoved          = "manager.closure_removed"
+	ActionProductsUpdated         = "manager.products_updated"
+	ActionStationApproved         = "admin.station_approved"
+	ActionStationRejected         = "admin.station_rejected"
+	ActionStationSuspended        = "admin.station_suspended"
+	ActionStationUnsuspended      = "admin.station_unsuspended"
+	ActionLocationRequestApproved = "admin.location_request_approved"
+	ActionLocationRequestRejected = "admin.location_request_rejected"
+	ActionLocationFlagDismissed   = "admin.location_flag_dismissed"
 )
 
 // Entry est une entrée du journal. Metadata ne contient aucune donnée personnelle superflue

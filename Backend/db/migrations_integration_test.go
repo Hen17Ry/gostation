@@ -37,8 +37,9 @@ func runTests(m *testing.M) int {
 
 // appTables sont les tables créées par les migrations (ARCHITECTURE §3).
 var appTables = []string{
-	"admin_recovery_codes", "audit_logs", "data_requests", "device_tokens", "favorites", "products", "reports",
-	"search_stats", "station_opening_hours", "station_stocks", "stations", "stock_history", "users",
+	"admin_recovery_codes", "audit_logs", "country_boundaries", "data_requests", "device_tokens", "favorites", "products",
+	"reports", "search_stats", "station_closures", "station_location_requests", "station_opening_hours", "station_stocks",
+	"stations", "stock_history", "users",
 }
 
 func TestMigrationsUpDownUp(t *testing.T) {
@@ -82,7 +83,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	if len(up) != total {
 		t.Fatalf("first up applied %d migrations, want %d", len(up), total)
 	}
-	assertState(t, "after up", len(appTables), 11, 5)
+	assertState(t, "after up", len(appTables), 12, 5)
 
 	down, err := p.DownTo(ctx, 0)
 	if err != nil {
@@ -94,7 +95,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	assertState(t, "after down", 0, 0, -1)
 	var leftovers int
 	if err := sqlDB.QueryRowContext(ctx, `SELECT
-		(SELECT count(*) FROM pg_proc WHERE proname IN ('set_updated_at', 'audit_logs_forbid_update')) +
+		(SELECT count(*) FROM pg_proc WHERE proname IN ('set_updated_at', 'set_stock_updated_at', 'audit_logs_forbid_update')) +
 		(SELECT count(*) FROM pg_extension WHERE extname = 'citext')`).Scan(&leftovers); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	if _, err := p.Up(ctx); err != nil {
 		t.Fatalf("second up: %v", err)
 	}
-	assertState(t, "after second up", len(appTables), 11, 5)
+	assertState(t, "after second up", len(appTables), 12, 5)
 }
 
 // migratedPool garantit un schéma à jour (Up est idempotent) et ouvre un pool.
@@ -249,6 +250,32 @@ func TestConstraints(t *testing.T) {
 		if stocks != 0 {
 			t.Errorf("%d stocks left after station deletion, want 0 (cascade)", stocks)
 		}
+	})
+	t.Run("stock updated_at moves only when the quantity changes", func(t *testing.T) {
+		st, err := insertStation(t, pool, nil, "3201234567894")
+		mustNoErr(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO station_stocks (station_id, product_id, quantity, updated_at)
+			SELECT $1, id, 5, '2026-01-01T00:00:00Z' FROM products WHERE code = 'diesel'`, st)
+		mustNoErr(t, err)
+		var updated time.Time
+		mustNoErr(t, pool.QueryRow(ctx, `UPDATE station_stocks SET last_confirmed_at = now() WHERE station_id = $1 RETURNING updated_at`, st).Scan(&updated))
+		if updated.Year() != 2026 || updated.Month() != 1 {
+			t.Fatalf("confirmation moved updated_at to %s", updated)
+		}
+		mustNoErr(t, pool.QueryRow(ctx, `UPDATE station_stocks SET quantity = 6 WHERE station_id = $1 RETURNING updated_at`, st).Scan(&updated))
+		if time.Since(updated) > time.Minute {
+			t.Fatalf("quantity change did not move updated_at (%s)", updated)
+		}
+	})
+	t.Run("one pending location request per station", func(t *testing.T) {
+		st, err := insertStation(t, pool, nil, "3201234567895")
+		mustNoErr(t, err)
+		insert := `INSERT INTO station_location_requests (station_id, location, h3_r8, distance_m)
+			VALUES ($1, ST_SetSRID(ST_MakePoint(2.42, 6.37), 4326)::geography, 1, 500)`
+		_, err = pool.Exec(ctx, insert, st)
+		mustNoErr(t, err)
+		_, err = pool.Exec(ctx, insert, st)
+		assertViolation(t, err, "uq_station_location_requests_pending")
 	})
 	t.Run("audit_logs is append-only", func(t *testing.T) {
 		actor, err := insertUser(t, pool, "admin@example.bj")

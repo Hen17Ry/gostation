@@ -12,6 +12,70 @@ import (
 	"github.com/google/uuid"
 )
 
+type LocationRequestStatus string
+
+const (
+	LocationRequestStatusPending    LocationRequestStatus = "pending"
+	LocationRequestStatusApproved   LocationRequestStatus = "approved"
+	LocationRequestStatusRejected   LocationRequestStatus = "rejected"
+	LocationRequestStatusSuperseded LocationRequestStatus = "superseded"
+)
+
+func (e *LocationRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LocationRequestStatus(s)
+	case string:
+		*e = LocationRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LocationRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullLocationRequestStatus struct {
+	LocationRequestStatus LocationRequestStatus `json:"locationRequestStatus"`
+	Valid                 bool                  `json:"valid"` // Valid is true if LocationRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLocationRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.LocationRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LocationRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLocationRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LocationRequestStatus), nil
+}
+
+func (e LocationRequestStatus) Valid() bool {
+	switch e {
+	case LocationRequestStatusPending,
+		LocationRequestStatusApproved,
+		LocationRequestStatusRejected,
+		LocationRequestStatusSuperseded:
+		return true
+	}
+	return false
+}
+
+func AllLocationRequestStatusValues() []LocationRequestStatus {
+	return []LocationRequestStatus{
+		LocationRequestStatusPending,
+		LocationRequestStatusApproved,
+		LocationRequestStatusRejected,
+		LocationRequestStatusSuperseded,
+	}
+}
+
 type ProductKind string
 
 const (
@@ -192,6 +256,67 @@ func AllStationStatusValues() []StationStatus {
 		StationStatusApproved,
 		StationStatusRejected,
 		StationStatusSuspended,
+	}
+}
+
+type StockSource string
+
+const (
+	StockSourceManager StockSource = "manager"
+	StockSourceAdmin   StockSource = "admin"
+	StockSourceSystem  StockSource = "system"
+)
+
+func (e *StockSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StockSource(s)
+	case string:
+		*e = StockSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StockSource: %T", src)
+	}
+	return nil
+}
+
+type NullStockSource struct {
+	StockSource StockSource `json:"stockSource"`
+	Valid       bool        `json:"valid"` // Valid is true if StockSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStockSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.StockSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StockSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStockSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StockSource), nil
+}
+
+func (e StockSource) Valid() bool {
+	switch e {
+	case StockSourceManager,
+		StockSourceAdmin,
+		StockSourceSystem:
+		return true
+	}
+	return false
+}
+
+func AllStockSourceValues() []StockSource {
+	return []StockSource{
+		StockSourceManager,
+		StockSourceAdmin,
+		StockSourceSystem,
 	}
 }
 

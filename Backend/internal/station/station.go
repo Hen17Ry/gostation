@@ -1,37 +1,147 @@
-// Package station regroupe la logique des stations. Étape 3 : statut pour le middleware
-// RequireApprovedStation, lecture par le gérant, lecture du justificatif par un admin.
-// La gestion complète (position, horaires, stocks) arrive à l'étape 4.
+// Package station regroupe la logique des stations : espace gérant (profil, position, horaires,
+// fermetures, produits vendus, stocks), validation admin et lecture des justificatifs.
+//
+// Toute écriture passe par une transaction qui commence par BumpStationVersion : verrouillage
+// optimiste (412 si la version attendue est périmée) et verrou de ligne pour la suite. Le cache
+// de recherche est invalidé après le commit.
 package station
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/audit"
 	"gostation/backend/internal/document"
+	"gostation/backend/internal/mail"
 	"gostation/backend/internal/store"
 	"gostation/backend/internal/store/dbgen"
 )
 
+// Statuts d'une station (enum station_status).
+const (
+	StatusPending   = string(dbgen.StationStatusPending)
+	StatusApproved  = string(dbgen.StationStatusApproved)
+	StatusRejected  = string(dbgen.StationStatusRejected)
+	StatusSuspended = string(dbgen.StationStatusSuspended)
+)
+
+// Codes d'erreur stables du domaine station (docs/ARCHITECTURE.md §5).
+const (
+	CodeInvalidTransition      = "station.invalid_status_transition"
+	CodeManagerEmailUnverified = "station.manager_email_unverified"
+	CodeOutsideCountry         = "station.location_outside_country"
+	CodeClosureExists          = "station.closure_exists"
+	CodeNoProductsSold         = "station.no_products_sold"
+)
+
+// Config regroupe les réglages du service.
+type Config struct {
+	Timezone     *time.Location
+	MaxCylinders int
+	MaxLiters    int
+	StaleAfter   time.Duration
+	ExpiredAfter time.Duration
+}
+
+// CacheInvalidator invalide le cache de recherche (*searchcache.Invalidator).
+type CacheInvalidator interface {
+	Products(ctx context.Context, ids ...int16) error
+	All(ctx context.Context) error
+}
+
+// Deps regroupe les dépendances injectées.
+type Deps struct {
+	Store     *store.Store
+	Documents *document.Service
+	Audit     *audit.Logger
+	Cache     CacheInvalidator
+	Mailer    mail.Mailer
+	Templates *mail.Renderer
+	Log       *slog.Logger
+}
+
 // Service expose les opérations sur les stations.
 type Service struct {
-	store *store.Store
-	docs  *document.Service
-	audit *audit.Logger
+	Deps
+	cfg Config
+	now func() time.Time
 }
 
 // NewService construit le service.
-func NewService(st *store.Store, docs *document.Service, a *audit.Logger) *Service {
-	return &Service{store: st, docs: docs, audit: a}
+func NewService(cfg Config, d Deps) *Service {
+	return &Service{Deps: d, cfg: cfg, now: time.Now}
+}
+
+// Timezone renvoie le nom du fuseau des horaires (Africa/Porto-Novo).
+func (s *Service) Timezone() string { return s.cfg.Timezone.String() }
+
+// Actor identifie l'utilisateur à l'origine d'une écriture (gérant ou admin).
+type Actor struct {
+	UserID uuid.UUID
+	Role   string
+}
+
+func errVersionConflict() *apperr.Error {
+	return apperr.New(http.StatusPreconditionFailed, apperr.CodeVersionConflict,
+		"The station was modified meanwhile: reload it and try again.")
+}
+
+func errTransition(from, action string) *apperr.Error {
+	return apperr.New(http.StatusConflict, CodeInvalidTransition,
+		fmt.Sprintf("Cannot %s a station whose status is %s.", action, from)).WithMeta("stationStatus", from)
+}
+
+// bump applique le verrouillage optimiste dans la transaction et renvoie la nouvelle version.
+func bump(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID, expected int32) (int32, error) {
+	v, err := q.BumpStationVersion(ctx, dbgen.BumpStationVersionParams{ID: stationID, ExpectedVersion: expected})
+	if store.IsNotFound(err) {
+		return 0, errVersionConflict()
+	}
+	if err != nil {
+		return 0, fmt.Errorf("station: bump version: %w", err)
+	}
+	return v, nil
+}
+
+// managerStation renvoie la station du gérant (404 s'il n'en a pas).
+func (s *Service) managerStation(ctx context.Context, q *dbgen.Queries, managerID uuid.UUID) (dbgen.GetStationByManagerRow, error) {
+	st, err := q.GetStationByManager(ctx, &managerID)
+	if err != nil {
+		return st, fmt.Errorf("station: load manager station: %w", store.Translate(err))
+	}
+	return st, nil
+}
+
+// invalidate applique l'invalidation du cache après commit ; un échec n'annule pas l'écriture
+// (le TTL de 60 s borne le décalage) mais il est journalisé.
+func (s *Service) invalidate(ctx context.Context, all bool, products ...int16) {
+	var err error
+	if all {
+		err = s.Cache.All(ctx)
+	} else {
+		err = s.Cache.Products(ctx, products...)
+	}
+	if err != nil {
+		s.Log.WarnContext(ctx, "station: search cache invalidation failed", slog.Any("err", err))
+	}
+}
+
+func (s *Service) audit(ctx context.Context, a Actor, action string, stationID uuid.UUID, meta map[string]any) {
+	s.Audit.Log(ctx, audit.Entry{
+		ActorID: &a.UserID, ActorRole: a.Role, Action: action,
+		EntityType: "station", EntityID: stationID.String(), Metadata: meta,
+	})
 }
 
 // ManagerStationStatus renvoie le statut de la station du gérant ("" s'il n'en a pas).
 func (s *Service) ManagerStationStatus(ctx context.Context, managerID uuid.UUID) (string, error) {
-	st, err := s.store.GetStationByManager(ctx, &managerID)
+	st, err := s.Store.GetStationByManager(ctx, &managerID)
 	if store.IsNotFound(err) {
 		return "", nil
 	}
@@ -41,34 +151,69 @@ func (s *Service) ManagerStationStatus(ctx context.Context, managerID uuid.UUID)
 	return string(st.Status), nil
 }
 
-// ForManager renvoie la station du gérant.
-func (s *Service) ForManager(ctx context.Context, managerID uuid.UUID) (dbgen.GetStationByManagerRow, error) {
-	st, err := s.store.GetStationByManager(ctx, &managerID)
-	if err != nil {
-		return st, fmt.Errorf("station: load manager station: %w", store.Translate(err))
+// LocationRequest est une demande de déplacement en attente.
+type LocationRequest struct {
+	ID              uuid.UUID
+	Lat, Lng        float64
+	DistanceM       int32
+	DeviceDistanceM *int32
+	DeviceAccuracyM *int32
+	CreatedAt       time.Time
+}
+
+func (s *Service) pendingMove(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID) (*LocationRequest, error) {
+	r, err := q.GetPendingLocationRequest(ctx, stationID)
+	if store.IsNotFound(err) {
+		return nil, nil
 	}
-	return st, nil
+	if err != nil {
+		return nil, fmt.Errorf("station: load pending move: %w", err)
+	}
+	lr := &LocationRequest{
+		ID: r.ID, DistanceM: r.DistanceM, DeviceDistanceM: r.DeviceDistanceM,
+		DeviceAccuracyM: r.DeviceAccuracyM, CreatedAt: r.CreatedAt,
+	}
+	if r.Lat != nil && r.Lng != nil {
+		lr.Lat, lr.Lng = *r.Lat, *r.Lng
+	}
+	return lr, nil
+}
+
+// ManagerStation est la vue gérant d'une station.
+type ManagerStation struct {
+	dbgen.GetStationByManagerRow
+	PendingMove *LocationRequest
+}
+
+// ForManager renvoie la station du gérant et sa demande de déplacement en attente.
+func (s *Service) ForManager(ctx context.Context, managerID uuid.UUID) (ManagerStation, error) {
+	st, err := s.managerStation(ctx, s.Store.Queries, managerID)
+	if err != nil {
+		return ManagerStation{}, err
+	}
+	move, err := s.pendingMove(ctx, s.Store.Queries, st.ID)
+	if err != nil {
+		return ManagerStation{}, err
+	}
+	return ManagerStation{GetStationByManagerRow: st, PendingMove: move}, nil
 }
 
 // Document déchiffre le justificatif d'une station pour un admin et journalise la lecture.
 func (s *Service) Document(ctx context.Context, adminID, stationID uuid.UUID) ([]byte, string, error) {
-	row, err := s.store.GetStationDocument(ctx, stationID)
+	row, err := s.Store.GetStationDocument(ctx, stationID)
 	if err != nil {
 		return nil, "", fmt.Errorf("station: load document metadata: %w", store.Translate(err))
 	}
 	if row.DocumentObjectKey == nil || row.DocumentMime == nil {
 		return nil, "", apperr.New(http.StatusNotFound, apperr.CodeNotFound, "This station has no document.")
 	}
-	data, err := s.docs.Open(ctx, document.Stored{
+	data, err := s.Documents.Open(ctx, document.Stored{
 		ObjectKey: *row.DocumentObjectKey, WrappedKey: row.DocumentWrappedKey,
 		SHA256: row.DocumentSha256, MIME: *row.DocumentMime,
 	})
 	if err != nil {
 		return nil, "", err
 	}
-	s.audit.Log(ctx, audit.Entry{
-		ActorID: &adminID, ActorRole: string(dbgen.UserRoleAdmin),
-		Action: audit.ActionDocumentViewed, EntityType: "station", EntityID: stationID.String(),
-	})
+	s.audit(ctx, Actor{UserID: adminID, Role: string(dbgen.UserRoleAdmin)}, audit.ActionDocumentViewed, stationID, nil)
 	return data, *row.DocumentMime, nil
 }

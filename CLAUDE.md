@@ -13,13 +13,15 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 6. Routage uniquement via notre OSRM auto-hébergé ; tuiles uniquement OpenFreeMap. Aucune API cartographique propriétaire.
 7. **Auth** : email vérifié par code à 6 chiffres (obligatoire pour signaler, favoris, notifications) ; 2FA TOTP obligatoire pour les admins ; réponses génériques (anti-énumération) sur login, forgot et resend ; toute action sensible écrit dans `audit_logs`.
 8. Les justificatifs IFU sont chiffrés (envelope AES-256-GCM) et ne sont jamais servis publiquement : seuls les admins les lisent, via un endpoint dédié et audité.
+9. **Stocks** : « non vendu » (pas de ligne) ≠ « 0 en stock ». Fraîcheur = `GREATEST(updated_at, last_confirmed_at)` : stale au-delà de 8 h, exclu de la recherche au-delà de 24 h. Toute écriture de stock, statut, horaires, fermeture, produits vendus ou position invalide le cache de recherche.
+10. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
 
 ## Rôles
 
 | Rôle | Client | Périmètre |
 |---|---|---|
 | `user` | Mobile | Recherche, fiche station et itinéraire **sans compte** (rate limit par IP). Un compte (prénom, nom, email, mot de passe) est requis pour signaler, gérer ses favoris et recevoir des notifications. |
-| `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone (vérifié manuellement par l'admin, pas d'OTP SMS en V1), justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin. Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié. Gérant non approuvé : il se connecte et voit son statut (et le motif d'un rejet) via `GET /me`, rien d'autre. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture. |
+| `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone (vérifié manuellement par l'admin, pas d'OTP SMS en V1), justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin (email à chaque décision). Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié. Gérant `pending` ou `suspended` : il se connecte et voit son statut via `GET /me`, rien d'autre. Gérant `rejected` : il peut corriger ses informations et renvoyer un justificatif (retour en `pending`). Un changement d'IFU ou de RCCM renvoie la station en `pending`. Position : premier épinglage libre (signalé à l'admin si à plus de 500 m de l'appareil) ; ensuite, déplacement libre sous 200 m, au-delà validé par l'admin ; jamais hors du Bénin (marge de 2 km). Horaires : 2 plages par jour au plus, 24 h/24, fermetures exceptionnelles. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture. |
 | `admin` | Web | Compte créé uniquement par la CLI `cmd/admin`, 2FA TOTP obligatoire. Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements, stats, journal d'audit, demandes RGPD/APDP. |
 
 ## Monorepo
@@ -104,7 +106,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
   - `internal/store` : transactions (`InTx`) et traduction des erreurs pgx ; `internal/store/dbgen` contient le code **généré** par sqlc, à ne jamais éditer.
   - `internal/platform/{postgres,redis,osrm,h3,logging}` : clients d'infrastructure ; `internal/ratelimit` : fenêtre glissante Redis.
   - `internal/app` : assemblage (`NewServices`, `NewHandler`), partagé par `cmd/api`, `cmd/admin` et les tests d'intégration.
-  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station`, `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`.
+  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche).
   - `internal/platform/{crypto,storage}` : chiffrement (enveloppe, HKDF) et stockage d'objets (local, S3 plus tard).
   - `cmd/admin` : CLI des comptes admin (`create`, `reset-2fa`).
   - `api/openapi.yaml` : contrat OpenAPI 3.1, **mis à jour dans le même commit que toute route** (un test compare la spec aux routes servies). Les types des clients mobile et web en sont générés.
@@ -112,8 +114,10 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
   - Piège SQL : un `CHECK` évalué à NULL passe. Toute condition sur une colonne nullable doit donc tester `IS NOT NULL` explicitement.
 - **Injection de dépendances explicite** : constructeurs `NewXxx(deps…)`, aucune variable globale mutable, pas d'`init()` qui configure quoi que ce soit, `context.Context` partout.
 - **sqlc** : le type `geography` n'est jamais exposé. Les requêtes prennent `lat`/`lng` en `float8` (`ST_MakePoint(lng, lat)`) et lisent les colonnes générées `stations.lat`/`lng` (une expression `ST_Y(...)` serait typée non nullable par sqlc). Colonnes explicites (pas de `SELECT *`).
+- **Dates** : `timestamptz` en base, lues en UTC par pgx (codec forcé dans `platform/postgres`), renvoyées en RFC 3339 UTC.
 - **SQL** : `snake_case` ; tables au pluriel ; PK `id uuid DEFAULT uuidv7()` (sauf référentiels en `smallint identity`) ; FK `<entite>_id` ; horodatages `timestamptz` suffixés `_at`, en UTC ; enums PostgreSQL ; contraintes nommées `pk_ fk_ uq_ ck_ idx_<table>_<cols>`. Requêtes sqlc : `GetStationByID`, `ListStationsWithinRadius`, `UpsertStationStock`.
 - **API** : REST JSON sous `/api/v1` ; ressources au pluriel en kebab-case (`/opening-hours`) ; clés JSON en camelCase ; dates RFC 3339 UTC ; coordonnées `{ "lat", "lng" }`. Attention : PostGIS et OSRM attendent l'ordre **lng, lat**. Pagination par curseur `?limit=&cursor=` → `{ items, nextCursor }`.
+- **Verrouillage optimiste** : les ressources modifiables concurremment (station et tout ce qui en dépend) renvoient un `ETag` (`"v{version}"`). Toute écriture exige `If-Match` : 428 `request.precondition_required` s'il manque, 412 `resource.version_conflict` s'il est périmé (le client recharge puis rejoue).
 - **TypeScript** : fichiers kebab-case (`station-card.tsx`), composants PascalCase, hooks `useXxx`, stores Zustand `useXxxStore`, schémas zod `xxxSchema` + `type Xxx = z.infer<…>`, fabriques de query keys par domaine (`stationKeys.detail(id)`).
 
 ### Gestion des erreurs

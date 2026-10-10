@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoStation API
-  version: 0.3.0
+  version: 0.4.0
   summary: Trouver la station la plus proche qui a le produit recherché en stock (Bénin).
   description: |
     API REST de GoStation. Source des types générés pour les clients mobile (Expo) et web (admin).
@@ -440,18 +440,471 @@ paths:
     get:
       tags: [manager]
       operationId: getManagerStation
-      summary: Station du gérant (approuvée)
-      description: Un gérant dont la station n'est pas approuvée reçoit 403 `station.not_approved` avec l'extension `stationStatus`.
+      summary: Station du gérant (statut approved ou rejected)
+      description: Gérant pending ou suspended → 403 `station.not_approved` avec l'extension `stationStatus`.
       security: [{ bearerAuth: [] }]
       responses:
         "200":
           description: Station
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ManagerStation" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [manager]
+      operationId: updateManagerStation
+      summary: Modifie le profil (statut approved ou rejected)
+      description: Pour une station approuvée, un changement d'IFU ou de RCCM la renvoie en `pending`. Pour `brand` et `city`, une chaîne vide efface la valeur.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateStationRequest" }
+      responses:
+        "200":
+          description: Station modifiée
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManagerStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/resubmission:
+    post:
+      tags: [manager]
+      operationId: resubmitStation
+      summary: Renvoie un justificatif après un rejet (statut rejected uniquement)
+      description: La station repasse en `pending` ; l'ancien justificatif est supprimé.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [document]
+              properties:
+                document: { type: string, contentMediaType: application/octet-stream, description: "PDF, JPEG ou PNG, 5 Mo max" }
+            encoding:
+              document: { contentType: "application/pdf, image/jpeg, image/png" }
+      responses:
+        "200":
+          description: Station renvoyée en pending
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManagerStation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/location:
+    put:
+      tags: [manager]
+      operationId: setStationLocation
+      summary: Épingle la position de la station
+      description: |
+        Refus hors du Bénin (frontière élargie de 2 km, `station.location_outside_country`). Premier
+        épinglage libre ; ensuite, déplacement libre sous 200 m (correction GPS), demande de
+        déplacement validée par l'admin au-delà (202, l'ancienne position reste active). Une épingle
+        à plus de 500 m de la position de l'appareil est signalée à l'admin (`flagged`), sans blocage.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetLocationRequest" }
+      responses:
+        "200":
+          description: Position appliquée (outcome set ou corrected)
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetLocationResponse" }
+        "202":
+          description: Demande de déplacement en attente de validation (outcome move_requested)
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetLocationResponse" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/opening-hours:
+    get:
+      tags: [manager]
+      operationId: getOpeningHours
+      summary: Horaires, fermetures à venir, ouverture en cours
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Horaires
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpeningHours" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [manager]
+      operationId: replaceOpeningHours
+      summary: Remplace la semaine complète (jour absent = fermé)
+      description: Jusqu'à 2 plages par jour, plages qui passent minuit acceptées, 24 h/24 par jour (`is24h`) ou pour toute la semaine (`allWeek24h`). Les chevauchements sont refusés.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplaceHoursRequest" }
+      responses:
+        "200":
+          description: Horaires enregistrés
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpeningHours" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/closures:
+    post:
+      tags: [manager]
+      operationId: addClosure
+      summary: Ajoute une fermeture exceptionnelle (journée entière, jours fériés compris)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddClosureRequest" }
+      responses:
+        "201":
+          description: Fermeture créée
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Closure" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/closures/{id}:
+    delete:
+      tags: [manager]
+      operationId: deleteClosure
+      summary: Supprime une fermeture exceptionnelle
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ClosureId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Fermeture supprimée
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/products:
+    get:
+      tags: [manager]
+      operationId: getStationProducts
+      summary: Catalogue actif et produits vendus par la station
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Produits
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StationProductList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [manager]
+      operationId: setStationProducts
+      summary: Déclare l'ensemble des produits vendus
+      description: « Non vendu » ≠ « 0 en stock ». Un nouveau produit vendu démarre à 0.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetProductsRequest" }
+      responses:
+        "200":
+          description: Produits enregistrés
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StationProductList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/stocks:
+    get:
+      tags: [manager]
+      operationId: getStocks
+      summary: Stocks des produits vendus, avec leur fraîcheur
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Stocks
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [manager]
+      operationId: updateStocks
+      summary: Mise à jour groupée (un élément par produit vendu, ni plus ni moins)
+      description: Plafonds configurables (10 000 bouteilles, 200 000 litres par défaut). Chaque quantité modifiée écrit l'historique ; la saisie vaut confirmation pour tous les produits.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateStocksRequest" }
+      responses:
+        "200":
+          description: Stocks enregistrés
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/manager/station/stocks/confirm:
+    post:
+      tags: [manager]
+      operationId: confirmStocks
+      summary: « Rien n'a changé » — confirme les stocks actuels et remet le délai de fraîcheur à zéro
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IfMatch" }]
+      responses:
+        "200":
+          description: Stocks confirmés
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
 
+  /api/v1/admin/stations:
+    get:
+      tags: [admin]
+      operationId: listAdminStations
+      summary: Stations d'un statut, les plus récentes d'abord (pagination par curseur)
+      description: Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié.
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, suspended], default: pending } }
+        - { name: q, in: query, description: Recherche par nom (contient) ou IFU (préfixe), schema: { type: string, maxLength: 100 } }
+        - { name: needsReview, in: query, description: Épingle signalée ou demande de déplacement en attente, schema: { type: boolean } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Page de stations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStationPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/stations/{id}:
+    get:
+      tags: [admin]
+      operationId: getAdminStation
+      summary: Détail d'une station (gérant, signalement, demande de déplacement)
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }]
+      responses:
+        "200":
+          description: Station
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/stations/{id}/approve:
+    post:
+      tags: [admin]
+      operationId: approveStation
+      summary: Approuve une station pending (email du gérant vérifié requis) ; email au gérant
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/stations/{id}/reject:
+    post:
+      tags: [admin]
+      operationId: rejectStation
+      summary: Rejette une station pending (motif obligatoire) ; email au gérant
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/stations/{id}/suspend:
+    post:
+      tags: [admin]
+      operationId: suspendStation
+      summary: Suspend une station approuvée (motif obligatoire) ; email au gérant
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/stations/{id}/unsuspend:
+    post:
+      tags: [admin]
+      operationId: unsuspendStation
+      summary: Lève la suspension (motif obligatoire) ; email au gérant
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/stations/{id}/location-requests/{requestId}/approve:
+    post:
+      tags: [admin]
+      operationId: approveLocationRequest
+      summary: Valide une demande de déplacement (nouvelle position et cellule H3 appliquées)
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/LocationRequestId" }, { $ref: "#/components/parameters/IfMatch" }]
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/stations/{id}/location-requests/{requestId}/reject:
+    post:
+      tags: [admin]
+      operationId: rejectLocationRequest
+      summary: Refuse une demande de déplacement (motif obligatoire)
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/LocationRequestId" }, { $ref: "#/components/parameters/IfMatch" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/stations/{id}/location-flag/dismiss:
+    post:
+      tags: [admin]
+      operationId: dismissLocationFlag
+      summary: Lève le signalement d'une épingle éloignée de l'appareil du gérant
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
+      responses:
+        "200":
+          description: Station après la décision
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /api/v1/admin/stations/{id}/document:
     get:
       tags: [admin]
@@ -494,6 +947,22 @@ components:
       description: Valeur du cookie `gs_csrf`, exigée sur les requêtes non GET authentifiées par cookie.
 
   parameters:
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag de la ressource lue (verrouillage optimiste), par exemple "v3"
+      schema: { type: string, examples: ['"v3"'] }
+    ClosureId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LocationRequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     SessionId:
       name: id
       in: path
@@ -506,6 +975,9 @@ components:
       schema: { type: string, format: uuid }
 
   headers:
+    ETag:
+      description: Version de la station, à renvoyer dans If-Match pour toute écriture
+      schema: { type: string, examples: ['"v3"'] }
     RateLimitLimit:
       description: Quota de la fenêtre
       schema: { type: integer }
@@ -519,7 +991,24 @@ components:
       description: Secondes avant de réessayer
       schema: { type: integer }
 
+  requestBodies:
+    Reason:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ReasonRequest" }
+
   responses:
+    PreconditionFailed:
+      description: Version périmée (`resource.version_conflict`) — recharger la ressource puis rejouer
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    PreconditionRequired:
+      description: En-tête If-Match absent (`request.precondition_required`)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     Accepted:
       description: Demande prise en compte (réponse identique que le compte existe ou non)
       content:
@@ -546,7 +1035,7 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     Conflict:
-      description: Conflit (`auth.email_taken`, `resource.conflict`)
+      description: "Conflit (`auth.email_taken`, `resource.conflict`, `station.invalid_status_transition`, `station.manager_email_unverified`, `station.closure_exists`)"
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -561,7 +1050,7 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     ValidationFailed:
-      description: Validation échouée (`request.validation_failed`, détail par champ dans `errors`, ou `upload.invalid_file`)
+      description: "Validation échouée (`request.validation_failed`, détail par champ dans `errors`), `upload.invalid_file`, `station.location_outside_country`, `station.no_products_sold`"
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -867,10 +1356,12 @@ components:
         lng: { type: number, minimum: -180, maximum: 180 }
     ManagerStation:
       type: object
-      required: [id, status, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, lastStockUpdateAt, createdAt, updatedAt]
+      required: [id, status, statusReason, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, lastStockUpdateAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending, approved, rejected, suspended] }
+        statusReason: { type: [string, "null"] }
+        version: { type: integer, description: Version courante (aussi dans l'en-tête ETag) }
         name: { type: string }
         brand: { type: [string, "null"] }
         ifu: { type: string }
@@ -883,6 +1374,264 @@ components:
             - $ref: "#/components/schemas/LatLng"
             - type: "null"
         locationSetAt: { type: [string, "null"], format: date-time }
+        locationFlag:
+          oneOf:
+            - $ref: "#/components/schemas/LocationFlag"
+            - type: "null"
+        pendingMove:
+          oneOf:
+            - $ref: "#/components/schemas/MoveRequest"
+            - type: "null"
+        lastStockUpdateAt: { type: [string, "null"], format: date-time, description: Dernière saisie ou confirmation de stock }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UpdateStationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 2, maxLength: 120 }
+        brand: { type: string, maxLength: 60, description: Chaîne vide pour effacer }
+        address: { type: string, minLength: 5, maxLength: 255 }
+        city: { type: string, maxLength: 100, description: Chaîne vide pour effacer }
+        phone: { type: string }
+        ifu: { type: string, pattern: "^[0-9]{13}$", description: "Modifié sur une station approuvée → pending" }
+        rccm: { type: string, description: "Modifié sur une station approuvée → pending" }
+    DevicePosition:
+      type: object
+      required: [lat, lng, accuracyM]
+      description: Position GPS de l'appareil (seule la distance à l'épingle est conservée)
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lng: { type: number, minimum: -180, maximum: 180 }
+        accuracyM: { type: number, minimum: 0, maximum: 10000 }
+    SetLocationRequest:
+      type: object
+      required: [lat, lng, confirmStationLocation]
+      additionalProperties: false
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lng: { type: number, minimum: -180, maximum: 180 }
+        confirmStationLocation: { type: boolean, const: true, description: "Acquittement de l'avertissement « épinglez la station, pas votre position »" }
+        device: { $ref: "#/components/schemas/DevicePosition" }
+    SetLocationResponse:
+      type: object
+      required: [outcome, flagged, station]
+      properties:
+        outcome: { type: string, enum: [set, corrected, move_requested] }
+        flagged: { type: boolean, description: "Épingle à plus de 500 m de l'appareil, signalée à l'admin" }
+        station: { $ref: "#/components/schemas/ManagerStation" }
+    LocationFlag:
+      type: object
+      required: [distanceM, accuracyM, flaggedAt]
+      properties:
+        distanceM: { type: integer, description: Distance entre l'épingle et l'appareil du gérant }
+        accuracyM: { type: [integer, "null"] }
+        flaggedAt: { type: string, format: date-time }
+    MoveRequest:
+      type: object
+      required: [id, location, distanceM, deviceDistanceM, deviceAccuracyM, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        location: { $ref: "#/components/schemas/LatLng" }
+        distanceM: { type: integer, description: Distance depuis la position active }
+        deviceDistanceM: { type: [integer, "null"] }
+        deviceAccuracyM: { type: [integer, "null"] }
+        createdAt: { type: string, format: date-time }
+    TimeRange:
+      type: object
+      required: [opens, closes]
+      properties:
+        opens: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", examples: ["06:00"] }
+        closes: { type: string, pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$", description: "Fermeture ; antérieure à l'ouverture = le lendemain ; 00:00 ou 24:00 = minuit", examples: ["22:00"] }
+    OpeningDay:
+      type: object
+      required: [weekday, is24h, ranges]
+      properties:
+        weekday: { type: integer, minimum: 1, maximum: 7, description: "ISO 8601 : 1 = lundi" }
+        is24h: { type: boolean }
+        ranges:
+          type: array
+          maxItems: 2
+          items: { $ref: "#/components/schemas/TimeRange" }
+    ReplaceHoursRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        allWeek24h: { type: boolean, description: "24 h/24 tous les jours (days doit alors être vide)" }
+        days:
+          type: array
+          maxItems: 7
+          items: { $ref: "#/components/schemas/OpeningDay" }
+    Closure:
+      type: object
+      required: [id, date, reason, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        date: { type: string, format: date }
+        reason: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+    AddClosureRequest:
+      type: object
+      required: [date]
+      additionalProperties: false
+      properties:
+        date: { type: string, format: date, description: "Aujourd'hui ou plus tard, dans l'année qui vient (heure du Bénin)" }
+        reason: { type: string, maxLength: 200 }
+    OpeningHours:
+      type: object
+      required: [timezone, isOpenNow, nextOpening, days, closures]
+      properties:
+        timezone: { type: string, examples: ["Africa/Porto-Novo"] }
+        isOpenNow: { type: boolean }
+        nextOpening: { type: [string, "null"], format: date-time }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/OpeningDay" }
+        closures:
+          type: array
+          items: { $ref: "#/components/schemas/Closure" }
+    StationProduct:
+      type: object
+      required: [id, code, kind, unit, sizeKg, label, sold]
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        kind: { type: string, enum: [lpg, petrol, diesel] }
+        unit: { type: string, enum: [cylinder, liter] }
+        sizeKg: { type: [number, "null"] }
+        label: { type: string }
+        sold: { type: boolean }
+    StationProductList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/StationProduct" }
+    SetProductsRequest:
+      type: object
+      required: [productIds]
+      additionalProperties: false
+      properties:
+        productIds:
+          type: array
+          uniqueItems: true
+          items: { type: integer }
+          description: Liste complète des produits vendus (vide = rien)
+    Stock:
+      type: object
+      required: [productId, code, label, unit, sizeKg, quantity, maxQuantity, updatedAt, lastConfirmedAt, freshAt, freshness]
+      properties:
+        productId: { type: integer }
+        code: { type: string }
+        label: { type: string }
+        unit: { type: string, enum: [cylinder, liter] }
+        sizeKg: { type: [number, "null"] }
+        quantity: { type: integer, minimum: 0 }
+        maxQuantity: { type: integer, description: Plafond de saisie pour l'unité }
+        updatedAt: { type: string, format: date-time, description: Dernier changement de quantité }
+        lastConfirmedAt: { type: string, format: date-time, description: Dernière saisie ou confirmation }
+        freshAt: { type: string, format: date-time, description: Le plus récent des deux }
+        freshness: { type: string, enum: [fresh, stale, expired], description: "stale au-delà de 8 h, expired (exclu de la recherche) au-delà de 24 h" }
+    StockList:
+      type: object
+      required: [lastActivityAt, items]
+      properties:
+        lastActivityAt: { type: [string, "null"], format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Stock" }
+    UpdateStocksRequest:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [productId, quantity]
+            additionalProperties: false
+            properties:
+              productId: { type: integer }
+              quantity: { type: integer, minimum: 0 }
+    ReasonRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    AdminStationSummary:
+      type: object
+      required: [id, name, brand, ifu, city, status, version, location, managerEmailVerified, locationFlagged, hasPendingMove, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        brand: { type: [string, "null"] }
+        ifu: { type: string }
+        city: { type: [string, "null"] }
+        status: { type: string, enum: [pending, approved, rejected, suspended] }
+        version: { type: integer }
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/LatLng"
+            - type: "null"
+        managerEmailVerified: { type: boolean }
+        locationFlagged: { type: boolean }
+        hasPendingMove: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AdminStationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminStationSummary" }
+        nextCursor: { type: [string, "null"] }
+    AdminManager:
+      type: object
+      required: [id, firstName, lastName, email, emailVerified]
+      properties:
+        id: { type: string, format: uuid }
+        firstName: { type: string }
+        lastName: { type: string }
+        email: { type: string, format: email }
+        emailVerified: { type: boolean }
+    AdminStation:
+      type: object
+      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, approved, rejected, suspended] }
+        statusReason: { type: [string, "null"] }
+        reviewedAt: { type: [string, "null"], format: date-time }
+        version: { type: integer }
+        name: { type: string }
+        brand: { type: [string, "null"] }
+        ifu: { type: string }
+        rccm: { type: string }
+        address: { type: string }
+        city: { type: [string, "null"] }
+        phone: { type: string }
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/LatLng"
+            - type: "null"
+        locationSetAt: { type: [string, "null"], format: date-time }
+        locationFlag:
+          oneOf:
+            - $ref: "#/components/schemas/LocationFlag"
+            - type: "null"
+        pendingMove:
+          oneOf:
+            - $ref: "#/components/schemas/MoveRequest"
+            - type: "null"
+        documentMime: { type: [string, "null"] }
+        manager:
+          oneOf:
+            - $ref: "#/components/schemas/AdminManager"
+            - type: "null"
         lastStockUpdateAt: { type: [string, "null"], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

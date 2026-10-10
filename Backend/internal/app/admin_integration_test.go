@@ -89,7 +89,9 @@ func TestManagerPendingIsBlocked(t *testing.T) {
 	if me.User.Station.Status != "rejected" || me.User.Station.StatusReason == nil || *me.User.Station.StatusReason != "Justificatif illisible" {
 		t.Fatalf("/me station = %+v", me.User.Station)
 	}
-	expect(t, c.do(http.MethodGet, "/api/v1/manager/station", nil), http.StatusForbidden, auth.CodeStationNotApproved)
+	// Exception « rejected » (D15) : il consulte sa station, mais ne la configure pas.
+	expect(t, c.do(http.MethodGet, "/api/v1/manager/station", nil), http.StatusOK, "")
+	expect(t, c.do(http.MethodGet, "/api/v1/manager/station/stocks", nil), http.StatusForbidden, auth.CodeStationNotApproved)
 
 	// Approbation : l'accès est ouvert immédiatement (statut lu en base à chaque requête).
 	if _, err := it.pool.Exec(t.Context(), `UPDATE stations SET status = 'approved', status_reason = NULL WHERE id = $1`, s.User.Station.ID); err != nil {

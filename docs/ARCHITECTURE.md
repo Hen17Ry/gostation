@@ -79,6 +79,8 @@ erDiagram
   users ||--o{ admin_recovery_codes : "secours 2FA"
   stations ||--o{ favorites : "favorite"
   stations ||--o{ station_opening_hours : "horaires"
+  stations ||--o{ station_closures : "fermetures"
+  stations ||--o{ station_location_requests : "déplacements"
   stations ||--o{ station_stocks : "stocke"
   stations ||--o{ stock_history : "historise"
   stations ||--o{ reports : "concerne"
@@ -164,6 +166,24 @@ erDiagram
     uuid user_id FK
     bytea code_hash
     timestamptz used_at
+  }
+  station_closures {
+    uuid id PK
+    uuid station_id FK
+    date closed_on
+    text reason
+  }
+  station_location_requests {
+    uuid id PK
+    uuid station_id FK
+    geography location
+    int distance_m
+    location_request_status status
+  }
+  country_boundaries {
+    char code PK
+    geography boundary
+    geography boundary_buffered
   }
 ```
 
@@ -386,6 +406,59 @@ CREATE TABLE admin_recovery_codes (
   CONSTRAINT uq_admin_recovery_codes_code UNIQUE (user_id, code_hash)
 );
 
+-- Stations et stocks côté gérant (étape 4).
+ALTER TABLE stations
+  ADD COLUMN version                   integer NOT NULL DEFAULT 1,  -- verrouillage optimiste (ETag)
+  ADD COLUMN location_flagged_at       timestamptz,  -- épingle à plus de 500 m de l'appareil
+  ADD COLUMN location_flag_distance_m  integer,
+  ADD COLUMN location_flag_accuracy_m  integer;
+
+-- updated_at ne bouge que si la quantité change (trigger dédié set_stock_updated_at) ;
+-- last_confirmed_at enregistre « rien n'a changé ». Fraîcheur = GREATEST(updated_at, last_confirmed_at).
+ALTER TABLE station_stocks ADD COLUMN last_confirmed_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX idx_station_stocks_freshness ON station_stocks (GREATEST(updated_at, last_confirmed_at));
+-- (remplace idx_station_stocks_updated_at)
+
+-- Fermetures exceptionnelles (jours fériés compris) : journée civile entière, heure du Bénin.
+CREATE TABLE station_closures (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  station_id  uuid NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+  closed_on   date NOT NULL,
+  reason      text CHECK (char_length(reason) <= 200),
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_station_closures_day UNIQUE (station_id, closed_on)
+);
+
+-- Demandes de déplacement (≥ 200 m) : l'ancienne position reste active jusqu'à validation.
+CREATE TYPE location_request_status AS ENUM ('pending', 'approved', 'rejected', 'superseded');
+CREATE TABLE station_location_requests (
+  id                 uuid PRIMARY KEY DEFAULT uuidv7(),
+  station_id         uuid NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
+  requested_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  location           geography(Point, 4326) NOT NULL,  -- + lat/lng générées
+  h3_r8              bigint NOT NULL,
+  distance_m         integer NOT NULL,      -- depuis la position active
+  device_distance_m  integer,               -- seule trace de la position de l'appareil
+  device_accuracy_m  integer,
+  status             location_request_status NOT NULL DEFAULT 'pending',
+  review_reason      text,
+  reviewed_by        uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at        timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX uq_station_location_requests_pending ON station_location_requests (station_id)
+  WHERE status = 'pending';   -- une nouvelle demande remplace la précédente (superseded)
+
+-- Frontières (contrôle des épingles) : Natural Earth 1:10m, domaine public, migration de données.
+CREATE TABLE country_boundaries (
+  code               char(3) PRIMARY KEY,               -- 'BEN'
+  name               text NOT NULL,
+  boundary           geography(MultiPolygon, 4326) NOT NULL,
+  boundary_buffered  geography NOT NULL,                -- ST_Buffer(boundary, 2000) : marge de 2 km
+  source             text NOT NULL
+);
+
 -- Ajout (décision §9) : favoris, réservés aux utilisateurs connectés. Supprimés avec le compte.
 CREATE TABLE favorites (
   user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -407,7 +480,7 @@ CREATE INDEX idx_favorites_station ON favorites (station_id);
 **Entrée** : `productId`, `lat`, `lng` (position courante, jamais stockée). Endpoint **public**, sans compte, protégé par un rate limit par IP (Redis, fenêtre glissante).
 **Sortie** : jusqu'à 10 stations `approved`, avec `quantity > 0`, **ouvertes maintenant** et dont le stock date de moins de 24 h, classées par temps de trajet réel. S'il n'y a aucune station ouverte à 50 km, on renvoie les plus proches fermées avec leur heure de réouverture.
 
-**Fraîcheur du stock** (âge = `now() - station_stocks.updated_at`) :
+**Fraîcheur du stock** (âge = `now() - GREATEST(updated_at, last_confirmed_at)` : une confirmation « rien n'a changé » compte comme une mise à jour) :
 
 | Âge | Effet |
 |---|---|
@@ -415,7 +488,7 @@ CREATE INDEX idx_favorites_station ON favorites (station_id);
 | 8 h à 24 h | `stale: true` : badge « à vérifier » côté UI |
 | > 24 h (`STOCK_EXPIRED_AFTER`) | Exclu de la recherche, listé dans `/admin/stale-stocks` |
 
-**Ouverture** : calculée à partir de `station_opening_hours` dans le fuseau `APP_TIMEZONE` (`Africa/Porto-Novo`). Les plages qui passent minuit (`closes_at <= opens_at`) et le 24 h/24 (`00:00 → 24:00`) sont gérés. Le jour ISO et l'heure locale sont calculés en Go puis passés en paramètres SQL. Une station sans horaires renseignés n'apparaît pas, comme une station sans position.
+**Ouverture** : calculée à partir de `station_opening_hours` et `station_closures` dans le fuseau `APP_TIMEZONE` (`Africa/Porto-Novo`), par la même règle que `station.Schedule.IsOpen` (testée sur les cas limites). Les plages qui passent minuit (`closes_at <= opens_at`) et le 24 h/24 (`00:00 → 24:00`) sont gérés. Une fermeture exceptionnelle ferme la journée civile entière, y compris la fin, ce jour-là, d'une plage commencée la veille. Le jour ISO, l'heure locale et la date sont calculés en Go puis passés en paramètres SQL. Une station sans horaires renseignés n'apparaît pas, comme une station sans position.
 
 ```mermaid
 sequenceDiagram
@@ -452,7 +525,7 @@ sequenceDiagram
 
 ### 4.1 Étapes
 
-1. **Cache.** `cell = h3.LatLngToCell(lat, lng, 8)`. Clé : `search:v1:p{productId}:g{gen}:c{cell}`, où `gen = GET search:gen:p{productId}`. En cas de hit, on passe à l'étape 6.
+1. **Cache.** `cell = h3.LatLngToCell(lat, lng, 8)`. Clé : `search:v1:p{productId}:g{all}.{gen}:c{cell}`, où `all = GET search:gen:all` et `gen = GET search:gen:p{productId}` (paquet `searchcache`). En cas de hit, on passe à l'étape 6.
    Le calcul se fait depuis le **centre de la cellule**, pas depuis la position exacte. Deux utilisateurs de la même cellule partagent donc le résultat, et la position précise n'entre jamais dans le calcul mis en cache.
 2. **Rayons progressifs sur les stations ouvertes** `[500, 1000, 2000, 5000, 10000, 25000, 50000]` m. Chaque rayon est augmenté de la distance centre → sommet de la cellule (≈ 0,5 km en res 8) : ainsi aucune station située dans le rayon autour de la position réelle n'est manquée.
    ```sql
@@ -465,10 +538,12 @@ sequenceDiagram
    JOIN station_stocks ss ON ss.station_id = s.id
    WHERE ss.product_id = @product_id
      AND ss.quantity > 0
-     AND ss.updated_at > now() - @expired_after::interval       -- STOCK_EXPIRED_AFTER (24 h)
+     AND GREATEST(ss.updated_at, ss.last_confirmed_at) > now() - @expired_after::interval  -- 24 h
      AND s.status = 'approved'
      AND s.location IS NOT NULL
      AND ST_DWithin(s.location, @point::geography, @radius_m)
+     AND NOT EXISTS (SELECT 1 FROM station_closures c            -- fermeture aujourd'hui
+                     WHERE c.station_id = s.id AND c.closed_on = @local_date)
      AND EXISTS (                                                -- ouverte maintenant
        SELECT 1 FROM station_opening_hours h
        WHERE h.station_id = s.id AND (
@@ -476,7 +551,9 @@ sequenceDiagram
             AND @local_time >= h.opens_at AND @local_time < h.closes_at)
          OR (h.closes_at <= h.opens_at AND (                     -- plage qui passe minuit
             (h.weekday = @isodow      AND @local_time >= h.opens_at) OR
-            (h.weekday = @prev_isodow AND @local_time <  h.closes_at)))))
+            (h.weekday = @prev_isodow AND @local_time <  h.closes_at
+             AND NOT EXISTS (SELECT 1 FROM station_closures c
+                             WHERE c.station_id = s.id AND c.closed_on = @local_date - 1))))))
    ORDER BY s.location <-> @point::geography
    LIMIT @max_candidates;                                        -- SEARCH_MAX_CANDIDATES = 20
    ```
@@ -493,14 +570,18 @@ sequenceDiagram
 
 ### 4.2 Invalidation du cache
 
-Toute écriture qui peut changer un résultat incrémente une **génération** : `INCR search:gen:p{productId}`. Les anciennes clés deviennent inaccessibles immédiatement et expirent par TTL. Sont concernées :
-- mise à jour de stock (le produit concerné) ;
-- changement de statut, de position ou d'horaires d'une station (tous les produits) ;
-- l'ouverture et la fermeture des stations ne bumpent pas la génération : le TTL de 60 s borne le décalage aux heures d'ouverture.
-- activation ou désactivation d'un produit.
+Toute écriture qui peut changer un résultat incrémente une **génération** (D18, paquet `searchcache`, après le commit). Les anciennes clés deviennent inaccessibles immédiatement et expirent par TTL.
 
-On utilise des générations plutôt que `DEL` par motif, car une station qui repasse de 0 à > 0 doit apparaître dans des cellules dont le cache ne la contient pas encore ; un index inverse ne suffit pas. À l'échelle du Bénin (quelques milliers de stations), invalider tout le produit reste bon marché.
-Évolution possible si le taux de hit baisse : une génération par cellule H3 res 5 et par produit, incrémentée sur le `gridDisk` couvrant 50 km autour de la station modifiée, plus une génération globale réservée aux résultats issus du repli KNN.
+| Écriture | Génération incrémentée |
+|---|---|
+| Saisie ou confirmation de stock | `search:gen:p{id}` de chaque produit vendu (la fraîcheur de tous change) |
+| Statut (approve, reject, suspend, unsuspend, IFU/RCCM → pending, renvoi), position (épinglage, correction, déplacement validé), horaires, fermetures, produits vendus | `search:gen:all` |
+| Activation ou désactivation d'un produit (admin, plus tard) | `search:gen:p{id}` |
+
+L'ouverture et la fermeture des stations au fil de la journée ne changent pas de génération : le TTL de 60 s borne le décalage. Un échec d'invalidation n'annule pas l'écriture (journalisé, borné par le TTL).
+
+On utilise des générations plutôt que `DEL` par motif, car une station qui repasse de 0 à > 0 doit apparaître dans des cellules dont le cache ne la contient pas encore ; un index inverse ne suffit pas. À l'échelle du Bénin (quelques milliers de stations), invalider largement reste bon marché.
+Évolution possible si le taux de hit baisse : une génération par cellule H3 res 5, incrémentée sur le `gridDisk` couvrant 50 km autour de la station modifiée, plus la génération globale réservée aux résultats issus du repli KNN.
 
 ### 4.3 Réponse
 
@@ -572,7 +653,14 @@ Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **
 | `auth.invalid_second_factor` | 401 | Code TOTP ou code de secours incorrect |
 | `auth.email_not_verified` | 403 | Fonction réservée aux emails vérifiés (signaler, favoris, notifications) |
 | `auth.csrf_failed` | 403 | Jeton CSRF absent ou invalide (admin web) |
-| `station.not_approved` | 403 | Station du gérant non approuvée ; extension `stationStatus` |
+| `station.not_approved` | 403 | Station du gérant pas dans le statut requis ; extension `stationStatus` |
+| `station.invalid_status_transition` | 409 | Décision impossible depuis le statut courant (ex. approuver une station approuvée) ; extension `stationStatus` |
+| `station.manager_email_unverified` | 409 | Approbation refusée : email du gérant non vérifié |
+| `station.location_outside_country` | 422 | Épingle hors du Bénin (frontière élargie de 2 km) |
+| `station.closure_exists` | 409 | Une fermeture existe déjà à cette date |
+| `station.no_products_sold` | 422 | Saisie ou confirmation de stock sans produit déclaré |
+| `resource.version_conflict` | 412 | `If-Match` périmé : recharger la ressource puis rejouer |
+| `request.precondition_required` | 428 | En-tête `If-Match` absent sur une écriture verrouillée |
 | `upload.unsupported_type` | 415 | Justificatif ni PDF, ni JPEG, ni PNG (type réel) |
 | `upload.too_large` | 413 | Justificatif de plus de 5 Mo |
 | `upload.invalid_file` | 422 | Fichier vide ou image corrompue |
@@ -585,6 +673,8 @@ Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **
 | `internal.error` | 500 | Erreur interne : le détail n'est jamais exposé, il est journalisé avec le `requestId` |
 
 Les codes métier s'ajoutent dans les domaines au fil des étapes ; on ne renomme jamais un code existant.
+
+**Verrouillage optimiste** : les lectures de station (gérant et admin) renvoient `ETag: "v{version}"` ; toute écriture sur une station (et ce qui en dépend : horaires, fermetures, produits, stocks, décisions admin) exige `If-Match`.
 
 En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est valide, sinon un UUIDv7 généré), `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, et `Retry-After` sur les 429.
 
@@ -640,27 +730,37 @@ En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est v
 | GET | `/me/favorites` | Mes stations favorites |
 | PUT / DELETE | `/me/favorites/{stationId}` | Ajouter / retirer un favori (idempotent) |
 
-### Gérant 🔒 `manager` + `RequireApprovedStation`
-Tant que la station n'est pas approuvée, le gérant n'a accès qu'à son compte (`/me` montre le statut et le motif d'un rejet) : toute route gérant répond 403 `station.not_approved`.
+### Gérant 🔒 `manager` (`RequireStationStatus`)
+Gérant `pending` ou `suspended` : rien d'autre que son compte (`/me` montre le statut), toute route gérant répond 403 `station.not_approved`. Gérant `rejected` : consultation, correction et renvoi du justificatif. Toutes les écritures exigent `If-Match`.
 
+| Méthode | Route | Statuts | Description |
+|---|---|---|---|
+| GET | `/manager/station` | approved, rejected | ✅ Station, signalement d'épingle, demande de déplacement en attente ; `ETag` |
+| PATCH | `/manager/station` | approved, rejected | ✅ Nom, marque, adresse, ville, téléphone, IFU, RCCM. IFU ou RCCM modifié sur une station approuvée → `pending` |
+| POST | `/manager/station/resubmission` | rejected | ✅ Nouveau justificatif (multipart) → `pending` ; l'ancien est supprimé |
+| PUT | `/manager/station/location` | approved | ✅ `{ lat, lng, confirmStationLocation: true, device?: { lat, lng, accuracyM } }` : hors Bénin → 422 ; premier épinglage ou correction < 200 m → 200 ; déplacement ≥ 200 m → 202 (demande en attente) ; épingle à plus de 500 m de l'appareil → signalée |
+| GET / PUT | `/manager/station/opening-hours` | approved | ✅ Semaine complète : 2 plages par jour au plus, `is24h`, `allWeek24h` ; `isOpenNow`, `nextOpening`, fermetures à venir |
+| POST | `/manager/station/closures` | approved | ✅ `{ date, reason? }` : journée entière, aujourd'hui ou dans l'année |
+| DELETE | `/manager/station/closures/{id}` | approved | ✅ Supprime une fermeture |
+| GET / PUT | `/manager/station/products` | approved | ✅ Catalogue + `sold` ; PUT `{ productIds }` = liste complète des produits vendus (nouveau produit à 0) |
+| GET | `/manager/station/stocks` | approved | ✅ Quantités, plafonds, `updatedAt`, `lastConfirmedAt`, `freshness` (fresh, stale, expired) |
+| PUT | `/manager/station/stocks` | approved | ✅ Saisie groupée `{ items: [{ productId, quantity }] }`, un élément par produit vendu ; historique des changements ; vaut confirmation |
+| POST | `/manager/station/stocks/confirm` | approved | ✅ « Rien n'a changé » : `last_confirmed_at = now()` pour tous les produits vendus |
+| GET | `/manager/station/stocks/history?productId&from&to` | approved | Historique (plus tard) |
+
+### Admin 🔒 `admin` (session ouverte après 2FA ; chaque décision est auditée)
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/manager/station` | ✅ Station du gérant |
-| PATCH | `/manager/station` | Nom, adresse, téléphone, marque. Une modification de l'IFU ou du RCCM renvoie la station en `pending`. |
-| PUT | `/manager/station/document` | Renvoi du justificatif après un rejet (exception à `RequireApprovedStation`, réservée au statut `rejected`) |
-| PUT | `/manager/station/location` | Épinglage `{ lat, lng, confirmStationLocation: true }` : l'avertissement UI doit être acquitté. Recalcule `h3_r8` et invalide le cache. |
-| GET / PUT | `/manager/station/opening-hours` | Lecture / remplacement de la semaine complète |
-| GET | `/manager/station/stocks` | Stocks courants |
-| PUT | `/manager/station/stocks` | Mise à jour groupée `[{ productId, quantity }]`. Idempotente, écrit `stock_history`, met à jour `last_stock_update_at`, incrémente la génération. |
-| GET | `/manager/station/stocks/history?productId&from&to` | Historique |
-
-### Admin 🔒 `admin` (chaque mutation écrit dans `audit_logs`)
-| Méthode | Route | Description |
-|---|---|---|
-| GET | `/admin/stations?status&q&cursor` | Stations et demandes de gérants (par défaut `pending`) ; un dossier n'apparaît qu'une fois l'email du gérant vérifié (D5) |
-| GET | `/admin/stations/{id}` | Détail, historique de statut, signalements |
+| GET | `/admin/stations?status&q&needsReview&cursor&limit` | ✅ Stations d'un statut (défaut `pending`), recherche par nom ou préfixe d'IFU, `needsReview` = épingle signalée ou déplacement en attente ; pagination par curseur. Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié (D5) |
+| GET | `/admin/stations/{id}` | ✅ Détail : gérant, justificatif, signalement, demande de déplacement ; `ETag` |
 | GET | `/admin/stations/{id}/document` | ✅ Justificatif déchiffré (téléchargement forcé, `Cache-Control: no-store`, CSP `sandbox`, audité) |
-| POST | `/admin/stations/{id}/approve` · `/reject` · `/suspend` · `/reinstate` | Transitions de statut (`{ reason }` obligatoire pour reject et suspend) ; push au gérant |
+| POST | `/admin/stations/{id}/approve` | ✅ `pending → approved` (email du gérant vérifié requis) ; email au gérant |
+| POST | `/admin/stations/{id}/reject` | ✅ `{ reason }` : `pending → rejected` ; email au gérant avec le motif |
+| POST | `/admin/stations/{id}/suspend` | ✅ `{ reason }` : `approved → suspended` ; email au gérant |
+| POST | `/admin/stations/{id}/unsuspend` | ✅ `{ reason }` : `suspended → approved` ; email au gérant |
+| POST | `/admin/stations/{id}/location-requests/{requestId}/approve` | ✅ Applique la nouvelle position (et sa cellule H3) |
+| POST | `/admin/stations/{id}/location-requests/{requestId}/reject` | ✅ `{ reason }` : position inchangée |
+| POST | `/admin/stations/{id}/location-flag/dismiss` | ✅ Lève le signalement d'épingle |
 | GET | `/admin/map/stations?bbox&productId&status` | GeoJSON pour la carte (clustering côté client) |
 | GET / POST | `/admin/products` | Catalogue |
 | PATCH | `/admin/products/{id}` | Libellé, ordre, activation (pas de suppression) |
@@ -816,6 +916,7 @@ En attendant asynq, les **emails transactionnels** partent via une file en mémo
 | Donnée | Base légale / finalité | Conservation proposée* |
 |---|---|---|
 | Position de l'utilisateur | Exécution du service (recherche, itinéraire) | **Aucune** : traitée en mémoire, jamais journalisée |
+| Position de l'appareil du gérant à l'épinglage | Contrôle de vraisemblance (D13) | **Aucune** : seules la distance à l'épingle et la précision GPS sont conservées (signalement, demande de déplacement) |
 | Stats de recherche (H3 res 7, par heure) | Intérêt légitime (pénuries) | 24 mois, déjà anonymes |
 | Compte utilisateur | Contrat | Durée du compte ; purge 30 j après la demande de suppression |
 | Comptes inactifs | Minimisation | Relance à 24 mois, suppression à 36 mois |
@@ -849,6 +950,14 @@ En attendant asynq, les **emails transactionnels** partent via une file en mémo
 | D8 | Emails | Interface `Mailer` + implémentation SMTP générique, envoi asynchrone (pas de fuite par le temps de réponse). En dev, Mailpit (profil compose `dev`). Templates HTML + texte en français, aux couleurs de GoStation. |
 | D9 | Politique de confidentialité | Version courante `1.0`. Version et date d'acceptation enregistrées à l'inscription. Si la version change, `GET /me` renvoie `reacceptRequired: true` jusqu'à `POST /me/accept-privacy-policy`. |
 | D10 | Justificatifs IFU | PDF, JPG ou PNG, 5 Mo max, type vérifié par les magic bytes (jamais l'extension), métadonnées EXIF/XMP/IPTC retirées des images. Chiffrement AES-256-GCM avec une clé par fichier, elle-même chiffrée par `DOCUMENTS_ENCRYPTION_KEY` (envelope encryption). Stockage derrière l'interface `Storage` (disque local, S3 compatible plus tard). Jamais servis publiquement : lecture réservée aux admins, auditée. |
+| D11 | Validation admin | **Dès l'étape 4** : liste des stations par statut (pagination par curseur, recherche par nom ou IFU), détail, `approve`, `reject` (motif obligatoire), `suspend` / `unsuspend` (motif obligatoire), validation des demandes de déplacement. Email au gérant à chaque changement de statut décidé par l'admin. Tout est audité. Le reste de l'API admin viendra plus tard. |
+| D12 | Horaires | Fuseau `Africa/Porto-Novo`. Jusqu'à **2 plages par jour**, plages qui passent minuit acceptées. Raccourci 24 h/24 par jour ou pour toute la semaine. **Fermetures exceptionnelles** (date, journée entière, motif facultatif) qui couvrent aussi les jours fériés. `IsOpen(station, instant)` testée sur les cas limites. |
+| D13 | Position | Refus hors Bénin : polygone Natural Earth (domaine public) chargé par migration, testé avec `ST_Covers` sur la frontière élargie de **2 km**. **Premier épinglage libre** ; l'app envoie aussi la position et la précision GPS de l'appareil, et une épingle à **plus de 500 m** de l'appareil est signalée à l'admin, sans blocage. **Déplacement ensuite** : moins de 200 m, c'est libre (correction GPS) ; au-delà, c'est une demande de déplacement validée par l'admin, l'ancienne position restant active en attendant. Cellule H3 res 8 calculée à l'épinglage. |
+| D14 | Champs de la station | Un changement d'**IFU ou de RCCM** renvoie une station approuvée en `pending`. Le reste (nom, marque, adresse, ville, téléphone) est modifiable librement. |
+| D15 | Rejet | Le gérant rejeté peut corriger ses informations et **renvoyer un justificatif** (exception au blocage pour le statut `rejected`). La station repasse alors en `pending`. |
+| D16 | Stocks | Le gérant **déclare les produits qu'il vend**. « Non vendu » (pas de ligne) ≠ « 0 en stock » : les deux sont exclus de la recherche, mais seul le 0 compte comme rupture dans les stats. Plafonds configurables : 10 000 bouteilles par taille, 200 000 litres par carburant. Mise à jour groupée en un seul appel, chaque changement écrit dans `stock_history`. Endpoint « rien n'a changé » qui pose `last_confirmed_at` (distinct de `updated_at`). **Fraîcheur** (stale à 8 h, exclusion à 24 h) = le plus récent des deux. |
+| D17 | Rappels push | Étape dédiée ultérieure, avec **asynq**, qui remplacera aussi la file d'emails en mémoire. |
+| D18 | Cache de recherche | Invalidé à chaque écriture de stock (produits concernés), de statut, d'horaires, de fermeture, de produits vendus ou de position (tous les produits). |
 
 ### Questions ouvertes
 

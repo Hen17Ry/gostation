@@ -12,22 +12,44 @@ import (
 
 type Querier interface {
 	AcceptPrivacyPolicy(ctx context.Context, arg AcceptPrivacyPolicyParams) error
+	// Nouveau produit vendu : stock initial 0 (rupture jusqu'à la première saisie).
+	AddStationProduct(ctx context.Context, arg AddStationProductParams) error
 	// Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
 	AnonymizeUser(ctx context.Context, arg AnonymizeUserParams) error
+	// Applique une demande en attente à la station (nouvelle position, nouvelle cellule H3).
+	ApplyLocationRequest(ctx context.Context, requestID uuid.UUID) (int64, error)
+	// Verrouillage optimiste : réussit seulement si la version attendue est la version courante.
+	// Pose aussi le verrou de ligne pour le reste de la transaction.
+	BumpStationVersion(ctx context.Context, arg BumpStationVersionParams) (int32, error)
+	// Contrôle d'une épingle : dans le Bénin (marge de 2 km) ? À quelle distance de la position active
+	// (-1 si la station n'est pas encore épinglée) ?
+	CheckStationPin(ctx context.Context, arg CheckStationPinParams) (CheckStationPinRow, error)
+	ClearStationLocationFlag(ctx context.Context, id uuid.UUID) error
+	// « Rien n'a changé » : remet le délai de fraîcheur à zéro sans toucher aux quantités.
+	ConfirmStationStocks(ctx context.Context, arg ConfirmStationStocksParams) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, userID uuid.UUID) (int64, error)
+	CreateClosure(ctx context.Context, arg CreateClosureParams) (CreateClosureRow, error)
+	CreateLocationRequest(ctx context.Context, arg CreateLocationRequestParams) (CreateLocationRequestRow, error)
 	CreateStation(ctx context.Context, arg CreateStationParams) (CreateStationRow, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DeleteClosure(ctx context.Context, arg DeleteClosureParams) (int64, error)
+	DeleteOpeningHours(ctx context.Context, stationID uuid.UUID) error
 	DeleteRecoveryCodes(ctx context.Context, userID uuid.UUID) error
 	DeleteUserDeviceTokens(ctx context.Context, userID uuid.UUID) error
 	DeleteUserFavorites(ctx context.Context, userID uuid.UUID) error
 	DisableUserTOTP(ctx context.Context, id uuid.UUID) error
 	EnableUserTOTP(ctx context.Context, arg EnableUserTOTPParams) error
+	FlagStationLocation(ctx context.Context, arg FlagStationLocationParams) error
+	GetPendingLocationRequest(ctx context.Context, stationID uuid.UUID) (GetPendingLocationRequestRow, error)
 	// lat/lng sont les colonnes générées depuis location (NULL tant que la station n'est pas
 	// épinglée) : le type geography et les champs du justificatif ne sortent jamais de la base.
 	GetStationByID(ctx context.Context, id uuid.UUID) (GetStationByIDRow, error)
 	GetStationByManager(ctx context.Context, managerID *uuid.UUID) (GetStationByManagerRow, error)
+	// Destinataire des emails de statut.
+	GetStationContact(ctx context.Context, id uuid.UUID) (GetStationContactRow, error)
 	// Métadonnées du justificatif chiffré : lecture réservée aux admins.
 	GetStationDocument(ctx context.Context, id uuid.UUID) (GetStationDocumentRow, error)
+	GetStationForAdmin(ctx context.Context, id uuid.UUID) (GetStationForAdminRow, error)
 	// État lu par les middlewares (email vérifié, compte actif).
 	GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAccessRow, error)
 	// Lecture pour le login : le hash du mot de passe ne sort jamais du paquet auth.
@@ -35,16 +57,41 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
 	GetUserCredentials(ctx context.Context, id uuid.UUID) (GetUserCredentialsRow, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
+	InsertOpeningHours(ctx context.Context, arg []InsertOpeningHoursParams) (int64, error)
 	InsertRecoveryCodes(ctx context.Context, arg []InsertRecoveryCodesParams) (int64, error)
+	InsertStockHistory(ctx context.Context, arg []InsertStockHistoryParams) (int64, error)
 	// Catalogue visible par les clients, dans l'ordre d'affichage.
 	ListActiveProducts(ctx context.Context) ([]ListActiveProductsRow, error)
 	// Lecture pour les tests et, plus tard, l'écran d'audit admin.
 	ListAuditLogsByEntity(ctx context.Context, arg ListAuditLogsByEntityParams) ([]AuditLog, error)
+	// Fermetures à partir d'une date (le jour même compris).
+	ListClosures(ctx context.Context, arg ListClosuresParams) ([]ListClosuresRow, error)
+	ListOpeningHours(ctx context.Context, stationID uuid.UUID) ([]ListOpeningHoursRow, error)
+	// Catalogue actif, avec ce que la station vend (ligne présente) et son stock.
+	ListStationProducts(ctx context.Context, stationID uuid.UUID) ([]ListStationProductsRow, error)
+	// Stocks vendus, verrouillés pour la mise à jour groupée.
+	ListStationStocksForUpdate(ctx context.Context, stationID uuid.UUID) ([]ListStationStocksForUpdateRow, error)
+	// Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
+	// Pagination par curseur (created_at, id) décroissants.
+	ListStationsForAdmin(ctx context.Context, arg ListStationsForAdminParams) ([]ListStationsForAdminRow, error)
+	ListStockHistory(ctx context.Context, arg ListStockHistoryParams) ([]ListStockHistoryRow, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 	// Mise à niveau des paramètres argon2 au login : ne touche pas password_changed_at.
 	RehashUserPassword(ctx context.Context, arg RehashUserPasswordParams) error
+	// Produits qui ne sont plus vendus (l'historique reste dans stock_history).
+	RemoveStationProductsNotIn(ctx context.Context, arg RemoveStationProductsNotInParams) ([]int16, error)
+	ReplaceStationDocument(ctx context.Context, arg ReplaceStationDocumentParams) error
+	ResolveLocationRequest(ctx context.Context, arg ResolveLocationRequestParams) (int64, error)
+	SetStationLocation(ctx context.Context, arg SetStationLocationParams) error
+	// Changement de statut. reviewed_by/at ne sont renseignés que pour une décision admin.
+	SetStationStatus(ctx context.Context, arg SetStationStatusParams) error
+	// Une saisie vaut aussi confirmation : last_confirmed_at avance même si la quantité ne change pas.
+	SetStockQuantity(ctx context.Context, arg SetStockQuantityParams) error
+	SupersedeLocationRequests(ctx context.Context, stationID uuid.UUID) error
 	SuspendManagerStation(ctx context.Context, arg SuspendManagerStationParams) error
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
+	TouchStationStockActivity(ctx context.Context, id uuid.UUID) error
+	UpdateStationProfile(ctx context.Context, arg UpdateStationProfileParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 	// Consomme un code de secours (usage unique).

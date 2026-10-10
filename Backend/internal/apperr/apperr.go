@@ -24,6 +24,8 @@ const (
 	CodeMethodNotAllowed = "method.not_allowed"
 	CodeNotFound         = "resource.not_found"
 	CodeConflict         = "resource.conflict"
+	CodeVersionConflict  = "resource.version_conflict"
+	CodePrecondition     = "request.precondition_required"
 	CodeRateLimited      = "rate_limit.exceeded"
 	CodeUnavailable      = "service.unavailable"
 	CodeInternal         = "internal.error"

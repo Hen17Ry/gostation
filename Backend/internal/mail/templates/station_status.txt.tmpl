@@ -1,0 +1,7 @@
+{{define "content"}}Bonjour {{.FirstName}},
+
+[{{.Badge}}] {{.Lead}}
+{{if .Reason}}
+Motif : {{.Reason}}
+{{end}}
+{{.Next}}{{end}}

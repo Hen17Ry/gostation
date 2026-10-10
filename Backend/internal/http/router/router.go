@@ -46,10 +46,12 @@ type Deps struct {
 	StationStatus middleware.StationStatusReader
 }
 
-// Rôles (valeurs de l'enum user_role).
+// Rôles (valeurs de l'enum user_role) et statuts de station (enum station_status).
 const (
-	roleManager = "manager"
-	roleAdmin   = "admin"
+	roleManager     = "manager"
+	roleAdmin       = "admin"
+	stationApproved = "approved"
+	stationRejected = "rejected"
 )
 
 // Limite des inscriptions : 10 par heure et par IP.
@@ -76,8 +78,8 @@ func New(cfg Config, d Deps) http.Handler {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins: cfg.CORSAllowedOrigins,
 			AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
-			AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", middleware.HeaderRequestID, middleware.HeaderCSRF},
-			ExposedHeaders: []string{middleware.HeaderRequestID, "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After"},
+			AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "If-Match", middleware.HeaderRequestID, middleware.HeaderCSRF},
+			ExposedHeaders: []string{"ETag", middleware.HeaderRequestID, "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After"},
 			// Les cookies de session de l'admin web exigent les credentials.
 			AllowCredentials: true,
 			MaxAge:           300,
@@ -111,10 +113,13 @@ func New(cfg Config, d Deps) http.Handler {
 			}, d.Log, rs),
 		)
 
-		// Inscription gérant : multipart avec justificatif, limite de corps dédiée.
+		// Inscription gérant et renvoi du justificatif : multipart, limite de corps dédiée.
 		if d.Auth != nil {
 			api.With(middleware.MaxBodyBytes(cfg.DocumentBodyBytes, rs), registerRL).
 				Post("/auth/register/manager", h(d.Auth.RegisterManager))
+			api.With(middleware.MaxBodyBytes(cfg.DocumentBodyBytes, rs), d.Authenticator.Require,
+				middleware.RequireRole(rs, roleManager), middleware.RequireStationStatus(rs, d.StationStatus, stationRejected)).
+				Post("/manager/station/resubmission", h(d.Stations.Resubmit))
 		}
 
 		api.Group(func(j chi.Router) {
@@ -148,17 +153,44 @@ func New(cfg Config, d Deps) http.Handler {
 				me.Delete("/me/sessions/{id}", h(d.Me.RevokeSession))
 			})
 
-			// Gérant : rien d'autre que /me tant que la station n'est pas approuvée.
+			// Gérant : rien d'autre que /me tant que la station n'est pas approuvée, sauf l'exception
+			// « rejected » (consulter et corriger la station, renvoyer un justificatif — D15).
+			st := d.Stations
 			j.Group(func(m chi.Router) {
-				m.Use(d.Authenticator.Require, middleware.RequireRole(rs, roleManager),
-					middleware.RequireApprovedStation(rs, d.StationStatus))
-				m.Get("/manager/station", h(d.Stations.ManagerStation))
+				m.Use(d.Authenticator.Require, middleware.RequireRole(rs, roleManager))
+				m.Group(func(fix chi.Router) {
+					fix.Use(middleware.RequireStationStatus(rs, d.StationStatus, stationApproved, stationRejected))
+					fix.Get("/manager/station", h(st.ManagerStation))
+					fix.Patch("/manager/station", h(st.UpdateStation))
+				})
+				m.Group(func(ok chi.Router) {
+					ok.Use(middleware.RequireApprovedStation(rs, d.StationStatus))
+					ok.Put("/manager/station/location", h(st.SetLocation))
+					ok.Get("/manager/station/opening-hours", h(st.Hours))
+					ok.Put("/manager/station/opening-hours", h(st.ReplaceHours))
+					ok.Post("/manager/station/closures", h(st.AddClosure))
+					ok.Delete("/manager/station/closures/{id}", h(st.DeleteClosure))
+					ok.Get("/manager/station/products", h(st.Products))
+					ok.Put("/manager/station/products", h(st.SetProducts))
+					ok.Get("/manager/station/stocks", h(st.Stocks))
+					ok.Put("/manager/station/stocks", h(st.UpdateStocks))
+					ok.Post("/manager/station/stocks/confirm", h(st.ConfirmStocks))
+				})
 			})
 
 			// Admin : session ouverte après 2FA uniquement (RequireRole vérifie le claim mfa).
 			j.Group(func(ad chi.Router) {
 				ad.Use(d.Authenticator.Require, middleware.RequireRole(rs, roleAdmin))
-				ad.Get("/admin/stations/{id}/document", h(d.Stations.AdminDocument))
+				ad.Get("/admin/stations", h(st.AdminList))
+				ad.Get("/admin/stations/{id}", h(st.AdminDetail))
+				ad.Get("/admin/stations/{id}/document", h(st.AdminDocument))
+				ad.Post("/admin/stations/{id}/approve", h(st.Approve()))
+				ad.Post("/admin/stations/{id}/reject", h(st.Reject()))
+				ad.Post("/admin/stations/{id}/suspend", h(st.Suspend()))
+				ad.Post("/admin/stations/{id}/unsuspend", h(st.Unsuspend()))
+				ad.Post("/admin/stations/{id}/location-requests/{requestId}/approve", h(st.ApproveMove()))
+				ad.Post("/admin/stations/{id}/location-requests/{requestId}/reject", h(st.RejectMove()))
+				ad.Post("/admin/stations/{id}/location-flag/dismiss", h(st.DismissLocationFlag))
 			})
 		})
 	})

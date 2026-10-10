@@ -39,6 +39,7 @@ var it struct {
 	handler http.Handler
 	svc     *app.Services
 	pool    *pgxpool.Pool
+	rdb     *goredis.Client
 	mailpit *testutil.Mailpit
 	cfg     config.Config
 }
@@ -111,7 +112,7 @@ func runTests(m *testing.M) int {
 	osrmClient, _ := osrm.New("http://127.0.0.1:9", 100*time.Millisecond)
 	handler, _ := app.NewHandler(cfg, svc, rdb, osrmClient, log)
 
-	it.handler, it.svc, it.pool, it.mailpit, it.cfg = handler, svc, pool, mp, cfg
+	it.handler, it.svc, it.pool, it.rdb, it.mailpit, it.cfg = handler, svc, pool, rdb, mp, cfg
 	return m.Run()
 }
 
@@ -189,6 +190,27 @@ func (c *client) do(method, path string, body any) response {
 	req := httptest.NewRequest(method, path, r)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	return c.send(req)
+}
+
+// doIf envoie une écriture avec l'en-tête If-Match (verrouillage optimiste).
+func (c *client) doIf(method, path, etag string, body any) response {
+	c.t.Helper()
+	var r io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		r = bytes.NewReader(raw)
+	}
+	req := httptest.NewRequest(method, path, r)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if etag != "" {
+		req.Header.Set("If-Match", etag)
 	}
 	return c.send(req)
 }

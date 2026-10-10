@@ -9,6 +9,41 @@ import (
 	"context"
 )
 
+// iteratorForInsertOpeningHours implements pgx.CopyFromSource.
+type iteratorForInsertOpeningHours struct {
+	rows                 []InsertOpeningHoursParams
+	skippedFirstNextCall bool
+}
+
+func (r *iteratorForInsertOpeningHours) Next() bool {
+	if len(r.rows) == 0 {
+		return false
+	}
+	if !r.skippedFirstNextCall {
+		r.skippedFirstNextCall = true
+		return true
+	}
+	r.rows = r.rows[1:]
+	return len(r.rows) > 0
+}
+
+func (r iteratorForInsertOpeningHours) Values() ([]interface{}, error) {
+	return []interface{}{
+		r.rows[0].StationID,
+		r.rows[0].Weekday,
+		r.rows[0].OpensAt,
+		r.rows[0].ClosesAt,
+	}, nil
+}
+
+func (r iteratorForInsertOpeningHours) Err() error {
+	return nil
+}
+
+func (q *Queries) InsertOpeningHours(ctx context.Context, arg []InsertOpeningHoursParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"station_opening_hours"}, []string{"station_id", "weekday", "opens_at", "closes_at"}, &iteratorForInsertOpeningHours{rows: arg})
+}
+
 // iteratorForInsertRecoveryCodes implements pgx.CopyFromSource.
 type iteratorForInsertRecoveryCodes struct {
 	rows                 []InsertRecoveryCodesParams
@@ -40,4 +75,41 @@ func (r iteratorForInsertRecoveryCodes) Err() error {
 
 func (q *Queries) InsertRecoveryCodes(ctx context.Context, arg []InsertRecoveryCodesParams) (int64, error) {
 	return q.db.CopyFrom(ctx, []string{"admin_recovery_codes"}, []string{"user_id", "code_hash"}, &iteratorForInsertRecoveryCodes{rows: arg})
+}
+
+// iteratorForInsertStockHistory implements pgx.CopyFromSource.
+type iteratorForInsertStockHistory struct {
+	rows                 []InsertStockHistoryParams
+	skippedFirstNextCall bool
+}
+
+func (r *iteratorForInsertStockHistory) Next() bool {
+	if len(r.rows) == 0 {
+		return false
+	}
+	if !r.skippedFirstNextCall {
+		r.skippedFirstNextCall = true
+		return true
+	}
+	r.rows = r.rows[1:]
+	return len(r.rows) > 0
+}
+
+func (r iteratorForInsertStockHistory) Values() ([]interface{}, error) {
+	return []interface{}{
+		r.rows[0].StationID,
+		r.rows[0].ProductID,
+		r.rows[0].Quantity,
+		r.rows[0].PreviousQuantity,
+		r.rows[0].Source,
+		r.rows[0].ChangedBy,
+	}, nil
+}
+
+func (r iteratorForInsertStockHistory) Err() error {
+	return nil
+}
+
+func (q *Queries) InsertStockHistory(ctx context.Context, arg []InsertStockHistoryParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"stock_history"}, []string{"station_id", "product_id", "quantity", "previous_quantity", "source", "changed_by"}, &iteratorForInsertStockHistory{rows: arg})
 }

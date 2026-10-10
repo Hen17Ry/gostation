@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,6 +35,15 @@ func Connect(ctx context.Context, opts Options) (*pgxpool.Pool, error) {
 		cfg.ConnConfig.RuntimeParams["application_name"] = opts.AppName
 	}
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	// pgx convertit les timestamptz dans le fuseau local du processus : on impose UTC pour que
+	// l'API renvoie toujours des dates RFC 3339 en UTC, quel que soit le fuseau de la machine.
+	cfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+		conn.TypeMap().RegisterType(&pgtype.Type{
+			Name: "timestamptz", OID: pgtype.TimestamptzOID,
+			Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC},
+		})
+		return nil
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
