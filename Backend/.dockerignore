@@ -1,0 +1,7 @@
+bin/
+tmp/
+**/*_test.go
+internal/testutil/
+coverage.*
+*.out
+.golangci.yml

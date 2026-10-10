@@ -4,7 +4,7 @@ Trouver la station la plus proche qui a **en stock** le produit recherché (gaz 
 
 | Dossier | Contenu | État |
 |---|---|---|
-| `Backend/` | API Go (chi, pgx/sqlc, goose, Redis, asynq) | à initialiser |
+| `Backend/` | API Go (chi, pgx/sqlc, goose, Redis) : socle, migrations, `/healthz`, `/readyz`, `/api/v1/products` | ✔ socle |
 | `Mobile/` | App Expo React Native (user + gérant) | à initialiser |
 | `Web/` | Admin React (Vite, Tailwind, shadcn/ui) | à initialiser |
 | `docs/` | [Architecture](docs/ARCHITECTURE.md) : modèle de données, endpoints, algorithme de recherche | ✔ |
@@ -14,7 +14,7 @@ Conventions et règles du projet : [`CLAUDE.md`](CLAUDE.md).
 
 ## Démarrage rapide
 
-Prérequis : Docker Engine avec Compose v2, `make`, `curl`, `openssl`. Environ 1 Go de disque pour les images et les données OSRM.
+Prérequis : Docker Engine avec Compose v2, `make`, `curl`, `openssl`, et pour le backend Go 1.27 + gcc (cgo, pour h3-go). Environ 1 Go de disque pour les images et les données OSRM.
 
 ```bash
 make env            # 1. crée .env avec des secrets aléatoires
@@ -36,6 +36,45 @@ Résultat attendu de `make check` :
 ✔ Infra opérationnelle.
 ```
 
+## Backend Go
+
+### Outillage
+
+```bash
+sudo snap install go --channel=1.27/stable --classic   # Go 1.27 (apt d'Ubuntu 26.04 s'arrête à 1.26)
+make tools                                             # goose, sqlc, golangci-lint dans $(go env GOBIN)
+```
+
+| Outil | Version | Installation (`make tools`) | Usage |
+|---|---|---|---|
+| goose | v3.28.0 | `go install github.com/pressly/goose/v3/cmd/goose@v3.28.0` | Migrations SQL (`Backend/db/migrations`) |
+| sqlc | v1.31.1 | `go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1` | Génère `internal/store/dbgen` depuis `db/queries` (cgo, compilation longue) |
+| golangci-lint | v2.14.0 | `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0` | Lint et formatage (gci + gofumpt) |
+
+`$(go env GOBIN)` (ou `$(go env GOPATH)/bin`) doit être dans le `PATH` pour appeler les outils directement ; le Makefile, lui, les trouve tout seul.
+
+### Lancer l'API
+
+```bash
+make up && make migrate-up   # infra + schéma
+make run                     # API sur http://127.0.0.1:8080 (variables de .env)
+# ou, dans Docker (image distroless non-root, healthcheck sur /readyz) :
+make api-up
+curl -s localhost:8080/readyz   # {"status":"ready","checks":{"osrm":"ok","postgres":"ok","redis":"ok"}}
+```
+
+| Commande | Effet |
+|---|---|
+| `make test` | Tests unitaires + intégration avec `-race` (testcontainers : PostGIS et Redis jetables, mêmes images que le compose) |
+| `make test-unit` | Tests unitaires seuls, sans Docker |
+| `make lint` / `make fmt` | golangci-lint / formatage |
+| `make sqlc` | Régénère le code d'accès aux données après modification de `db/queries` |
+| `make migrate-up` / `migrate-down` / `migrate-status` | Migrations sur la base de `.env` |
+| `make migrate-new name=add_x` | Nouvelle migration horodatée (UTC) dans `Backend/db/migrations` |
+| `make build` | Binaire `Backend/bin/api` |
+
+Endpoints disponibles : `GET /healthz`, `GET /readyz`, `GET /api/v1/products`. Les erreurs sont en `application/problem+json` (RFC 9457), avec des codes stables listés dans [ARCHITECTURE §5](docs/ARCHITECTURE.md).
+
 ## Services locaux
 
 Exposés uniquement sur `127.0.0.1` ; ports modifiables dans `.env`.
@@ -45,6 +84,7 @@ Exposés uniquement sur `127.0.0.1` ; ports modifiables dans `.env`.
 | PostgreSQL + PostGIS | `postgis/postgis:18-3.6` | 5440 | `make db-shell` ou `DATABASE_URL` dans `.env` |
 | Redis | `redis:8.10.2-alpine` | 6390 | `make redis-cli` (mot de passe requis) |
 | OSRM (car, MLD) | `ghcr.io/project-osrm/osrm-backend:v26.10.0-debian` | 5000 | `curl "http://127.0.0.1:5000/route/v1/driving/2.3844,6.3573;2.4300,6.3730"` |
+| API (profil `api`) | `gostation-api` (build `Backend/Dockerfile`) | 8080 | `make api-up`, puis `curl localhost:8080/readyz` |
 
 ## Commandes
 

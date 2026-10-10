@@ -5,7 +5,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 
 ## Règles non négociables
 
-1. La recherche n'affiche que des stations `approved` avec `stock > 0`. Chaque résultat affiche « mis à jour il y a X min ».
+1. La recherche n'affiche que des stations `approved`, **ouvertes**, avec `stock > 0` mis à jour il y a **≤ 24 h**. Au-delà de 8 h, le résultat porte le flag `stale` (badge). Chaque résultat affiche « mis à jour il y a X min ».
 2. La position de l'utilisateur n'est **jamais** persistée : ni en base, ni dans les logs, ni comme clé de cache. Les stats se font uniquement par cellule H3 anonyme.
 3. Toute UI (mobile et web) se conçoit avec le skill **`ui-ux-pro-max`**. Composants web via le **MCP 21st.dev** ; le mobile s'en inspire.
 4. Pas d'ORM ni de Drizzle : SQL écrit à la main, compilé par **sqlc** ; migrations **goose**.
@@ -16,7 +16,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 
 | Rôle | Client | Périmètre |
 |---|---|---|
-| `user` | Mobile | Inscription (prénom, nom, email, mot de passe). Recherche d'un produit, itinéraire, signalement. |
+| `user` | Mobile | Recherche, fiche station et itinéraire **sans compte** (rate limit par IP). Un compte (prénom, nom, email, mot de passe) est requis pour signaler, gérer ses favoris et recevoir des notifications. |
 | `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone, justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture. |
 | `admin` | Web | Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements, stats, journal d'audit, demandes RGPD/APDP. |
 
@@ -24,7 +24,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 
 ```
 GoStation/
-├── Backend/            API Go + worker asynq (cmd/api, cmd/worker, internal/…, db/)
+├── Backend/            API Go (cmd/api, internal/…, db/migrations, db/queries, sqlc.yaml)
 ├── Mobile/             Expo React Native — app unique user + manager
 ├── Web/                Admin React (Vite)
 ├── docs/               ARCHITECTURE.md
@@ -41,33 +41,47 @@ GoStation/
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
 - **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, Expo Router, Reanimated 4, FlashList 2, TanStack Query 5, Zustand 5, react-hook-form + zod 4, expo-secure-store, expo-location, expo-notifications. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
 - **Web** : Vite 8, React 19, TypeScript, Tailwind CSS 4, shadcn/ui + composants 21st.dev, TanStack Query + TanStack Router, maplibre-gl.
+- **Outillage Go** (installé par `make tools`, versions figées dans le Makefile) : goose v3.28, sqlc v1.31, golangci-lint v2.14. Tests d'intégration avec testcontainers-go. Go 1.27 installé via snap (`/snap/bin/go`).
 - Les versions exactes sont figées par `go.mod` et les lockfiles. On reprend les versions fournies par les templates Expo et Vite à l'init.
 
 ## Commandes
 
 ```bash
+# Infra (Docker)
 make env            # .env depuis .env.example + secrets aléatoires (n'écrase jamais)
 make osrm-prepare   # télécharge l'extrait Bénin + extract/partition/customize (FORCE=1 pour retraiter)
 make up             # démarre PostGIS, Redis, OSRM et attend qu'ils soient healthy
 make check          # vérifie healthchecks, PostGIS_Version(), Redis, OSRM /route et /table sur Cotonou
 make ps | logs s=osrm | db-shell | redis-cli | down
+
+# Backend (Go)
+make tools          # installe goose, sqlc et golangci-lint (versions figées)
+make run            # lance l'API sur l'hôte avec les variables de .env
+make build          # compile Backend/bin/api
+make test           # tests unitaires + intégration (testcontainers, Docker requis), avec -race
+make lint           # golangci-lint (formatage gci + gofumpt vérifié)
+make sqlc           # régénère internal/store/dbgen depuis db/queries
+make migrate-up | migrate-down | migrate-status | migrate-new name=add_x
+make api-up         # API dans Docker (profil compose « api »), healthcheck sur /readyz
 ```
 
-Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080** (à venir), Vite **5173**. Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
+Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Vite **5173**. Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 
 1. **Cache** Redis devant tout : clé = cellule H3 res 8 + produit (+ génération), TTL court (60 s). Toute mise à jour de stock, de statut ou de position invalide le cache.
-2. **Rayons progressifs** avec `ST_DWithin` : 500 m, 1, 2, 5, 10, 25, 50 km, filtre `stock > 0` et `status = 'approved'`. On s'arrête au premier rayon qui donne `SEARCH_MIN_RESULTS` candidats.
-3. **Repli KNN illimité** si tout est vide : `ORDER BY location <-> point LIMIT 10`. Il y a donc toujours un résultat dès qu'une station du pays a du stock.
-4. **Re-classement** par temps de trajet réel via OSRM `/table` (1 source → N). Si OSRM est en panne ou en timeout : ordre par distance + `ranking: "distance"`.
-5. Chaque résultat porte `stockUpdatedAt` ; le client affiche « mis à jour il y a X min ».
+2. **Rayons progressifs** avec `ST_DWithin` : 500 m, 1, 2, 5, 10, 25, 50 km, sur les stations `approved`, **ouvertes**, avec `stock > 0` frais (≤ 24 h). On s'arrête au premier rayon qui donne `SEARCH_MIN_RESULTS` candidats.
+3. **Repli sur les fermées** : s'il n'y a aucune station ouverte à 50 km, on renvoie les plus proches fermées avec leur `reopensAt`.
+4. **Repli KNN illimité** si rien du tout : `ORDER BY location <-> point LIMIT 10`. Il y a donc toujours un résultat dès qu'une station du pays a un stock frais.
+5. **Re-classement** par temps de trajet réel via OSRM `/table` (1 source → N). Si OSRM est en panne ou en timeout : ordre par distance + `ranking: "distance"`.
+6. Chaque résultat porte `stockUpdatedAt` (le client affiche « mis à jour il y a X min ») et `stale` (8 h à 24 h).
 
 ## Conventions
 
 ### Langue
 - Identifiants en anglais : code, tables, colonnes, routes API, clés JSON, codes d'erreur, messages de commit.
 - Documentation et commentaires en français. Textes UI en français via clés i18n (`fr` par défaut, prêt pour `en`).
+- Messages d'exécution en anglais : erreurs Go, logs, `title` et `detail` des problem+json. Le client traduit d'après le `code`.
 
 ### Commits et branches
 - [Conventional Commits](https://www.conventionalcommits.org) : `type(scope): description` à l'impératif, ≤ 72 caractères.
@@ -77,7 +91,18 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 
 ### Nommage
 - **Go** : packages courts, minuscules, au singulier (`station`, `search`, `auth`) ; fichiers `snake_case.go` ; `NewXxx` pour les constructeurs ; erreurs sentinelles `ErrXxx` ; `ctx context.Context` en premier paramètre ; interfaces déclarées côté consommateur.
-- **Arborescence Backend** : `cmd/api`, `cmd/worker`, `cmd/admin` (CLI de création d'admin), `internal/<domaine>/` (handler, service, store), `internal/platform/{config,db,cache,httpx,osrm,push,crypto}`, `db/migrations/` (goose : `YYYYMMDDHHMMSS_desc.sql`), `db/queries/` (sqlc), code généré dans `internal/db/` (ne jamais l'éditer à la main).
+- **Arborescence Backend** (module `gostation/backend`) :
+  - `cmd/api` : point d'entrée. `run()` assemble les dépendances ; la sous-commande `api healthcheck` sert au healthcheck Docker.
+  - `internal/config` : config depuis l'environnement, validée, échec explicite.
+  - `internal/apperr` : erreurs typées et codes stables.
+  - `internal/http/{router,middleware,handler,respond,httpctx}` : routeur chi, middlewares, handlers qui renvoient `error`, rendu JSON et problem+json, valeurs de contexte (request ID, IP client).
+  - `internal/store` : transactions (`InTx`) et traduction des erreurs pgx ; `internal/store/dbgen` contient le code **généré** par sqlc, à ne jamais éditer.
+  - `internal/platform/{postgres,redis,osrm,h3,logging}` : clients d'infrastructure ; `internal/ratelimit` : fenêtre glissante Redis.
+  - `internal/<domaine>/` pour la logique métier, à partir de l'étape 3.
+  - `db/migrations/` (goose, `YYYYMMDDHHMMSS_desc.sql` en **UTC**, créées par `make migrate-new`, toujours avec un Down, une migration de données à part) et `db/queries/` (sqlc). Les migrations sont embarquées (`db.Migrations`) pour les tests. Après modification d'une requête : `make sqlc`.
+  - Piège SQL : un `CHECK` évalué à NULL passe. Toute condition sur une colonne nullable doit donc tester `IS NOT NULL` explicitement.
+- **Injection de dépendances explicite** : constructeurs `NewXxx(deps…)`, aucune variable globale mutable, pas d'`init()` qui configure quoi que ce soit, `context.Context` partout.
+- **sqlc** : le type `geography` n'est jamais exposé. Les requêtes prennent `lat`/`lng` en `float8` (`ST_MakePoint(lng, lat)`) et lisent les colonnes générées `stations.lat`/`lng` (une expression `ST_Y(...)` serait typée non nullable par sqlc). Colonnes explicites (pas de `SELECT *`).
 - **SQL** : `snake_case` ; tables au pluriel ; PK `id uuid DEFAULT uuidv7()` (sauf référentiels en `smallint identity`) ; FK `<entite>_id` ; horodatages `timestamptz` suffixés `_at`, en UTC ; enums PostgreSQL ; contraintes nommées `pk_ fk_ uq_ ck_ idx_<table>_<cols>`. Requêtes sqlc : `GetStationByID`, `ListStationsWithinRadius`, `UpsertStationStock`.
 - **API** : REST JSON sous `/api/v1` ; ressources au pluriel en kebab-case (`/opening-hours`) ; clés JSON en camelCase ; dates RFC 3339 UTC ; coordonnées `{ "lat", "lng" }`. Attention : PostGIS et OSRM attendent l'ordre **lng, lat**. Pagination par curseur `?limit=&cursor=` → `{ items, nextCursor }`.
 - **TypeScript** : fichiers kebab-case (`station-card.tsx`), composants PascalCase, hooks `useXxx`, stores Zustand `useXxxStore`, schémas zod `xxxSchema` + `type Xxx = z.infer<…>`, fabriques de query keys par domaine (`stationKeys.detail(id)`).
@@ -93,7 +118,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 
 ### Tests
 - **Go** : `go test -race ./...`. Tests unitaires en table pour la logique métier (classement de la recherche, horaires d'ouverture, rappels, clés H3, rotation des tokens).
-- Tests d'intégration sous build tag `integration`, contre un vrai PostGIS et un vrai Redis via testcontainers-go (pas de mock SQL). Handlers testés avec `httptest`, client OSRM avec un serveur `httptest` et des fixtures.
+- Tests d'intégration sous build tag `integration`, contre un vrai PostGIS et un vrai Redis via testcontainers-go, avec les **mêmes images que le compose** (`POSTGIS_IMAGE`, `REDIS_IMAGE`). Pas de mock SQL. Handlers testés avec `httptest`, client OSRM avec un serveur `httptest`. `make test` lance unitaires + intégration.
 - Objectif ≥ 80 % de couverture sur `internal/search` et `internal/auth`.
 - **Mobile** : jest-expo + React Native Testing Library ; E2E Maestro (recherche → itinéraire, mise à jour de stock par le gérant).
 - **Web** : Vitest + Testing Library ; E2E Playwright (validation d'un gérant).
