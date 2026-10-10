@@ -1,0 +1,68 @@
+# ── Secrets & environnement ─────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.keystore
+!debug.keystore
+credentials.json
+service-account*.json
+
+# ── Données locales ──────────────────────────────────────────────────────────
+.cache/
+var/
+*.osm.pbf
+*.osrm*
+
+# ── Go (Backend/) ────────────────────────────────────────────────────────────
+Backend/bin/
+Backend/tmp/
+*.test
+*.out
+coverage.*
+go.work.sum
+
+# ── Node / Expo (Mobile/) ────────────────────────────────────────────────────
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+# Expo CNG : ios/ et android/ sont générés par `expo prebuild`, jamais commités.
+Mobile/ios/
+Mobile/android/
+*.ipa
+*.apk
+*.aab
+
+# ── Web (Web/) ───────────────────────────────────────────────────────────────
+Web/dist/
+.vite/
+.tanstack/
+
+# ── Tests & outils ───────────────────────────────────────────────────────────
+coverage/
+playwright-report/
+test-results/
+.eslintcache
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── OS / éditeurs ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
