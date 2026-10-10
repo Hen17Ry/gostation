@@ -14,6 +14,7 @@ import (
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/audit"
 	"gostation/backend/internal/document"
+	"gostation/backend/internal/mail"
 	"gostation/backend/internal/store/dbgen"
 )
 
@@ -140,6 +141,7 @@ func (s *Service) UpdateProfile(ctx context.Context, a Actor, expected int32, in
 	s.audit(ctx, a, audit.ActionStationUpdated, stationID, map[string]any{"fields": changedFields(in), "backToPending": backToPending})
 	if backToPending {
 		s.invalidate(ctx, true)
+		s.notify(ctx, stationID, mail.StationIdentityChanged, "")
 	}
 	return s.ForManager(ctx, a.UserID)
 }
@@ -211,6 +213,7 @@ func (s *Service) Resubmit(ctx context.Context, a Actor, expected int32, doc io.
 	}
 	s.audit(ctx, a, audit.ActionStationResubmitted, stationID, map[string]any{"documentMime": stored.MIME})
 	s.invalidate(ctx, true)
+	s.notify(ctx, stationID, mail.StationResubmitted, "")
 	return s.ForManager(ctx, a.UserID)
 }
 

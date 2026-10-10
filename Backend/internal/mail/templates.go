@@ -110,7 +110,7 @@ func (r *Renderer) PasswordChanged(to, firstName string, at time.Time) (Message,
 	})
 }
 
-// StationStatusChange décrit un changement de statut décidé par l'admin.
+// StationStatusChange décrit un changement de statut (décision de l'admin ou accusé de réception).
 type StationStatusChange string
 
 // Changements de statut notifiés au gérant.
@@ -119,6 +119,12 @@ const (
 	StationRejected   StationStatusChange = "rejected"
 	StationSuspended  StationStatusChange = "suspended"
 	StationReinstated StationStatusChange = "reinstated"
+	// Décision de l'admin sur une demande de déplacement.
+	StationMoveApproved StationStatusChange = "move_approved"
+	StationMoveRejected StationStatusChange = "move_rejected"
+	// Accusés de réception : la station repasse en pending à l'initiative du gérant.
+	StationResubmitted     StationStatusChange = "resubmitted"
+	StationIdentityChanged StationStatusChange = "identity_changed"
 )
 
 // StationStatus notifie le gérant d'une décision de l'admin sur sa station. Le statut est porté
@@ -144,6 +150,25 @@ func (r *Renderer) StationStatus(to, firstName, stationName string, change Stati
 		subject, d.Title, d.Badge, d.Tone = "Votre station est réactivée – GoStation", "Station réactivée", "Réactivée", "success"
 		d.Lead = "« " + stationName + " » est de nouveau active et visible dans la recherche."
 		d.Next = "Pensez à vérifier vos stocks et vos horaires dans l'application."
+	case StationMoveApproved:
+		d.Reason = ""
+		subject, d.Title, d.Badge, d.Tone = "Nouvelle position validée – GoStation", "Position validée", "Position validée", "success"
+		d.Lead = "La nouvelle position de « " + stationName + " » est validée : c'est elle que la recherche utilise désormais."
+		d.Next = "Vérifiez l'épingle sur la carte de l'application si besoin."
+	case StationMoveRejected:
+		subject, d.Title, d.Badge, d.Tone = "Déplacement refusé – GoStation", "Déplacement refusé", "Déplacement refusé", "danger"
+		d.Lead = "La demande de déplacement de « " + stationName + " » n'a pas été validée. L'ancienne position reste active."
+		d.Next = "Vous pouvez épingler à nouveau la station depuis l'application."
+	case StationResubmitted:
+		d.Reason = ""
+		subject, d.Title, d.Badge, d.Tone = "Demande reçue – GoStation", "Demande reçue", "En attente de validation", "info"
+		d.Lead = "Nous avons bien reçu votre nouveau justificatif pour « " + stationName + " ». Votre demande est de nouveau en cours d'examen."
+		d.Next = "Vous recevrez un email dès qu'elle sera traitée."
+	case StationIdentityChanged:
+		d.Reason = ""
+		subject, d.Title, d.Badge, d.Tone = "Modification en cours de vérification – GoStation", "Modification à vérifier", "En attente de validation", "info"
+		d.Lead = "Vous avez modifié l'IFU ou le RCCM de « " + stationName + " ». La station est retirée de la recherche le temps que l'équipe GoStation vérifie ces informations."
+		d.Next = "Vous recevrez un email dès que la vérification sera terminée."
 	default:
 		return Message{}, fmt.Errorf("mail: unknown station status change %q", change)
 	}

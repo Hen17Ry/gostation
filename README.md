@@ -81,6 +81,17 @@ Endpoints : voir [ARCHITECTURE §5](docs/ARCHITECTURE.md) et la spec OpenAPI. Le
 - **Créer un admin** (aucune route publique ne le permet) : `make admin-create email=ada@gostation.bj first=Ada last=Admin`. Le mot de passe est saisi au clavier, deux fois. La 2FA TOTP est configurée au premier login (`POST /api/v1/auth/admin/login` puis `/auth/admin/2fa`).
 - **2FA perdue** : `make admin-reset-2fa email=…`.
 - **Nouvelles variables** après un `git pull` : `make env-sync` complète `.env` sans toucher aux valeurs existantes.
+
+### Recherche : données fictives et bench
+
+```bash
+make seed-dev        # 5 000 stations fictives réparties au Bénin (is_demo = true, dev uniquement)
+make explain-search  # plans EXPLAIN ANALYZE des requêtes de recherche (index GiST vérifié)
+make bench           # k6 (image grafana/k6:1.3.0) : 100 req/s pendant 60 s depuis 5 zones
+DURATION=120s RATE=200 make bench
+```
+
+`make bench` lance une API dédiée sur le port 18080 (quotas levés, logs en `warn`), vide le cache de recherche, puis rapporte p50/p95/p99 : HTTP de bout en bout, temps serveur hors OSRM (avec et sans cache), OSRM à part, taux de cache. Les résultats JSON complets vont dans `bench/results/` (ignoré par git). `RESET=1 make seed-dev` supprime les stations fictives.
 - **Contrat d'API** : [`Backend/api/openapi.yaml`](Backend/api/openapi.yaml) (OpenAPI 3.1). Les types TypeScript des clients se génèrent avec `npx openapi-typescript Backend/api/openapi.yaml -o api.d.ts`.
 
 ## Services locaux

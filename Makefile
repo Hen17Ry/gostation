@@ -28,7 +28,7 @@ GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATI
 
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
 	tools run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up \
-	admin-create admin-reset-2fa
+	admin-create admin-reset-2fa seed-dev explain-search bench
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-15s\033[0m %s\n", $$1, $$2}'
@@ -123,3 +123,14 @@ admin-create: .env ## Crée un admin : make admin-create email=… first=… las
 admin-reset-2fa: .env ## Réinitialise la 2FA d'un admin : make admin-reset-2fa email=…
 	@[[ -n "$(email)" ]] || { echo "usage : make admin-reset-2fa email=…"; exit 1; }
 	@$(WITH_ENV) cd $(BACKEND) && go run ./cmd/admin reset-2fa --email "$(email)"
+
+# ── Recherche : données fictives, plans et bench ──────────────────────────────
+
+seed-dev: .env ## Remplace les stations fictives : 5 000 au Bénin (dev uniquement ; COUNT=…, RESET=1 pour supprimer)
+	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/seed -count $(or $(COUNT),5000) $(if $(RESET),-reset,)'
+
+explain-search: .env ## EXPLAIN ANALYZE des requêtes de recherche (vérifie l'index GiST)
+	@./scripts/explain-search.sh
+
+bench: .env ## Bench k6 de /search (5 zones) : p50/p95/p99, taux de cache ; DURATION=60s RATE=100
+	@./scripts/bench.sh

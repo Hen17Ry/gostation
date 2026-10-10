@@ -28,6 +28,10 @@ type Config struct {
 	CORSAllowedOrigins []string
 	IPRateLimit        int
 	IPRateWindow       time.Duration
+	// Quotas de la recherche et de l'itinéraire, par minute (D22) : par IP, et par installation
+	// (X-Install-Id) ou utilisateur connecté.
+	SearchIPLimit     int
+	SearchClientLimit int
 }
 
 // Deps regroupe les dépendances injectées. Les groupes auth, me, manager et admin ne sont
@@ -42,6 +46,7 @@ type Deps struct {
 	Auth          *handler.Auth
 	Me            *handler.Me
 	Stations      *handler.Stations
+	Search        *handler.Search
 	EmailVerifier middleware.EmailVerifier
 	StationStatus middleware.StationStatusReader
 }
@@ -78,8 +83,8 @@ func New(cfg Config, d Deps) http.Handler {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins: cfg.CORSAllowedOrigins,
 			AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
-			AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "If-Match", middleware.HeaderRequestID, middleware.HeaderCSRF},
-			ExposedHeaders: []string{"ETag", middleware.HeaderRequestID, "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After"},
+			AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "If-Match", middleware.HeaderRequestID, middleware.HeaderCSRF, middleware.HeaderInstallID},
+			ExposedHeaders: []string{"ETag", middleware.HeaderRequestID, "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After", "X-Cache", "Server-Timing"},
 			// Les cookies de session de l'admin web exigent les credentials.
 			AllowCredentials: true,
 			MaxAge:           300,
@@ -125,6 +130,26 @@ func New(cfg Config, d Deps) http.Handler {
 		api.Group(func(j chi.Router) {
 			j.Use(middleware.MaxBodyBytes(cfg.MaxBodyBytes, rs))
 			j.Get("/products", h(products.List))
+
+			// Recherche publique : connexion facultative (le quota suit alors l'utilisateur).
+			if d.Search != nil {
+				j.Group(func(sr chi.Router) {
+					if d.Authenticator != nil {
+						sr.Use(d.Authenticator.Optional)
+					}
+					sr.Use(
+						middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
+							Name: "search-ip", Limit: cfg.SearchIPLimit, Window: time.Minute, Key: middleware.ByClientIP,
+						}, d.Log, rs),
+						middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
+							Name: "search-client", Limit: cfg.SearchClientLimit, Window: time.Minute, Key: middleware.ByInstallOrUser,
+						}, d.Log, rs),
+					)
+					sr.Get("/search", h(d.Search.Search))
+					sr.Get("/routes", h(d.Search.Route))
+				})
+				j.Get("/stations/{id}", h(d.Search.Station))
+			}
 
 			if d.Auth == nil {
 				return

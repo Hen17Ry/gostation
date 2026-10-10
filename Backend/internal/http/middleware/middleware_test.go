@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/http/handler"
 	"gostation/backend/internal/http/httpctx"
@@ -238,18 +240,66 @@ func TestRateLimit(t *testing.T) {
 	})
 }
 
-func TestAccessLogNeverLogsQueryString(t *testing.T) {
-	var logs bytes.Buffer
-	log := slog.New(slog.NewJSONHandler(&logs, nil))
-	h := middleware.AccessLog(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTeapot)
-	}))
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/search?lat=6.3703&lng=2.4253", nil))
-	out := logs.String()
-	if !strings.Contains(out, `"status":418`) || !strings.Contains(out, `"path":"/api/v1/search"`) {
-		t.Errorf("access log incomplete: %s", out)
+func TestAccessLogMasksCoordinates(t *testing.T) {
+	tests := []struct {
+		target string
+		want   string // query journalisée
+		forbid []string
+	}{
+		{"/api/v1/search?lat=6.3703&lng=2.4253&product_id=3", `"query":"lat=***&lng=***&product_id=3"`, []string{"6.3703", "2.4253"}},
+		{"/api/v1/routes?station_id=0190&lat=-6.5&lng=2.41", `"query":"station_id=0190&lat=***&lng=***"`, []string{"6.5", "2.41"}},
+		{"/api/v1/search?LAT=6.3703&%6Cat=6.37&lat", `"query":"LAT=***&lat=***&lat=***"`, []string{"6.37"}},
+		{"/api/v1/admin/stations?q=Akpakpa&status=pending", `"query":"q=***&status=pending"`, []string{"Akpakpa"}},
+		{"/api/v1/search?%zz=6.3703", `"query":"?=***"`, []string{"6.3703"}},
+		{"/api/v1/products", `"path":"/api/v1/products"`, []string{`"query"`}},
 	}
-	if strings.Contains(out, "6.3703") {
-		t.Errorf("access log leaks the position: %s", out)
+	for _, tt := range tests {
+		t.Run(tt.target, func(t *testing.T) {
+			var logs bytes.Buffer
+			log := slog.New(slog.NewJSONHandler(&logs, nil))
+			h := middleware.AccessLog(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusTeapot)
+			}))
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tt.target, nil))
+			out := logs.String()
+			if !strings.Contains(out, `"status":418`) || !strings.Contains(out, tt.want) {
+				t.Errorf("access log = %s, want %s", out, tt.want)
+			}
+			for _, f := range tt.forbid {
+				if strings.Contains(out, f) {
+					t.Errorf("access log leaks %q: %s", f, out)
+				}
+			}
+		})
+	}
+}
+
+func TestByInstallOrUser(t *testing.T) {
+	ip := netip.MustParseAddr("203.0.113.7")
+	req := func(install string, principal *httpctx.Principal) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/search", nil)
+		ctx := httpctx.WithClientIP(r.Context(), ip)
+		if principal != nil {
+			ctx = httpctx.WithPrincipal(ctx, *principal)
+		}
+		if install != "" {
+			r.Header.Set(middleware.HeaderInstallID, install)
+		}
+		return r.WithContext(ctx)
+	}
+	installA, installB := "7f9c1a52-3e0b-4a8e-9d55-0d6f0a1b2c3d", "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+	user := &httpctx.Principal{UserID: uuid.MustParse("01920000-0000-7000-8000-000000000001"), Role: "user"}
+
+	a, b := middleware.ByInstallOrUser(req(installA, nil)), middleware.ByInstallOrUser(req(installB, nil))
+	if a == b || !strings.HasPrefix(a, "i:") || strings.Contains(a, installA) {
+		t.Errorf("install keys %q %q", a, b)
+	}
+	if u := middleware.ByInstallOrUser(req(installA, user)); !strings.HasPrefix(u, "u:") || strings.Contains(u, user.UserID.String()) {
+		t.Errorf("a signed-in user is limited by account, got %q", u)
+	}
+	for _, bad := range []string{"", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
+		if k := middleware.ByInstallOrUser(req(bad, nil)); !strings.HasPrefix(k, "ip:") || strings.Contains(k, "203.0.113.7") {
+			t.Errorf("install %q: key %q, want the IP fallback", bad, k)
+		}
 	}
 }

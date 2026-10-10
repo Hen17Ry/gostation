@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -91,6 +92,15 @@ func moveRequest(m *station.LocationRequest) *moveRequestDTO {
 
 // ── Gérant : station ────────────────────────────────────────────────────────
 
+type setupDTO struct {
+	Location     bool     `json:"location"`
+	OpeningHours bool     `json:"openingHours"`
+	Products     bool     `json:"products"`
+	Stocks       bool     `json:"stocks"`
+	Searchable   bool     `json:"searchable"`
+	Missing      []string `json:"missing"`
+}
+
 type managerStationDTO struct {
 	ID                string           `json:"id"`
 	Status            string           `json:"status"`
@@ -107,6 +117,7 @@ type managerStationDTO struct {
 	LocationSetAt     *time.Time       `json:"locationSetAt"`
 	LocationFlag      *locationFlagDTO `json:"locationFlag"`
 	PendingMove       *moveRequestDTO  `json:"pendingMove"`
+	Setup             setupDTO         `json:"setup"`
 	LastStockUpdateAt *time.Time       `json:"lastStockUpdateAt"`
 	CreatedAt         time.Time        `json:"createdAt"`
 	UpdatedAt         time.Time        `json:"updatedAt"`
@@ -120,6 +131,10 @@ func toManagerStation(st station.ManagerStation) managerStationDTO {
 		LocationFlag: locationFlag(st.LocationFlaggedAt, st.LocationFlagDistanceM, st.LocationFlagAccuracyM),
 		PendingMove:  moveRequest(st.PendingMove), LastStockUpdateAt: st.LastStockUpdateAt,
 		CreatedAt: st.CreatedAt, UpdatedAt: st.UpdatedAt,
+		Setup: setupDTO{
+			Location: st.Setup.Location, OpeningHours: st.Setup.OpeningHours, Products: st.Setup.Products,
+			Stocks: st.Setup.Stocks, Searchable: st.Setup.Searchable(), Missing: st.Setup.Missing,
+		},
 	}
 }
 
@@ -301,24 +316,35 @@ func toHours(v station.HoursView, tz string) hoursResponse {
 		next := v.NextOpening.UTC()
 		resp.NextOpening = &next
 	}
-	byDay := map[int]*dayDTO{}
-	for _, rg := range v.Ranges {
-		d, ok := byDay[rg.Weekday]
-		if !ok {
-			resp.Days = append(resp.Days, dayDTO{Weekday: rg.Weekday, Ranges: []rangeDTO{}})
-			d = &resp.Days[len(resp.Days)-1]
-			byDay[rg.Weekday] = d
+	resp.Days = toDays(v.Ranges)
+	for _, c := range v.Closures {
+		resp.Closures = append(resp.Closures, toClosure(c))
+	}
+	return resp
+}
+
+// toDays regroupe les plages par jour ISO (ordre lundi → dimanche, puis heure d'ouverture).
+func toDays(ranges []station.Range) []dayDTO {
+	sorted := slices.Clone(ranges)
+	slices.SortFunc(sorted, func(a, b station.Range) int {
+		if a.Weekday != b.Weekday {
+			return a.Weekday - b.Weekday
 		}
+		return a.Opens - b.Opens
+	})
+	days := []dayDTO{}
+	for _, rg := range sorted {
+		if len(days) == 0 || days[len(days)-1].Weekday != rg.Weekday {
+			days = append(days, dayDTO{Weekday: rg.Weekday, Ranges: []rangeDTO{}})
+		}
+		d := &days[len(days)-1]
 		if rg.Is24h() {
 			d.Is24h = true
 			continue
 		}
 		d.Ranges = append(d.Ranges, rangeDTO{Opens: station.FormatClock(rg.Opens), Closes: station.FormatClock(rg.Closes)})
 	}
-	for _, c := range v.Closures {
-		resp.Closures = append(resp.Closures, toClosure(c))
-	}
-	return resp
+	return days
 }
 
 // Hours renvoie les horaires et les fermetures à venir (GET /manager/station/opening-hours).

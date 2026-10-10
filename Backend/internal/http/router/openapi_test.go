@@ -56,6 +56,7 @@ func TestRoutesMatchOpenAPISpec(t *testing.T) {
 		Log: log, Responder: rs, Health: handler.NewHealth(rs, log, time.Second, nil), Products: noProducts{},
 		Limiter: allowAll{}, Authenticator: middleware.NewAuthenticator(nil, nil, nil, "gs_at", rs),
 		Auth: authHandler, Me: handler.NewMe(rs, nil, authHandler), Stations: handler.NewStations(rs, nil),
+		Search: handler.NewSearch(rs, nil),
 	})
 	var served []string
 	err = chi.Walk(h.(chi.Routes), func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {

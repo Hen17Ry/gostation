@@ -52,16 +52,6 @@ type LocationResult struct {
 	Flagged bool
 }
 
-// distanceMeters calcule la distance orthodromique (haversine, rayon terrestre moyen). L'écart
-// avec la géodésique (< 0,5 %) est sans effet sur le seuil de 500 m.
-func distanceMeters(lat1, lng1, lat2, lng2 float64) float64 {
-	const earthRadius = 6_371_008.8
-	rad := math.Pi / 180
-	dLat, dLng := (lat2-lat1)*rad, (lng2-lng1)*rad
-	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLng/2)*math.Sin(dLng/2)
-	return 2 * earthRadius * math.Asin(math.Min(1, math.Sqrt(a)))
-}
-
 func validateLocation(in LocationInput) error {
 	var f fieldErrors
 	if !in.Confirm {
@@ -97,7 +87,7 @@ func (s *Service) SetLocation(ctx context.Context, a Actor, expected int32, in L
 	}
 	var deviceDist, deviceAcc *int32
 	if d := in.Device; d != nil {
-		dist := int32(math.Round(distanceMeters(in.Lat, in.Lng, d.Lat, d.Lng)))
+		dist := int32(math.Round(h3.Haversine(in.Lat, in.Lng, d.Lat, d.Lng)))
 		acc := int32(math.Round(d.AccuracyM))
 		deviceDist, deviceAcc = &dist, &acc
 	}

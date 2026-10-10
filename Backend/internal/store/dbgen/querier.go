@@ -21,6 +21,15 @@ type Querier interface {
 	// Verrouillage optimiste : réussit seulement si la version attendue est la version courante.
 	// Pose aussi le verrou de ligne pour le reste de la transaction.
 	BumpStationVersion(ctx context.Context, arg BumpStationVersionParams) (int32, error)
+	// Recherche (ARCHITECTURE §4). Filtres communs : station approuvée et épinglée, horaires
+	// renseignés, produit actif vendu en quantité > 0, stock frais (GREATEST(updated_at,
+	// last_confirmed_at) > fresh_since). « Ouverte maintenant » suit station.Schedule.IsOpen :
+	// jour ISO, heure et dates locales (prev_date = veille) calculés en Go, fuseau Africa/Porto-Novo.
+	// Pas d'arithmétique sur un paramètre nommé (« @d::date - 1 ») : sqlc la réécrit mal.
+	// Fermetures du jour : « NOT IN (sous-requête) » est évalué une seule fois (hashed SubPlan, index
+	// idx_station_closures_day), là où NOT EXISTS corrélé re-parcourait la table à chaque station.
+	// Couverture d'une position : au Bénin (frontière élargie de 2 km) ? À 30 km ou moins ?
+	CheckCoverage(ctx context.Context, arg CheckCoverageParams) (CheckCoverageRow, error)
 	// Contrôle d'une épingle : dans le Bénin (marge de 2 km) ? À quelle distance de la position active
 	// (-1 si la station n'est pas encore épinglée) ?
 	CheckStationPin(ctx context.Context, arg CheckStationPinParams) (CheckStationPinRow, error)
@@ -41,6 +50,8 @@ type Querier interface {
 	EnableUserTOTP(ctx context.Context, arg EnableUserTOTPParams) error
 	FlagStationLocation(ctx context.Context, arg FlagStationLocationParams) error
 	GetPendingLocationRequest(ctx context.Context, stationID uuid.UUID) (GetPendingLocationRequestRow, error)
+	// Fiche publique : stations approuvées uniquement (404 sinon).
+	GetPublicStation(ctx context.Context, id uuid.UUID) (GetPublicStationRow, error)
 	// lat/lng sont les colonnes générées depuis location (NULL tant que la station n'est pas
 	// épinglée) : le type geography et les champs du justificatif ne sortent jamais de la base.
 	GetStationByID(ctx context.Context, id uuid.UUID) (GetStationByIDRow, error)
@@ -66,7 +77,13 @@ type Querier interface {
 	ListAuditLogsByEntity(ctx context.Context, arg ListAuditLogsByEntityParams) ([]AuditLog, error)
 	// Fermetures à partir d'une date (le jour même compris).
 	ListClosures(ctx context.Context, arg ListClosuresParams) ([]ListClosuresRow, error)
+	ListClosuresForStations(ctx context.Context, arg ListClosuresForStationsParams) ([]ListClosuresForStationsRow, error)
+	ListHoursForStations(ctx context.Context, stationIds []uuid.UUID) ([]StationOpeningHour, error)
+	// Repli KNN illimité (aucune station ouverte à 50 km).
+	ListOpenCandidatesKNN(ctx context.Context, arg ListOpenCandidatesKNNParams) ([]ListOpenCandidatesKNNRow, error)
+	ListOpenCandidatesWithin(ctx context.Context, arg ListOpenCandidatesWithinParams) ([]ListOpenCandidatesWithinRow, error)
 	ListOpeningHours(ctx context.Context, stationID uuid.UUID) ([]ListOpeningHoursRow, error)
+	ListPublicStocks(ctx context.Context, stationID uuid.UUID) ([]ListPublicStocksRow, error)
 	// Catalogue actif, avec ce que la station vend (ligne présente) et son stock.
 	ListStationProducts(ctx context.Context, stationID uuid.UUID) ([]ListStationProductsRow, error)
 	// Stocks vendus, verrouillés pour la mise à jour groupée.
@@ -75,6 +92,9 @@ type Querier interface {
 	// Pagination par curseur (created_at, id) décroissants.
 	ListStationsForAdmin(ctx context.Context, arg ListStationsForAdminParams) ([]ListStationsForAdminRow, error)
 	ListStockHistory(ctx context.Context, arg ListStockHistoryParams) ([]ListStockHistoryRow, error)
+	// Stations les plus proches en stock frais, avec horaires, ouvertes ou non : le service garde
+	// les fermées (repli D19, triées par heure à laquelle on peut être servi).
+	ListStockedCandidatesKNN(ctx context.Context, arg ListStockedCandidatesKNNParams) ([]ListStockedCandidatesKNNRow, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 	// Mise à niveau des paramètres argon2 au login : ne touche pas password_changed_at.
 	RehashUserPassword(ctx context.Context, arg RehashUserPasswordParams) error
@@ -94,6 +114,8 @@ type Querier interface {
 	UpdateStationProfile(ctx context.Context, arg UpdateStationProfileParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
+	// Agrégation des compteurs anonymes (cellule H3 res 7, produit, heure) vidés depuis Redis.
+	UpsertSearchStats(ctx context.Context, arg UpsertSearchStatsParams) error
 	// Consomme un code de secours (usage unique).
 	UseRecoveryCode(ctx context.Context, arg UseRecoveryCodeParams) (uuid.UUID, error)
 }

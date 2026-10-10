@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type LocationRequestStatus string
@@ -452,4 +453,11 @@ type AuditLog struct {
 	Metadata   []byte     `json:"metadata"`
 	RequestID  *string    `json:"requestId"`
 	CreatedAt  time.Time  `json:"createdAt"`
+}
+
+type StationOpeningHour struct {
+	StationID uuid.UUID   `json:"stationId"`
+	Weekday   int16       `json:"weekday"`
+	OpensAt   pgtype.Time `json:"opensAt"`
+	ClosesAt  pgtype.Time `json:"closesAt"`
 }

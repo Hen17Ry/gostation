@@ -43,3 +43,29 @@ func TestCellAtRejectsOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+func TestCircumradiusCoversTheCell(t *testing.T) {
+	c, err := h3.CellAt(6.3703, 2.4253, h3.ResSearchCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := h3.Circumradius(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Res 8 : arête moyenne ≈ 0,53 km ; le rayon circonscrit vaut l'arête à quelques % près.
+	if r < 400 || r > 700 {
+		t.Fatalf("circumradius = %.0f m", r)
+	}
+	lat, lng, _ := h3.Center(c)
+	// Tout point de la cellule est à moins du rayon de son centre.
+	for _, d := range [][2]float64{{0.003, 0}, {-0.003, 0.002}, {0.001, -0.004}} {
+		p, _ := h3.CellAt(lat+d[0], lng+d[1], h3.ResSearchCache)
+		if p == c && h3.Haversine(lat, lng, lat+d[0], lng+d[1]) > r {
+			t.Errorf("point %v inside the cell but beyond the circumradius", d)
+		}
+	}
+	if d := h3.Haversine(6.3703, 2.4253, 9.3370, 2.6303); d < 329_000 || d > 331_000 {
+		t.Errorf("Cotonou–Parakou = %.0f m", d)
+	}
+}

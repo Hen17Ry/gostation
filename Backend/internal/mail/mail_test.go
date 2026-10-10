@@ -72,6 +72,26 @@ func TestStationStatusEmails(t *testing.T) {
 	if strings.Contains(approved.HTML, "Motif") || strings.Contains(approved.HTML, "ignored") || !strings.Contains(approved.HTML, "Approuvée") {
 		t.Error("an approval must show the Approuvée label and never a reason")
 	}
+	moveRejected, _ := r.StationStatus("k@example.bj", "Kofi", "Station Akpakpa", StationMoveRejected, "Adresse incohérente")
+	if !strings.Contains(moveRejected.Text, "Motif : Adresse incohérente") || !strings.Contains(moveRejected.Subject, "Déplacement refusé") ||
+		!strings.Contains(moveRejected.Text, "ancienne position reste active") {
+		t.Errorf("move rejection = %q / %q", moveRejected.Subject, moveRejected.Text)
+	}
+	for change, want := range map[StationStatusChange]string{
+		StationMoveApproved: "Position validée", StationResubmitted: "En attente de validation", StationIdentityChanged: "En attente de validation",
+	} {
+		m, err := r.StationStatus("k@example.bj", "Kofi", "Station Akpakpa", change, "ignored")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(m.Text, "["+want+"]") || strings.Contains(m.HTML, "ignored") || strings.Contains(m.Text, "Motif") {
+			t.Errorf("%s: text %q", change, m.Text)
+		}
+	}
+	ack, _ := r.StationStatus("k@example.bj", "Kofi", "Station Akpakpa", StationResubmitted, "")
+	if !strings.Contains(ack.HTML, "#C2410C") || !strings.Contains(ack.HTML, "&#8226;") {
+		t.Error("an acknowledgement uses the orange information badge, with a non-color marker")
+	}
 	if _, err := r.StationStatus("k@example.bj", "Kofi", "S", StationStatusChange("bogus"), ""); err == nil {
 		t.Error("unknown change accepted")
 	}
