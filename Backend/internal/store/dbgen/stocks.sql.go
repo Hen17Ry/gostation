@@ -33,7 +33,7 @@ func (q *Queries) AddStationProduct(ctx context.Context, arg AddStationProductPa
 const confirmStationStocks = `-- name: ConfirmStationStocks :execrows
 UPDATE station_stocks
 SET last_confirmed_at = now(), updated_by = $1
-WHERE station_id = $2
+WHERE station_id = $2 AND product_id IN (SELECT id FROM products WHERE is_active)
 `
 
 type ConfirmStationStocksParams struct {
@@ -119,7 +119,7 @@ func (q *Queries) ListStationProducts(ctx context.Context, stationID uuid.UUID) 
 const listStationStocksForUpdate = `-- name: ListStationStocksForUpdate :many
 SELECT ss.product_id, ss.quantity, p.unit, p.code
 FROM station_stocks ss
-JOIN products p ON p.id = ss.product_id
+JOIN products p ON p.id = ss.product_id AND p.is_active
 WHERE ss.station_id = $1
 ORDER BY ss.product_id
 FOR UPDATE OF ss
@@ -132,7 +132,8 @@ type ListStationStocksForUpdateRow struct {
 	Code      string      `json:"code"`
 }
 
-// Stocks vendus, verrouillés pour la mise à jour groupée.
+// Stocks vendus, verrouillés pour la mise à jour groupée. Un produit désactivé par l'admin sort
+// de la saisie (sa ligne et son historique restent).
 func (q *Queries) ListStationStocksForUpdate(ctx context.Context, stationID uuid.UUID) ([]ListStationStocksForUpdateRow, error) {
 	rows, err := q.db.Query(ctx, listStationStocksForUpdate, stationID)
 	if err != nil {

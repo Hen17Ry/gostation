@@ -58,7 +58,7 @@ make tools                                             # goose, sqlc, golangci-l
 ```bash
 make up && make migrate-up   # infra + schéma
 make run                     # API sur http://127.0.0.1:8080 (variables de .env)
-make worker-run              # dans un autre terminal : worker asynq (emails, push, rappels, stats)
+make worker-run              # dans un autre terminal : worker asynq (emails, push, rappels, stats, exports)
 # ou, dans Docker (image distroless non-root, healthchecks sur /readyz) :
 make api-up                  # API + worker
 curl -s localhost:8080/readyz   # {"status":"ready","checks":{"osrm":"ok","postgres":"ok","redis":"ok"}}
@@ -84,19 +84,22 @@ Endpoints : voir [ARCHITECTURE §5](docs/ARCHITECTURE.md) et la spec OpenAPI. Le
 - **Emails de dev** : tous les emails (codes de vérification, réinitialisation) sont capturés par Mailpit : <http://127.0.0.1:8025>.
 - **Créer un admin** (aucune route publique ne le permet) : `make admin-create email=ada@gostation.bj first=Ada last=Admin`. Le mot de passe est saisi au clavier, deux fois. La 2FA TOTP est configurée au premier login (`POST /api/v1/auth/admin/login` puis `/auth/admin/2fa`).
 - **2FA perdue** : `make admin-reset-2fa email=…`.
+- **API admin** : toutes les routes `/api/v1/admin/*` n'acceptent que la session web (cookies posés par `/auth/admin/2fa`) et le jeton CSRF (`X-CSRF-Token`) sur les écritures ; un Bearer y est refusé. Les exports sont générés par le worker (API et worker partagent le volume `documents`) et supprimés 24 h après leur génération.
 - **Nouvelles variables** après un `git pull` : `make env-sync` complète `.env` sans toucher aux valeurs existantes.
 
 ### Notifications push
 
 `EXPO_ACCESS_TOKEN` est facultatif : vide, les push passent par un Pusher factice qui journalise seulement le type de notification (`push: fake delivery`). Pour de vrais push, renseigner le token d'accès Expo (sécurité renforcée des push activée sur le projet EAS). Les reçus Expo sont lus 15 min après l'envoi ; un appareil désinstallé (`DeviceNotRegistered`) est supprimé.
 
-### Recherche : données fictives et bench
+### Recherche et stats admin : données fictives et bench
 
 ```bash
-make seed-dev        # 5 000 stations fictives réparties au Bénin (is_demo = true, dev uniquement)
+make seed-dev        # 5 000 stations fictives (is_demo = true) + 30 jours de stats de recherche (dev uniquement)
 make explain-search  # plans EXPLAIN ANALYZE des requêtes de recherche (index GiST vérifié)
 make bench           # k6 (image grafana/k6:1.3.0) : 100 req/s pendant 60 s depuis 5 zones
 DURATION=120s RATE=200 make bench
+make explain-stats   # plans des stats admin (agrégats journaliers et tous lieux, index de search_stats)
+make bench-stats     # p50/p95/p99 du tableau de bord, des stats et des cartes (échoue si un p95 > 300 ms)
 ```
 
 `make bench` lance une API dédiée sur le port 18080 (quotas levés, logs en `warn`), vide le cache de recherche, puis rapporte p50/p95/p99 : HTTP de bout en bout, temps serveur hors OSRM (avec et sans cache), OSRM à part, taux de cache. Les résultats JSON complets vont dans `bench/results/` (ignoré par git). `RESET=1 make seed-dev` supprime les stations fictives.

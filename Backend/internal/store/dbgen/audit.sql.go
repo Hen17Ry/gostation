@@ -7,9 +7,54 @@ package dbgen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+const exportAuditLogs = `-- name: ExportAuditLogs :many
+SELECT id, actor_id, actor_role, action, entity_type, entity_id, metadata, request_id, created_at
+FROM audit_logs
+WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz
+ORDER BY created_at, id
+LIMIT $3
+`
+
+type ExportAuditLogsParams struct {
+	Since   time.Time `json:"since"`
+	Until   time.Time `json:"until"`
+	MaxRows int32     `json:"maxRows"`
+}
+
+func (q *Queries) ExportAuditLogs(ctx context.Context, arg ExportAuditLogsParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, exportAuditLogs, arg.Since, arg.Until, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLog
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.ActorRole,
+			&i.Action,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Metadata,
+			&i.RequestID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
 INSERT INTO audit_logs (actor_id, actor_role, action, entity_type, entity_id, metadata, request_id)
@@ -39,6 +84,98 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 	return err
 }
 
+const listAuditLogs = `-- name: ListAuditLogs :many
+SELECT a.id, a.actor_id, a.actor_role, a.action, a.entity_type, a.entity_id, a.metadata, a.request_id, a.created_at,
+       u.first_name AS actor_first_name, u.last_name AS actor_last_name, u.email AS actor_email
+FROM audit_logs a
+LEFT JOIN users u ON u.id = a.actor_id
+WHERE ($1::uuid IS NULL OR a.actor_id = $1::uuid)
+  AND ($2::text IS NULL OR a.action = $2::text)
+  AND ($3::text IS NULL OR a.action LIKE $3::text || '%' ESCAPE '\')
+  AND ($4::text IS NULL OR a.entity_type = $4::text)
+  AND ($5::text IS NULL OR a.entity_id = $5::text)
+  AND ($6::timestamptz IS NULL OR a.created_at >= $6::timestamptz)
+  AND ($7::timestamptz IS NULL OR a.created_at < $7::timestamptz)
+  AND ($8::timestamptz IS NULL
+       OR (a.created_at, a.id) < ($8::timestamptz, $9::bigint))
+ORDER BY a.created_at DESC, a.id DESC
+LIMIT $10
+`
+
+type ListAuditLogsParams struct {
+	ActorID         *uuid.UUID `json:"actorId"`
+	Action          *string    `json:"action"`
+	ActionPrefix    *string    `json:"actionPrefix"`
+	EntityType      *string    `json:"entityType"`
+	EntityID        *string    `json:"entityId"`
+	Since           *time.Time `json:"since"`
+	Until           *time.Time `json:"until"`
+	CursorCreatedAt *time.Time `json:"cursorCreatedAt"`
+	CursorID        *int64     `json:"cursorId"`
+	PageSize        int32      `json:"pageSize"`
+}
+
+type ListAuditLogsRow struct {
+	ID             int64      `json:"id"`
+	ActorID        *uuid.UUID `json:"actorId"`
+	ActorRole      *UserRole  `json:"actorRole"`
+	Action         string     `json:"action"`
+	EntityType     string     `json:"entityType"`
+	EntityID       *string    `json:"entityId"`
+	Metadata       []byte     `json:"metadata"`
+	RequestID      *string    `json:"requestId"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ActorFirstName *string    `json:"actorFirstName"`
+	ActorLastName  *string    `json:"actorLastName"`
+	ActorEmail     *string    `json:"actorEmail"`
+}
+
+// Journal d'audit (admin, lecture seule) : filtres par acteur, action (exacte ou préfixe « admin. »),
+// cible et période ; curseur (created_at, id) décroissants.
+func (q *Queries) ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]ListAuditLogsRow, error) {
+	rows, err := q.db.Query(ctx, listAuditLogs,
+		arg.ActorID,
+		arg.Action,
+		arg.ActionPrefix,
+		arg.EntityType,
+		arg.EntityID,
+		arg.Since,
+		arg.Until,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAuditLogsRow
+	for rows.Next() {
+		var i ListAuditLogsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.ActorRole,
+			&i.Action,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Metadata,
+			&i.RequestID,
+			&i.CreatedAt,
+			&i.ActorFirstName,
+			&i.ActorLastName,
+			&i.ActorEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAuditLogsByEntity = `-- name: ListAuditLogsByEntity :many
 SELECT id, actor_id, actor_role, action, entity_type, entity_id, metadata, request_id, created_at
 FROM audit_logs
@@ -51,7 +188,7 @@ type ListAuditLogsByEntityParams struct {
 	EntityID   *string `json:"entityId"`
 }
 
-// Lecture pour les tests et, plus tard, l'écran d'audit admin.
+// Lecture pour les tests.
 func (q *Queries) ListAuditLogsByEntity(ctx context.Context, arg ListAuditLogsByEntityParams) ([]AuditLog, error) {
 	rows, err := q.db.Query(ctx, listAuditLogsByEntity, arg.EntityType, arg.EntityID)
 	if err != nil {

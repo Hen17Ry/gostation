@@ -590,6 +590,11 @@ type adminStationSummaryDTO struct {
 	ManagerEmailVerified bool       `json:"managerEmailVerified"`
 	LocationFlagged      bool       `json:"locationFlagged"`
 	HasPendingMove       bool       `json:"hasPendingMove"`
+	HasOpeningHours      bool       `json:"hasOpeningHours"`
+	LastStockUpdateAt    *time.Time `json:"lastStockUpdateAt"`
+	Freshness            string     `json:"freshness"` // fresh | stale | expired | none (jamais saisi)
+	Reported             bool       `json:"reported"`
+	ManagerInactive      bool       `json:"managerInactive"`
 	CreatedAt            time.Time  `json:"createdAt"`
 	UpdatedAt            time.Time  `json:"updatedAt"`
 }
@@ -599,26 +604,30 @@ type adminStationPage struct {
 	NextCursor *string                  `json:"nextCursor"`
 }
 
-// AdminList liste les stations d'un statut (GET /admin/stations?status&q&needsReview&cursor&limit).
+// AdminList liste les stations (GET /admin/stations?status&q&needsReview&freshness&managerInactive&
+// noHours&reported&cursor&limit). Statut par défaut : pending ; « all » = tous.
 func (h *Stations) AdminList(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
-	f := station.AdminFilter{Status: q.Get("status"), Query: q.Get("q"), Cursor: q.Get("cursor")}
+	q, err := strictQuery(r, "status", "q", "needsReview", "freshness", "managerInactive", "noHours", "reported", "cursor", "limit")
+	if err != nil {
+		return err
+	}
+	f := station.AdminFilter{Status: q.Get("status"), Query: q.Get("q"), Freshness: q.Get("freshness"), Cursor: q.Get("cursor")}
 	if f.Status == "" {
 		f.Status = station.StatusPending
 	}
-	if v := q.Get("needsReview"); v != "" {
-		b, err := strconv.ParseBool(v)
+	for name, dst := range map[string]*bool{
+		"needsReview": &f.NeedsReview, "managerInactive": &f.ManagerInactive, "noHours": &f.NoHours, "reported": &f.Reported,
+	} {
+		b, err := queryBool(q, name)
 		if err != nil {
-			return apperr.BadRequest(apperr.CodeInvalidParameter, "needsReview must be true or false.")
+			return err
 		}
-		f.NeedsReview = b
+		if b != nil {
+			*dst = *b
+		}
 	}
-	if v := q.Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return apperr.BadRequest(apperr.CodeInvalidParameter, "limit must be an integer.")
-		}
-		f.Limit = n
+	if f.Limit, err = queryInt(q, "limit"); err != nil {
+		return err
 	}
 	page, err := h.svc.AdminList(r.Context(), f)
 	if err != nil {
@@ -629,14 +638,96 @@ func (h *Stations) AdminList(w http.ResponseWriter, r *http.Request) error {
 		resp.Items = append(resp.Items, adminStationSummaryDTO{
 			ID: s.ID.String(), Name: s.Name, Brand: s.Brand, IFU: s.Ifu, City: s.City, Status: string(s.Status),
 			Version: s.Version, Location: latLng(s.Lat, s.Lng), ManagerEmailVerified: s.ManagerEmailVerified,
-			LocationFlagged: s.LocationFlaggedAt != nil, HasPendingMove: s.HasPendingMove,
-			CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+			LocationFlagged: s.LocationFlaggedAt != nil, HasPendingMove: s.HasPendingMove, HasOpeningHours: s.HasOpeningHours,
+			LastStockUpdateAt: s.LastStockUpdateAt, Freshness: h.svc.StationFreshness(s.LastStockUpdateAt),
+			Reported: s.Reported, ManagerInactive: s.ManagerInactive, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 		})
 	}
 	if page.NextCursor != "" {
 		resp.NextCursor = &page.NextCursor
 	}
 	h.rs.JSON(w, r, http.StatusOK, resp)
+	return nil
+}
+
+type pointDTO struct {
+	Type        string     `json:"type"`
+	Coordinates [2]float64 `json:"coordinates"` // [lng, lat] (ordre GeoJSON)
+}
+
+type mapFeatureDTO struct {
+	Type       string   `json:"type"`
+	ID         string   `json:"id"`
+	Geometry   pointDTO `json:"geometry"`
+	Properties struct {
+		Name      string `json:"name"`
+		Status    string `json:"status"`
+		Freshness string `json:"freshness"`
+		Reported  bool   `json:"reported"`
+	} `json:"properties"`
+}
+
+type mapCollectionDTO struct {
+	Type     string          `json:"type"`
+	Features []mapFeatureDTO `json:"features"`
+}
+
+// AdminMap renvoie toutes les stations épinglées en GeoJSON léger (statut, fraîcheur, signalée),
+// pour une carte avec regroupement côté client (GET /admin/stations/map?status).
+func (h *Stations) AdminMap(w http.ResponseWriter, r *http.Request) error {
+	q, err := strictQuery(r, "status")
+	if err != nil {
+		return err
+	}
+	stations, err := h.svc.Map(r.Context(), q.Get("status"))
+	if err != nil {
+		return err
+	}
+	out := mapCollectionDTO{Type: "FeatureCollection", Features: make([]mapFeatureDTO, 0, len(stations))}
+	for _, s := range stations {
+		if s.Lat == nil || s.Lng == nil {
+			continue
+		}
+		f := mapFeatureDTO{Type: "Feature", ID: s.ID.String(), Geometry: pointDTO{Type: "Point", Coordinates: [2]float64{*s.Lng, *s.Lat}}}
+		f.Properties.Name, f.Properties.Status, f.Properties.Freshness, f.Properties.Reported = s.Name, string(s.Status), s.Freshness, s.Reported
+		out.Features = append(out.Features, f)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	h.rs.JSONType(w, r, http.StatusOK, respond.ContentTypeGeoJSON, out)
+	return nil
+}
+
+type adminUpdateStationRequest struct {
+	Name    *string `json:"name"`
+	Brand   *string `json:"brand"`
+	Address *string `json:"address"`
+	City    *string `json:"city"`
+	Phone   *string `json:"phone"`
+	IFU     *string `json:"ifu"`
+	RCCM    *string `json:"rccm"`
+	Reason  string  `json:"reason"`
+}
+
+// AdminUpdate corrige les informations d'une station, motif obligatoire (PATCH /admin/stations/{id}).
+func (h *Stations) AdminUpdate(w http.ResponseWriter, r *http.Request) error {
+	v, err := expectedVersion(r)
+	if err != nil {
+		return err
+	}
+	id, err := pathUUID(r, "id")
+	if err != nil {
+		return err
+	}
+	var req adminUpdateStationRequest
+	if err := decodeJSON(r, &req, false); err != nil {
+		return err
+	}
+	in := station.ProfileInput{Name: req.Name, Brand: req.Brand, Address: req.Address, City: req.City, Phone: req.Phone, IFU: req.IFU, RCCM: req.RCCM}
+	st, err := h.svc.AdminUpdate(r.Context(), stationActor(r), id, v, in, req.Reason)
+	if err != nil {
+		return err
+	}
+	h.writeAdminStation(w, r, st)
 	return nil
 }
 
@@ -668,6 +759,7 @@ type adminStationDTO struct {
 	DocumentMime      *string          `json:"documentMime"`
 	Manager           *adminManagerDTO `json:"manager"`
 	LastStockUpdateAt *time.Time       `json:"lastStockUpdateAt"`
+	StatusChangedAt   time.Time        `json:"statusChangedAt"`
 	CreatedAt         time.Time        `json:"createdAt"`
 	UpdatedAt         time.Time        `json:"updatedAt"`
 }
@@ -679,7 +771,7 @@ func (h *Stations) writeAdminStation(w http.ResponseWriter, r *http.Request, st 
 		City: st.City, Phone: st.Phone, Location: latLng(st.Lat, st.Lng), LocationSetAt: st.LocationSetAt,
 		LocationFlag: locationFlag(st.LocationFlaggedAt, st.LocationFlagDistanceM, st.LocationFlagAccuracyM),
 		PendingMove:  moveRequest(st.PendingMove), DocumentMime: st.DocumentMime,
-		LastStockUpdateAt: st.LastStockUpdateAt, CreatedAt: st.CreatedAt, UpdatedAt: st.UpdatedAt,
+		LastStockUpdateAt: st.LastStockUpdateAt, StatusChangedAt: st.StatusChangedAt, CreatedAt: st.CreatedAt, UpdatedAt: st.UpdatedAt,
 	}
 	if st.ManagerID != nil && st.ManagerEmail != nil {
 		d.Manager = &adminManagerDTO{

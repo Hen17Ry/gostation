@@ -15,10 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
+	"gostation/backend/internal/analytics"
 	"gostation/backend/internal/audit"
 	"gostation/backend/internal/auth"
+	"gostation/backend/internal/catalog"
 	"gostation/backend/internal/config"
 	"gostation/backend/internal/document"
+	"gostation/backend/internal/export"
 	"gostation/backend/internal/favorite"
 	"gostation/backend/internal/http/handler"
 	"gostation/backend/internal/http/middleware"
@@ -55,7 +58,8 @@ type Infra struct {
 	OSRM *osrm.Client
 	// Pusher remplace celui de la configuration (Expo si EXPO_ACCESS_TOKEN, factice sinon).
 	Pusher push.Pusher
-	// Clock remplace l'horloge des rappels et des alertes favoris (tests d'intégration).
+	// Clock remplace l'horloge des rappels, des alertes favoris, des stats admin et des exports
+	// (tests d'intégration).
 	Clock func() time.Time
 }
 
@@ -79,6 +83,11 @@ type Services struct {
 	Reports       *report.Service
 	Favorites     *favorite.Service
 	Retention     *retention.Purger
+	// Étape 7 : tableau de bord et stats, catalogue, exports, lecture du journal d'audit.
+	Analytics *analytics.Service
+	Catalog   *catalog.Service
+	Exports   *export.Service
+	Audit     *audit.Reader
 	// Clés dérivées d'APP_SECRET (une par usage).
 	CSRFKey  []byte
 	EmailKey []byte
@@ -98,6 +107,8 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	if err != nil {
 		return nil, err
 	}
+	linkKey, _ := derive("export-link")
+	pseudonymKey, _ := derive("export-pseudonym")
 	queueKey, _ := derive("email-queue")
 	queueSealer, err := crypto.NewSealer(queueKey)
 	if err != nil {
@@ -181,7 +192,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	})
 	return &Services{
 		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient,
-		Stats: searchstats.NewFlusher(infra.Redis, st, log), Limiter: limiter,
+		Stats: searchstats.NewFlusher(infra.Redis, st, cfg.Timezone, log), Limiter: limiter,
 		Sessions: sessions, Tokens: tokens, CSRFKey: csrfKey, EmailKey: emailKey,
 		Jobs: jobsClient, Emails: emails, Pusher: pusher, Notifications: notifSvc,
 		Reminders: reminder.NewService(reminder.Config{Timezone: cfg.Timezone, Interval: cfg.Reminders.Interval}, reminder.Deps{
@@ -194,6 +205,17 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 			Store: st, Notifier: notifSvc, Log: log, Clock: infra.Clock,
 		}),
 		Retention: retention.New(st, log),
+		Analytics: analytics.New(analytics.Config{
+			Timezone: cfg.Timezone, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
+		}, st, infra.Clock),
+		Catalog: catalog.NewService(st, cache, auditLog, log),
+		Exports: export.NewService(export.Config{
+			Timezone: cfg.Timezone, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
+		}, export.Deps{
+			Store: st, Storage: infra.Storage, Envelope: envelope, Queue: jobsClient, Audit: auditLog, Log: log,
+			LinkKey: linkKey, PseudonymKey: pseudonymKey, Clock: infra.Clock,
+		}),
+		Audit: audit.NewReader(st),
 	}, nil
 }
 
@@ -230,6 +252,7 @@ func NewWorker(cfg config.Config, svc *Services, infra Infra, log *slog.Logger, 
 	}, infra.Redis, worker.Tasks{
 		SMTP: infra.Mailer, Emails: svc.Emails, Stats: svc.Stats, Notifications: svc.Notifications,
 		Reminders: svc.Reminders, Favorites: svc.Favorites, Retention: svc.Retention,
+		Analytics: svc.Analytics, Exports: svc.Exports,
 	}, log)
 }
 
@@ -272,6 +295,10 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog
 		Favorites:     handler.NewFavorites(rs, svc.Favorites),
 		Reports:       handler.NewReports(rs, svc.Reports),
 		Reminders:     handler.NewReminders(rs, svc.Reminders),
+		Admin: handler.NewAdmin(rs, handler.AdminDeps{
+			Analytics: svc.Analytics, Users: svc.Auth, Catalog: svc.Catalog, Audit: svc.Audit,
+			Exports: svc.Exports, Timezone: cfg.Timezone,
+		}),
 		EmailVerifier: svc.Auth,
 		StationStatus: svc.Station,
 	})

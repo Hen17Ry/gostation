@@ -18,6 +18,7 @@ import (
 const (
 	ContentTypeJSON    = "application/json; charset=utf-8"
 	ContentTypeProblem = "application/problem+json"
+	ContentTypeGeoJSON = "application/geo+json" // cartes admin (RFC 7946)
 )
 
 // problemTypePrefix forme l'URI `type` du problem+json à partir du code stable.
@@ -35,7 +36,12 @@ func New(log *slog.Logger) *Responder {
 
 // JSON écrit v en JSON avec le statut donné.
 func (rs *Responder) JSON(w http.ResponseWriter, r *http.Request, status int, v any) {
-	w.Header().Set("Content-Type", ContentTypeJSON)
+	rs.JSONType(w, r, status, ContentTypeJSON, v)
+}
+
+// JSONType écrit v en JSON avec un type de contenu dérivé (ex. application/geo+json).
+func (rs *Responder) JSONType(w http.ResponseWriter, r *http.Request, status int, contentType string, v any) {
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)
 	if v == nil {
 		return

@@ -110,7 +110,7 @@ services:
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${API_PORT:-8080}:8080"
     volumes:
-      # Justificatifs IFU chiffrés (stockage local en attendant un stockage objet).
+      # Justificatifs IFU et exports admin chiffrés (stockage local en attendant un stockage objet).
       - documents:/var/lib/gostation/documents
     depends_on:
       postgres: { condition: service_healthy }
@@ -127,7 +127,7 @@ services:
     networks: [net]
 
   # Worker asynq (profil « api », démarré par `make worker-up` ou `make api-up`) : emails, push,
-  # alertes, rappels, stats, purges. Même image que l'API. UNE SEULE instance : le scheduler des
+  # alertes, rappels, stats, exports admin, purges. Même image que l'API. UNE SEULE instance : le scheduler des
   # tâches périodiques tourne dans ce processus (ARCHITECTURE §7).
   worker:
     build:
@@ -145,9 +145,11 @@ services:
       OSRM_URL: http://osrm:5000
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
-      # Répertoire de l'image (le worker ne lit aucun justificatif, il n'a pas besoin du volume).
+      # Même stockage que l'API : le worker y écrit les exports admin chiffrés, que l'API sert.
       DOCUMENTS_STORAGE_DIR: /var/lib/gostation/documents
       WORKER_HEALTH_ADDR: ":8081"
+    volumes:
+      - documents:/var/lib/gostation/documents
     deploy:
       replicas: 1
     # Laisse au worker le temps de finir ses tâches (WORKER_SHUTDOWN_TIMEOUT, 25 s par défaut).

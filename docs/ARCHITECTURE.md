@@ -60,7 +60,7 @@ Principes :
 | Composant | Rôle | Techno |
 |---|---|---|
 | API | Auth, recherche, gestion des stations et des stocks, back-office admin | Go, chi, pgx v5 + sqlc, go-redis v9, golang-jwt v5, h3-go v4, slog |
-| Worker | Emails, push Expo (lots, reçus), alertes « de retour en stock », rappels de stock, vidage des stats, purges de conservation (exports de données à l'étape 9) ; scheduler intégré, une seule instance | asynq v0.26 (Redis), supervision asynqmon en dev |
+| Worker | Emails, push Expo (lots, reçus), alertes « de retour en stock », rappels de stock, vidage des stats (et de leurs agrégats), relevé horaire de la fraîcheur des stocks, exports admin, purges de conservation (exports RGPD à l'étape 9) ; scheduler intégré, une seule instance | asynq v0.26 (Redis), supervision asynqmon en dev |
 | PostgreSQL + PostGIS | Source de vérité ; requêtes spatiales (`ST_DWithin`, KNN `<->`) | PG 18, PostGIS 3.6, migrations goose |
 | Redis | Cache de recherche (H3 + produit), refresh tokens, files asynq, rate limiting, compteurs de stats | Redis 8.10, `noeviction` |
 | OSRM | Matrice de temps de trajet (`/table`) et itinéraire (`/route`) | osrm-backend v26.10, MLD |
@@ -97,6 +97,10 @@ erDiagram
   stations ||--o| station_reminders : "rappels du jour"
   stations ||--o{ station_report_flags : "effets des signalements"
   stations ||--o{ admin_alerts : "alerte l'admin"
+  users ||--o{ exports : "demande"
+  products ||--o{ search_stats_daily : "agrège par jour"
+  products ||--o{ search_stats_totals : "agrège tous lieux"
+  products ||--o{ stock_freshness_stats : "relève"
 
   users {
     uuid id PK
@@ -239,6 +243,29 @@ erDiagram
     geography boundary
     geography boundary_buffered
   }
+  exports {
+    uuid id PK
+    uuid requested_by FK
+    export_dataset dataset
+    export_status status
+    timestamptz expires_at
+  }
+  search_stats_daily {
+    date day PK
+    bigint h3_r7 PK
+    smallint product_id PK
+    int searches
+  }
+  search_stats_totals {
+    timestamptz bucket PK
+    smallint product_id PK
+    int searches
+  }
+  stock_freshness_stats {
+    timestamptz bucket PK
+    smallint product_id PK
+    int fresh
+  }
 ```
 
 ### 3.1 Types énumérés
@@ -259,6 +286,10 @@ CREATE TYPE device_platform     AS ENUM ('ios', 'android');
 CREATE TYPE notification_type    AS ENUM ('stock_reminder', 'station_reported', 'back_in_stock');
 CREATE TYPE admin_alert_kind     AS ENUM ('manager_inactive', 'reports_threshold');
 CREATE TYPE back_in_stock_status AS ENUM ('pending', 'sent', 'dropped');
+-- Étape 7
+CREATE TYPE export_dataset AS ENUM ('stations', 'stocks', 'search_stats', 'reports', 'audit');
+CREATE TYPE export_format  AS ENUM ('csv', 'json');
+CREATE TYPE export_status  AS ENUM ('pending', 'ready', 'failed', 'expired');
 ```
 
 ### 3.2 Tables
@@ -607,13 +638,64 @@ CREATE TABLE back_in_stock_alerts (        -- purgé à 30 jours
 );
 CREATE UNIQUE INDEX uq_back_in_stock_alerts_pending ON back_in_stock_alerts (user_id, station_id, product_id)
   WHERE status = 'pending';
+
+-- API admin (étape 7). Compte désactivé par l'admin : connexion refusée (auth.account_disabled).
+ALTER TABLE users ADD COLUMN disabled_at timestamptz, ADD COLUMN disabled_reason text,
+  ADD CONSTRAINT ck_users_disabled CHECK ((status = 'disabled') = (disabled_at IS NOT NULL));
+CREATE INDEX idx_users_created ON users (created_at DESC, id DESC);
+
+-- Dernier changement de statut (ancienneté des dossiers en attente), tenu par un trigger
+-- set_status_changed_at() quel que soit le chemin d'écriture.
+ALTER TABLE stations ADD COLUMN status_changed_at timestamptz NOT NULL DEFAULT now();
+
+-- Agrégats des stats de recherche, alimentés par stats:flush dans la même transaction que
+-- search_stats (upsert additif) : jamais de rafraîchissement complet à faire.
+CREATE TABLE search_stats_daily (          -- jour local × cellule × produit : pénuries 7/30 j, export
+  day date, h3_r7 bigint, product_id smallint REFERENCES products(id),
+  searches integer NOT NULL, empty_within_5km integer NOT NULL,
+  PRIMARY KEY (day, h3_r7, product_id)
+);
+CREATE TABLE search_stats_totals (         -- heure × produit, tous lieux : totaux, séries, heure de la journée
+  bucket timestamptz, product_id smallint REFERENCES products(id),
+  searches integer NOT NULL, empty_within_5km integer NOT NULL,
+  PRIMARY KEY (bucket, product_id)
+);
+
+-- Relevé horaire de la fraîcheur des stocks (stations approuvées, produits actifs) : séries du
+-- tableau de bord (la fraîcheur passée ne se reconstitue pas : les confirmations ne sont pas historisées).
+CREATE TABLE stock_freshness_stats (
+  bucket timestamptz, product_id smallint REFERENCES products(id),
+  fresh integer NOT NULL, stale integer NOT NULL, expired integer NOT NULL,
+  PRIMARY KEY (bucket, product_id)
+);
+
+-- Exports admin : générés par le worker, fichier chiffré (enveloppe, comme les justificatifs)
+-- supprimé 24 h après sa génération ; la ligne reste (statut expired) pour l'historique.
+CREATE TABLE exports (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  requested_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  dataset       export_dataset NOT NULL,
+  format        export_format  NOT NULL,
+  params        jsonb NOT NULL DEFAULT '{}',          -- période, produit
+  status        export_status  NOT NULL DEFAULT 'pending',
+  object_key    text, wrapped_key bytea, sha256 bytea, -- présents seulement si ready
+  size_bytes    bigint, row_count integer,
+  error         text,                                  -- code générique (too_many_rows…)
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  completed_at  timestamptz,
+  expires_at    timestamptz                            -- completed_at + 24 h
+);
+
+-- Journal d'audit : lecture admin par période et par action (curseur created_at, id).
+CREATE INDEX idx_audit_logs_created ON audit_logs (created_at DESC, id DESC);
+CREATE INDEX idx_audit_logs_action  ON audit_logs (action, created_at DESC);
 ```
 
 **Colonnes `lat` / `lng` générées** : l'application ne lit jamais le type `geography`. Elle écrit `location` à partir de `lat`/`lng` (`ST_MakePoint(lng, lat)`) et lit les colonnes générées, que sqlc type correctement en `*float64` nullables. Une expression `ST_Y(...)` dans un SELECT serait typée non nullable par sqlc. `STORED` est imposé : PostgreSQL 18 interdit les fonctions d'extension dans une colonne virtuelle.
 
 **Trigger `updated_at`** : une fonction `set_updated_at()` est appelée `BEFORE UPDATE` sur `users`, `stations`, `products` et `station_stocks`. Elle pose `now()`, sauf si la requête fixe elle-même `updated_at` (reprises de données, tests de péremption).
 
-**Catalogue initial** (migration de données séparée) : gaz 5 kg, 10 kg et 25 kg (unité : bouteille), essence et gasoil (unité : litre). Tout est modifiable par l'admin.
+**Catalogue initial** (migration de données séparée) : gaz 5 kg, 10 kg et 25 kg (unité : bouteille), essence et gasoil (unité : litre). L'admin ajoute des produits et en modifie le libellé, l'ordre et l'activation ; type et taille sont figés, rien n'est supprimé (D37).
 
 ## 4. Algorithme de recherche
 
@@ -669,7 +751,7 @@ sequenceDiagram
 3. **Rayons progressifs** `[500, 1000, 2000, 5000, 10000, 25000, 50000]` m (`ListOpenCandidatesWithin`, `LIMIT SEARCH_MAX_CANDIDATES` = 20, tri KNN `<->`). Filtres : `approved`, épinglée, horaires renseignés et ouverte maintenant, pas fermée aujourd'hui, produit actif vendu, `quantity > 0`, fraîcheur < 24 h, pas exclue par des signalements (cause à 5 auteurs ou plus : le produit, ou toute la station pour les autres motifs, `station_report_flags`). Une cause à 3 auteurs ou plus pose `reported: true` (badge « signalé »). Arrêt au premier rayon qui donne `SEARCH_MIN_RESULTS` (3) candidats ; au dernier rayon, 1 ou 2 suffisent. `strategy: "radius"`, `radiusM` = rayon atteint. Les fermetures du jour sont lues une fois par requête (`s.id NOT IN (…)`, sous-plan haché, index `idx_station_closures_day`).
 4. **Repli (D19)** si aucune station ouverte à 50 km : KNN illimité sur les ouvertes (`ListOpenCandidatesKNN`, 10) et sur les stations en stock avec horaires (`ListStockedCandidatesKNN`, 20), dont on garde les fermées avec leur prochaine ouverture (`Schedule.NextOpening`). `strategy: "fallback"`, `radiusM: null`. Si rien : `strategy: "none"`, résultats vides (l'UI propose d'autres tailles ou produits).
 5. **Classement par requête**, depuis la position exacte, **jamais mis en cache ni enregistré** : distance haversine, tri, 10 meilleurs, puis OSRM `/table` 1 → 10 (`sources=0&annotations=duration,distance`, timeout `OSRM_TIMEOUT`). Tri par durée (non joignables en fin) ; en repli, par heure à laquelle on peut être servi `servedAt = max(maintenant + trajet, prochaine ouverture)`, puis par trajet. Hors du Bénin ou si OSRM échoue (D21) : vol d'oiseau, durées estimées (détour × 1,3, 40 km/h), `routingApproximate: true`. Les erreurs OSRM journalisées sont expurgées de leur URL (qui contient les coordonnées).
-6. **Stats anonymes (D23).** `HINCRBY stats:search:{heure}` sur `cellule res 7:produit:s` (et `:e` si aucune station ouverte à 5 km ou moins). Vidage par la tâche périodique `stats:flush` du worker (`STATS_FLUSH_INTERVAL`, 5 min) dans `search_stats` : RENAMENX puis upsert additif, sous verrou Redis, sans perte si l'écriture en base échoue.
+6. **Stats anonymes (D23).** `HINCRBY stats:search:{heure}` sur `cellule res 7:produit:s` (et `:e` si aucune station ouverte à 5 km ou moins). Vidage par la tâche périodique `stats:flush` du worker (`STATS_FLUSH_INTERVAL`, 5 min) dans `search_stats` et ses agrégats `search_stats_daily` et `search_stats_totals` (D34) : RENAMENX puis upsert additif dans une seule transaction, sous verrou Redis, sans perte si l'écriture en base échoue.
 
 ### 4.2 Invalidation du cache
 
@@ -678,10 +760,10 @@ Toute écriture qui peut changer un résultat incrémente une **génération** (
 | Écriture | Génération incrémentée |
 |---|---|
 | Saisie ou confirmation de stock | `search:gen:p{id}` de chaque produit vendu (la fraîcheur de tous change) |
-| Statut (approve, reject, suspend, unsuspend, IFU/RCCM → pending, renvoi), position (épinglage, correction, déplacement validé), horaires, fermetures, produits vendus, `make seed-dev` | `search:gen:all` |
-| Activation ou désactivation d'un produit (admin, plus tard) | `search:gen:p{id}` |
-| Signalement qui franchit un seuil (3 : badge, 5 : exclusion), ou classé sans suite par l'admin | `search:gen:p{id}` (rupture d'un produit) ou `search:gen:all` (autres motifs) |
-| Mise à jour ou confirmation qui lève des effets de signalement | `search:gen:all` |
+| Statut (approve, reject, suspend, unsuspend, IFU/RCCM → pending, renvoi), position (épinglage, correction, déplacement validé), horaires, fermetures, produits vendus, correction des informations par l'admin, `make seed-dev` | `search:gen:all` |
+| Catalogue (admin) : création, libellé, ordre, activation ou désactivation d'un produit | `search:gen:p{id}` |
+| Signalement qui franchit un seuil (3 : badge, 5 : exclusion), ou traité (« autre ») ou classé sans suite par l'admin | `search:gen:p{id}` (rupture d'un produit) ou `search:gen:all` (autres motifs) |
+| Mise à jour ou confirmation, ou changement de position, qui lève des effets de signalement (D32) | `search:gen:all` |
 
 L'ouverture et la fermeture des stations au fil de la journée ne changent pas de génération : le TTL de 60 s borne le décalage, et un candidat dont le stock expire pendant ce délai est écarté au classement. Un échec d'invalidation n'annule pas l'écriture (journalisé, borné par le TTL).
 
@@ -776,6 +858,15 @@ Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **
 | `report.daily_limit` | 429 | 10 signalements aujourd'hui (journée locale) |
 | `report.reporting_suspended` | 403 | Droit de signaler retiré par l'admin après abus |
 | `favorite.limit_reached` | 409 | 20 favoris déjà |
+| `auth.account_disabled` | 403 | Connexion d'un compte désactivé par l'admin (seulement avec le bon mot de passe) |
+| `user.admin_protected` | 403 | Action admin sur un compte admin (géré par la CLI) |
+| `user.invalid_status` | 409 | Désactivation d'un compte non actif, réactivation d'un compte non désactivé ; extension `userStatus` |
+| `user.already_verified` | 409 | Renvoi du code à un compte déjà vérifié |
+| `product.already_exists` | 409 | Produit de même type (et même taille pour le gaz) déjà au catalogue |
+| `export.not_ready` | 409 | Téléchargement d'un export en attente ou échoué ; extension `exportStatus` |
+| `export.invalid_signature` | 403 | Lien de téléchargement altéré |
+| `export.link_expired` | 410 | Lien de téléchargement de plus d'une heure (relire l'export pour un lien neuf) |
+| `export.expired` | 410 | Fichier d'export supprimé (24 h après sa génération) |
 | `resource.version_conflict` | 412 | `If-Match` périmé : recharger la ressource puis rejouer |
 | `request.precondition_required` | 428 | En-tête `If-Match` absent sur une écriture verrouillée |
 | `upload.unsupported_type` | 415 | Justificatif ni PDF, ni JPEG, ni PNG (type réel) |
@@ -872,38 +963,49 @@ Gérant `pending` ou `suspended` : rien d'autre que son compte (`/me` montre le 
 | GET | `/manager/reports?status=open\|all&cursor&limit` | approved | ✅ Effets en cours (`flags` : motif, produit, niveau `flagged`/`excluded`) et signalements, sans l'identité ni le commentaire des auteurs |
 | POST | `/manager/reminders/mute` | approved | ✅ Sourdine des rappels jusqu'à la fermeture du jour (fin de la dernière plage, minuit à défaut) → `mutedUntil` |
 
-### Admin 🔒 `admin` (session ouverte après 2FA ; chaque décision est auditée)
+### Admin 🔒 `admin` (session web ouverte après 2FA, cookie + CSRF ; chaque décision est auditée)
+Toutes les routes `/admin/*` exigent la session web (cookie `__Host-gs_at`, claim `mfa`) : un Bearer y est refusé (403), le jeton CSRF est donc contrôlé sur toute écriture (D40). Paramètres de requête inconnus ou répétés → 400 ; listes paginées par curseur (`?limit=&cursor=` → `{ items, nextCursor }`).
+
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/admin/stations?status&q&needsReview&cursor&limit` | ✅ Stations d'un statut (défaut `pending`), recherche par nom ou préfixe d'IFU, `needsReview` = épingle signalée ou déplacement en attente ; pagination par curseur. Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié (D5) |
-| GET | `/admin/stations/{id}` | ✅ Détail : gérant, justificatif, signalement, demande de déplacement ; `ETag` |
+| GET | `/admin/dashboard?period&from&to` | ✅ Tableau de bord en un appel (D33) : stations par statut, dossiers en attente et ancienneté du plus vieux, fraîcheur des stocks, gérants inactifs, recherches (total, par produit, part sans station ouverte à 5 km), top des zones en pénurie, signalements et alertes ouverts, inscriptions ; évolution sur la période précédente ; séries (recherches par tranche et par produit, fraîcheur moyenne) |
+| GET | `/admin/stats/searches?period&from&to&productId` | ✅ Séries des recherches et répartition par heure de la journée, tous lieux confondus (D34) |
+| GET | `/admin/stats/shortages?period&from&to&productId&onlyShortages` | ✅ GeoJSON des cellules H3 res 7 avec leur taux ; cellules de moins de 5 recherches masquées (`maskedCells`) (D34) |
+| GET | `/admin/stations?status&q&needsReview&freshness&managerInactive&noHours&reported&cursor&limit` | ✅ Stations d'un statut (défaut `pending`, `all` = tous), recherche par nom ou préfixe d'IFU ; filtres : `needsReview` (épingle signalée ou déplacement en attente), `freshness=stale` (8 à 24 h) ou `expired` (plus de 24 h ou jamais), gérant inactif, sans horaires, signalée (D35). Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié (D5) |
+| GET | `/admin/stations/map?status` | ✅ GeoJSON léger de toutes les stations épinglées (statut, fraîcheur, signalée), regroupement côté client |
+| GET | `/admin/stations/{id}` | ✅ Détail : gérant, justificatif, signalement, demande de déplacement, `statusChangedAt` ; `ETag` |
+| PATCH | `/admin/stations/{id}` | ✅ Correction (nom, marque, adresse, ville, téléphone, IFU, RCCM) avec `reason` obligatoire, `If-Match`, audit avant/après, email au gérant ; statut inchangé ; aucune modification des stocks |
 | GET | `/admin/stations/{id}/document` | ✅ Justificatif déchiffré (téléchargement forcé, `Cache-Control: no-store`, CSP `sandbox`, audité) |
 | POST | `/admin/stations/{id}/approve` | ✅ `pending → approved` (email du gérant vérifié requis) ; email au gérant |
 | POST | `/admin/stations/{id}/reject` | ✅ `{ reason }` : `pending → rejected` ; email au gérant avec le motif |
 | POST | `/admin/stations/{id}/suspend` | ✅ `{ reason }` : `approved → suspended` ; email au gérant |
 | POST | `/admin/stations/{id}/unsuspend` | ✅ `{ reason }` : `suspended → approved` ; email au gérant |
-| POST | `/admin/stations/{id}/location-requests/{requestId}/approve` | ✅ Applique la nouvelle position (et sa cellule H3) |
+| POST | `/admin/stations/{id}/location-requests/{requestId}/approve` | ✅ Applique la nouvelle position (et sa cellule H3) ; clôt les signalements « position incorrecte » |
 | POST | `/admin/stations/{id}/location-requests/{requestId}/reject` | ✅ `{ reason }` : position inchangée |
 | POST | `/admin/stations/{id}/location-flag/dismiss` | ✅ Lève le signalement d'épingle |
-| GET | `/admin/map/stations?bbox&productId&status` | GeoJSON pour la carte (clustering côté client) |
-| GET / POST | `/admin/products` | Catalogue |
-| PATCH | `/admin/products/{id}` | Libellé, ordre, activation (pas de suppression) |
-| GET | `/admin/shortage-zones?productId&from&to` | Cellules H3 res 7 en GeoJSON : demande et absence de stock (k ≥ 5) |
-| GET | `/admin/stale-stocks?olderThan=24h` | Stocks expirés (> 24 h, donc exclus de la recherche) ; `olderThan=8h` liste aussi les stocks `stale` |
 | GET | `/admin/reports?status&stationId&cursor&limit` | ✅ Signalements avec commentaire et auteur (nombre de signalements abusifs, droit retiré) |
-| POST | `/admin/reports/{id}/resolve` | ✅ `{ note? }` : traité (ses effets restent jusqu'à la mise à jour du gérant) |
+| POST | `/admin/reports/{id}/resolve` | ✅ `{ note? }` : traité ; l'effet reste jusqu'à la correction de la cause (stock, position), sauf « autre », recalculé (D32) |
 | POST | `/admin/reports/{id}/dismiss` | ✅ `{ abusive?, note? }` : classé sans suite (abusif) ; l'effet de la cause est recalculé sur les signalements encore ouverts |
-| POST / DELETE | `/admin/users/{id}/reporting-ban` | ✅ `{ reason }` : retire / rend le droit de signaler (audité) |
-| GET | `/admin/alerts?status&kind&cursor&limit` | ✅ Alertes `manager_inactive` (3 rappels ignorés) et `reports_threshold` (5 signalements) ; résolues seules à la mise à jour du gérant |
+| GET | `/admin/alerts?status&kind&cursor&limit` | ✅ Alertes `manager_inactive` (3 rappels ignorés) et `reports_threshold` (5 signalements) |
 | POST | `/admin/alerts/{id}/resolve` | ✅ `{ note? }` : clôt une alerte |
-| GET | `/admin/stats/overview` · `/admin/stats/searches?productId&granularity` | Indicateurs (stations, stocks, recherches agrégées) |
-| GET | `/admin/audit-logs?actorId&entityType&from&to&cursor` | Journal d'audit |
-| GET | `/admin/data-requests?status` | Demandes APDP |
-| PATCH | `/admin/data-requests/{id}` | Traitement (statut, note, génération d'export) |
-| GET | `/admin/users?role&q&cursor` | Comptes |
-| PATCH | `/admin/users/{id}` | Désactivation / réactivation (révoque les sessions) |
+| GET | `/admin/users?q&role&status&emailVerified&cursor&limit` | ✅ Comptes, recherche par nom ou email (D36) |
+| GET | `/admin/users/{id}` | ✅ Profil, sessions actives (nombre), appareils, signalements (total et abusifs), favoris, station du gérant |
+| POST | `/admin/users/{id}/disable` | ✅ `{ reason }` : désactive (sessions et appareils révoqués, connexion refusée `auth.account_disabled`) |
+| POST | `/admin/users/{id}/reactivate` | ✅ `{ reason }` : réactive |
+| POST | `/admin/users/{id}/resend-verification` | ✅ `{ reason }` : renvoie le code de vérification (compte actif non vérifié, 1/min et 5/h) → 202 |
+| POST | `/admin/users/{id}/reporting-ban` | ✅ `{ reason }` : retire le droit de signaler |
+| POST | `/admin/users/{id}/reporting-ban/lift` | ✅ `{ reason }` : rend le droit de signaler |
+| GET | `/admin/products?cursor&limit` | ✅ Catalogue complet, désactivés compris, avec le nombre de stations qui vendent chaque produit (D37) |
+| POST | `/admin/products` | ✅ `{ kind, sizeKg?, label, sortOrder?, active? }` : code dérivé (`lpg_12_5kg`) ; type, unité et taille figés ensuite |
+| PATCH | `/admin/products/{id}` | ✅ Libellé, ordre, activation (champs figés → 422 `immutable`) ; aucune suppression ; cache du produit invalidé |
+| GET | `/admin/audit?actorId&action&entityType&entityId&from&to&cursor&limit` | ✅ Journal d'audit en lecture seule ; `action` exacte ou préfixe `admin.*` (D38) |
+| GET / POST | `/admin/exports` | ✅ Exports récents / lance un export `{ dataset, format?, from?, to?, productId? }` → 202 (D39) |
+| GET | `/admin/exports/{id}` | ✅ Statut et lien de téléchargement signé valable 1 h |
+| GET | `/admin/exports/{id}/download?expires&signature` | ✅ Fichier déchiffré (lien signé + session admin, pièce jointe, audité) ; 410 si le lien ou le fichier a expiré |
+| GET | `/admin/data-requests?status` | Demandes APDP (étape 9) |
+| PATCH | `/admin/data-requests/{id}` | Traitement (statut, note, génération d'export) (étape 9) |
 
-Les comptes admin se créent uniquement via la CLI `cmd/admin` (`make admin-create`) : aucune route publique. Toutes les routes admin exigent une session ouverte après 2FA (claim `mfa`).
+Les comptes admin se créent uniquement via la CLI `cmd/admin` (`make admin-create`) : aucune route publique. Toutes les routes admin exigent une session web ouverte après 2FA (claim `mfa`), par cookie (`RequireCookieSession`).
 
 ## 6. Authentification et sécurité
 
@@ -992,7 +1094,8 @@ sequenceDiagram
   - Réinitialisation : `make admin-reset-2fa`.
   - Aucune session admin sans 2FA, et `RequireRole(admin)` vérifie le claim `mfa`.
 - **Anti-énumération** : `login`, `admin/login`, `verify-email`, `password/reset`, `resend-verification` et `password/forgot` répondent pareil que le compte existe ou non. Le mot de passe d'un compte inexistant est quand même vérifié contre un hash factice (temps constant), et les emails partent en asynchrone (aucune différence de temps de réponse).
-- **Autorisation** : `Authenticate` (Bearer ou cookie) → `RequireRole` → `RequireVerifiedEmail` / `RequireApprovedStation`. Ces deux derniers lisent l'état en base à chaque requête : une suspension ou une vérification prend effet immédiatement.
+- **Autorisation** : `Authenticate` (Bearer ou cookie) → `RequireRole` → `RequireVerifiedEmail` / `RequireApprovedStation`. Ces deux derniers lisent l'état en base à chaque requête : une suspension ou une vérification prend effet immédiatement. Les routes admin ajoutent `RequireCookieSession` : session web uniquement, donc CSRF toujours contrôlé.
+- **Compte désactivé par l'admin** : sessions révoquées (et appareils push avec elles), tokens push restants supprimés ; le login répond 403 `auth.account_disabled`, mais seulement avec le bon mot de passe (sinon `auth.invalid_credentials`, pas d'énumération) ; un refresh échoue.
 - **Rate limiting** (Redis, fenêtre glissante, sans arrondi : pas de requête de trop au changement de fenêtre) :
 
   | Action | Limite |
@@ -1022,7 +1125,7 @@ sequenceDiagram
   - logout, logout-all, révocation de session ;
   - changement et réinitialisation de mot de passe ;
   - suppression de compte ;
-  - actions admin : création et reset 2FA par la CLI, lecture de justificatif, modération des signalements (traité, classé, abusif), retrait et rétablissement du droit de signaler, clôture des alertes.
+  - actions admin : création et reset 2FA par la CLI, lecture de justificatif, décisions et corrections de station (motif, avant/après), modération des signalements (traité, classé, abusif), retrait et rétablissement du droit de signaler (motif), clôture des alertes, désactivation et réactivation de compte, renvoi du code de vérification (motif), création et modification de produit (avant/après), demande et téléchargement d'export.
 - **Divers** : CORS limité à `CORS_ALLOWED_ORIGINS`, avec credentials. Corps bornés (1 Mo en JSON, 5 Mo + 256 Ko pour l'inscription gérant). `Cache-Control: no-store` sur les réponses contenant des tokens.
 
 ## 7. Jobs asynchrones (asynq)
@@ -1039,7 +1142,10 @@ L'API ne fait que mettre en file (`jobs.Client`) : une panne SMTP ou Expo ne ral
 | `favorites:back_in_stock` | Saisie de stock 0 → > 0 | default | ✅ Alertes des abonnés (limites et heures calmes, D30) |
 | `favorites:release` | `*/15 * * * *` | low | ✅ Hors heures calmes : envoie les alertes en attente si le stock est toujours positif (la première passe à 7 h), abandonne les autres |
 | `reminders:scan` | `*/15 * * * *` | low | ✅ Rappels de stock et escalade des séries ignorées (D28) |
-| `stats:flush` | `@every 5m` (`STATS_FLUSH_INTERVAL`) | low | ✅ Compteurs Redis → `search_stats` (upsert additif, verrou Redis, sans perte) |
+| `stats:flush` | `@every 5m` (`STATS_FLUSH_INTERVAL`) | low | ✅ Compteurs Redis → `search_stats` et ses agrégats `search_stats_daily` (jour local) et `search_stats_totals` (tous lieux), même transaction (upsert additif, verrou Redis, sans perte) |
+| `stats:freshness` | `0 * * * *` | low | ✅ Relevé de la fraîcheur des stocks par produit (frais, stale, exclus) dans `stock_freshness_stats` (séries du tableau de bord) |
+| `export:generate` | À la demande (`POST /admin/exports`) | default | ✅ Lit le jeu de données, écrit le CSV (BOM, « ; ») ou le JSON, chiffre (enveloppe), stocke, marque l'export prêt (fichier supprimé à +24 h). 3 retries ; au dernier échec, ou au-delà de 200 000 lignes, l'export est marqué échoué |
+| `export:purge` | `*/15 * * * *` | low | ✅ Supprime les fichiers d'export de 24 h ou plus (statut `expired`) et déclare échouées les demandes en attente depuis plus d'une heure |
 | `retention:purge` | `0 3 * * *` | low | ✅ Règles de l'étape 6 (notifications et journal des alertes à 30 j, tokens push sans réenregistrement à 90 j) ; emplacement prêt pour les règles de l'étape 9 (§8) |
 | `data-requests:export` | À la demande | — | Étape 9 : archive JSON des données d'un utilisateur, chiffrée, lien valable 7 j |
 
@@ -1053,7 +1159,10 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 |---|---|---|
 | Position de l'utilisateur | Exécution du service (recherche, itinéraire) | **Aucune** : traitée en mémoire, jamais journalisée |
 | Position de l'appareil du gérant à l'épinglage | Contrôle de vraisemblance (D13) | **Aucune** : seules la distance à l'épingle et la précision GPS sont conservées (signalement, demande de déplacement) |
-| Stats de recherche (H3 res 7, par heure) | Intérêt légitime (pénuries) | 24 mois, déjà anonymes |
+| Stats de recherche (H3 res 7, par heure) et leurs agrégats (par jour ; tous lieux par heure) | Intérêt légitime (pénuries) | 24 mois, déjà anonymes ; affichées et exportées seulement au-delà de k ≥ 5 recherches |
+| Relevés de fraîcheur des stocks | Intérêt légitime (fiabilité) | 24 mois (aucune donnée personnelle) |
+| Fichiers d'export admin | Pilotage, conformité | **24 h** après la génération (purge toutes les 15 min) ; chiffrés ; auteurs des signalements pseudonymisés, jamais d'email ; jamais la liste des utilisateurs |
+| Demandes d'export (métadonnées) | Responsabilité | 12 mois (étape 9) |
 | Compte utilisateur | Contrat | Durée du compte ; purge 30 j après la demande de suppression |
 | Comptes inactifs | Minimisation | Relance à 24 mois, suppression à 36 mois |
 | Justificatif IFU d'une station approuvée | Obligation de vérification | Tant que la station est active + 12 mois |
@@ -1077,7 +1186,7 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D31 : 2026-10-11)
+### Décisions (2026-10-10 ; D25 à D40 : 2026-10-11)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1091,7 +1200,7 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D8 | Emails | Interface `Mailer` + implémentation SMTP générique, envoi asynchrone (pas de fuite par le temps de réponse). En dev, Mailpit (profil compose `dev`). Templates HTML + texte en français, aux couleurs de GoStation. |
 | D9 | Politique de confidentialité | Version courante `1.0`. Version et date d'acceptation enregistrées à l'inscription. Si la version change, `GET /me` renvoie `reacceptRequired: true` jusqu'à `POST /me/accept-privacy-policy`. |
 | D10 | Justificatifs IFU | PDF, JPG ou PNG, 5 Mo max, type vérifié par les magic bytes (jamais l'extension), métadonnées EXIF/XMP/IPTC retirées des images. Chiffrement AES-256-GCM avec une clé par fichier, elle-même chiffrée par `DOCUMENTS_ENCRYPTION_KEY` (envelope encryption). Stockage derrière l'interface `Storage` (disque local, S3 compatible plus tard). Jamais servis publiquement : lecture réservée aux admins, auditée. |
-| D11 | Validation admin | **Dès l'étape 4** : liste des stations par statut (pagination par curseur, recherche par nom ou IFU), détail, `approve`, `reject` (motif obligatoire), `suspend` / `unsuspend` (motif obligatoire), validation des demandes de déplacement. Email au gérant à chaque changement de statut décidé par l'admin. Tout est audité. Le reste de l'API admin viendra plus tard. |
+| D11 | Validation admin | **Dès l'étape 4** : liste des stations par statut (pagination par curseur, recherche par nom ou IFU), détail, `approve`, `reject` (motif obligatoire), `suspend` / `unsuspend` (motif obligatoire), validation des demandes de déplacement. Email au gérant à chaque changement de statut décidé par l'admin. Tout est audité. Le reste de l'API admin : étape 7 (D33 à D40). |
 | D12 | Horaires | Fuseau `Africa/Porto-Novo`. Jusqu'à **2 plages par jour**, plages qui passent minuit acceptées. Raccourci 24 h/24 par jour ou pour toute la semaine. **Fermetures exceptionnelles** (date, journée entière, motif facultatif) qui couvrent aussi les jours fériés. `IsOpen(station, instant)` testée sur les cas limites. |
 | D13 | Position | Refus hors Bénin : polygone Natural Earth (domaine public) chargé par migration, testé avec `ST_Covers` sur la frontière élargie de **2 km**. **Premier épinglage libre** ; l'app envoie aussi la position et la précision GPS de l'appareil, et une épingle à **plus de 500 m** de l'appareil est signalée à l'admin, sans blocage. **Déplacement ensuite** : moins de 200 m, c'est libre (correction GPS) ; au-delà, c'est une demande de déplacement validée par l'admin, l'ancienne position restant active en attendant. Cellule H3 res 8 calculée à l'épinglage. |
 | D14 | Champs de la station | Un changement d'**IFU ou de RCCM** renvoie une station approuvée en `pending`. Le reste (nom, marque, adresse, ville, téléphone) est modifiable librement. |
@@ -1109,9 +1218,18 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D26 | Push | Interface `Pusher` : **Expo** (lots de 100, reçus lus après 15 min, tokens `DeviceNotRegistered` supprimés) ou **Fake** (dev et tests : journalise le type, sans donnée personnelle) si `EXPO_ACCESS_TOKEN` est vide. Un appareil = une installation (`installId`), **lié à sa session** : sa révocation ou le logout supprime le token ; à l'envoi, un appareil dont la session a expiré est écarté et supprimé. Texte des push rendu par le serveur dans la langue de l'appareil (`fr`, `en` prêt). |
 | D27 | Notifications | Boîte de réception (`notifications`, 30 jours) : `type` + `data`, l'app compose le texte. Préférences par type en opt-out. Types : `stock_reminder`, `station_reported` (gérants), `back_in_stock`. Réservé aux emails vérifiés ; aucun push pour les admins. |
 | D28 | Rappels gérant | Tâche toutes les 15 min. Rappel si : ouverte maintenant, dernière mise à jour ou confirmation **et** dernier rappel de plus de 4 h, moins de 4 rappels aujourd'hui, pas de sourdine, pas d'opt-out. Catégorie Expo `stock_reminder`, actions « Mettre à jour » (ouvre l'app) et « Rien n'a changé » (POST `/manager/station/stocks/confirm` avec l'ETag du push en `If-Match`, sans ouvrir l'app). À l'échéance qui suit **3 rappels ignorés de suite** : pas de 4e rappel, arrêt pour la journée du dernier rappel, email au gérant, alerte admin « gérant inactif » ; reprise le lendemain. Sourdine (`POST /manager/reminders/mute`) jusqu'à la fermeture du jour. |
-| D29 | Signalements | Comptes vérifiés. Motifs : `out_of_stock` (par produit), `station_closed`, `wrong_location`, `other` (≤ 300 caractères). Rupture et fermeture : position de l'auteur à 2 km au plus, jamais stockée ni journalisée. Limites : 1 par station et par motif / 2 h, 10 par jour. Effets (auteurs distincts, 2 h, même cause) : 3 → badge `reported` + notification au gérant (sans auteurs) ; 5 → exclusion de la recherche (le produit, ou la station pour les autres motifs) + alerte admin. Une mise à jour ou confirmation du gérant clôt **tous** les signalements ouverts et lève les effets. Admin : traité, classé (abusif, avec recalcul de l'effet), retrait du droit de signaler. |
+| D29 | Signalements | Comptes vérifiés. Motifs : `out_of_stock` (par produit), `station_closed`, `wrong_location`, `other` (≤ 300 caractères). Rupture et fermeture : position de l'auteur à 2 km au plus, jamais stockée ni journalisée. Limites : 1 par station et par motif / 2 h, 10 par jour. Effets (auteurs distincts, 2 h, même cause) : 3 → badge `reported` + notification au gérant (sans auteurs) ; 5 → exclusion de la recherche (le produit, ou la station pour les autres motifs) + alerte admin. Clôture automatique : voir D32 (correctif de l'étape 7). Admin : traité, classé (abusif, avec recalcul de l'effet), retrait du droit de signaler. |
 | D30 | Favoris | 20 au plus, stations approuvées. Alerte « de retour en stock » facultative par produit, au passage de 0 à plus de 0 ; 1 par station et par produit / 6 h, 5 par jour et par utilisateur ; rien entre 21 h et 7 h (heure de Porto-Novo) : l'alerte attend et part à 7 h si le stock est toujours positif. Pas d'alerte de réouverture. |
 | D31 | Règles mobile | Station fermée : « Fermée · rouvre à HH:MM ». `/routes` en 503 : ligne droite vers la station et « Ouvrir dans une autre app » (intent `geo:`). Voir CLAUDE.md, règles mobile. |
+| D32 | Clôture des signalements (correctif) | Une saisie ou une confirmation des stocks ne clôt que les ruptures (`out_of_stock`) des produits saisis ou confirmés, et « station fermée ». « Position incorrecte » se clôt quand la position active change (correction du gérant, déplacement validé) ou par l'admin. « Autre » ne se clôt que par l'admin. Les effets (badge, exclusion) et l'alerte « seuil » des causes closes sont levés. « Traité » par l'admin : l'effet reste jusqu'à la correction de la cause (stock, position) ; pour « autre », qui n'a pas de correction automatique, il est recalculé sur les signalements encore ouverts. Un produit qui n'est plus vendu (ou désactivé) n'est pas concerné par la saisie : ses signalements attendent l'admin. |
+| D33 | Tableau de bord | `GET /admin/dashboard` en un appel : stations par statut, dossiers en attente et ancienneté du plus vieux (`status_changed_at`, tenu par trigger), fraîcheur des stocks (frais < 8 h, stale, exclus > 24 h), gérants inactifs (alertes ouvertes), recherches par produit, part sans station ouverte à 5 km, top 10 des zones en pénurie (par recherches sans résultat), signalements et alertes ouverts, inscriptions (utilisateurs, gérants). Évolution sur la période précédente de même durée (`change` relatif, null si 0). Séries : recherches par tranche et par produit ; fraîcheur moyenne des relevés horaires (`stock_freshness_stats`, tâche `stats:freshness` : la fraîcheur passée ne se reconstitue pas, les confirmations n'étant pas historisées). Les indicateurs instantanés (statuts, fraîcheur, alertes) n'ont pas d'évolution. |
+| D34 | Stats et pénuries | Zone en pénurie : cellule H3 res 7 où au moins 50 % des recherches n'ont trouvé aucune station ouverte à 5 km. Périodes : 24 h (par heure, heure en cours comprise), 7 jours (défaut) et 30 jours en jours locaux, aujourd'hui compris jusqu'à maintenant (la période précédente s'arrête à la même heure), plage personnalisée de dates (366 jours au plus). Anonymat : k ≥ 5 recherches sur l'agrégat affiché (cellule × produit filtré ou tous produits × période) ; en dessous, la cellule est masquée (seul leur nombre est donné) ; les agrégats tous lieux confondus ne descendent jamais à la cellule. Performance (p95 < 300 ms sur seed-dev) : agrégats `search_stats_daily` et `search_stats_totals` tenus par `stats:flush` dans la même transaction (pas de vue matérialisée : un rafraîchissement recalcule tout l'historique) ; requêtes exécutées sans plan mis en cache (le plan générique sous-estimait les lignes et doublait les temps). `make explain-stats`, `make bench-stats`. |
+| D35 | Stations (admin) | Carte : GeoJSON léger de toutes les stations épinglées (statut, fraîcheur de la dernière saisie, signalée), regroupement côté client. Filtres de liste : `freshness=stale` (8 à 24 h), `expired` (plus de 24 h ou jamais saisi), gérant inactif, sans horaires, signalée ; `status=all`. Correction `PATCH /admin/stations/{id}` : nom, marque, adresse, ville, téléphone, IFU, RCCM, motif obligatoire, `If-Match`, audit avant/après, email au gérant, statut inchangé (l'admin est le valideur), cache invalidé. Jamais de modification des stocks par l'admin. |
+| D36 | Comptes (admin) | Liste paginée (recherche dans l'email, le prénom, le nom), filtres rôle, statut, email vérifié ; fiche (profil, sessions actives, appareils, signalements total et abusifs, favoris, station). Actions avec motif et audit : désactiver (sessions et appareils révoqués, login 403 `auth.account_disabled` avec le bon mot de passe), réactiver, rétablir le droit de signaler (`/reporting-ban/lift`, remplace le DELETE de l'étape 6), renvoyer le code de vérification (limites habituelles). Comptes admin intouchables (CLI). Pas de modification du nom ou de l'email ni de suppression (étape 9). La station d'un gérant désactivé n'est pas suspendue : sans mise à jour, elle sort de la recherche à 24 h. |
+| D37 | Catalogue | Création (gaz : 0,5 à 100 kg au centième ; carburants : sans taille), code dérivé (`lpg_12_5kg`) ; type, unité et taille figés (422 `immutable`) ; libellé, ordre et activation modifiables ; aucune suppression. Un produit désactivé sort de la recherche (422), du catalogue public et des choix et de la saisie du gérant ; ses stocks et son historique restent. Invalidation `search:gen:p{id}` à chaque écriture. |
+| D38 | Audit | `GET /admin/audit` en lecture seule : filtres acteur, action (exacte ou préfixe `admin.*`), cible (type, identifiant), période (dates locales ou RFC 3339) ; curseur (created_at, id). Index dédiés. |
+| D39 | Exports | `POST /admin/exports` → tâche `export:generate` ; `GET /admin/exports/{id}` : statut et lien signé (HMAC) valable 1 h, à utiliser avec la session admin. Jeux : stations (IFU, RCCM), stocks actuels, stats agrégées par cellule et produit (k ≥ 5), signalements (auteur pseudonymisé par HMAC, jamais l'email), audit. CSV UTF-8 avec BOM, « ; », CRLF, décimaux à virgule, dates en heure locale, cellules de texte neutralisées contre l'injection de formules ; JSON en option. Période par défaut : 30 jours. Fichier chiffré (enveloppe), supprimé 24 h après sa génération (`export:purge`). Jamais la liste des utilisateurs. Demande et téléchargement audités. API et worker partagent le stockage (volume `documents`). |
+| D40 | Accès admin | Toutes les routes `/api/v1/admin/*` : rôle admin avec 2FA (claim `mfa`), session web par cookie uniquement (Bearer refusé), donc CSRF sur toute écriture. Validation stricte : JSON sans champ inconnu, paramètres de requête inconnus ou répétés refusés (400), pagination par curseur partout. |
 
 ### Questions ouvertes
 

@@ -212,7 +212,8 @@ func recompute(ctx context.Context, q *dbgen.Queries, r dbgen.GetReportForUpdate
 
 // ── Droit de signaler ───────────────────────────────────────────────────────
 
-// Ban retire le droit de signaler à un utilisateur (après abus). Les admins ne sont pas concernés.
+// Ban retire le droit de signaler à un utilisateur (après abus), avec un motif. Les admins ne sont
+// pas concernés.
 func (s *Service) Ban(ctx context.Context, a Actor, userID uuid.UUID, rawReason *string) error {
 	reason, err := note("reason", rawReason, true)
 	if err != nil {
@@ -225,12 +226,16 @@ func (s *Service) Ban(ctx context.Context, a Actor, userID uuid.UUID, rawReason 
 	if n == 0 {
 		return apperr.NotFound("User not found.")
 	}
-	s.audit(ctx, a, audit.ActionReportingBanned, "user", userID.String(), nil)
+	s.audit(ctx, a, audit.ActionReportingBanned, "user", userID.String(), map[string]any{"reason": *reason})
 	return nil
 }
 
-// Unban rend le droit de signaler.
-func (s *Service) Unban(ctx context.Context, a Actor, userID uuid.UUID) error {
+// Unban rend le droit de signaler, avec un motif (étape 7).
+func (s *Service) Unban(ctx context.Context, a Actor, userID uuid.UUID, rawReason *string) error {
+	reason, err := note("reason", rawReason, true)
+	if err != nil {
+		return err
+	}
 	n, err := s.Store.ClearReportingBan(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("report: unban: %w", err)
@@ -238,7 +243,7 @@ func (s *Service) Unban(ctx context.Context, a Actor, userID uuid.UUID) error {
 	if n == 0 {
 		return apperr.NotFound("User not found.")
 	}
-	s.audit(ctx, a, audit.ActionReportingUnbanned, "user", userID.String(), nil)
+	s.audit(ctx, a, audit.ActionReportingUnbanned, "user", userID.String(), map[string]any{"reason": *reason})
 	return nil
 }
 

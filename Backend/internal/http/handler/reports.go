@@ -299,13 +299,17 @@ func (h *Reports) Ban(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// Unban rend le droit de signaler (DELETE /admin/users/{id}/reporting-ban).
+// Unban rend le droit de signaler, avec un motif (POST /admin/users/{id}/reporting-ban/lift).
 func (h *Reports) Unban(w http.ResponseWriter, r *http.Request) error {
 	id, err := pathUUID(r, "id")
 	if err != nil {
 		return err
 	}
-	if err := h.svc.Unban(r.Context(), reportActor(r), id); err != nil {
+	var req banRequest
+	if err := decodeJSON(r, &req, false); err != nil {
+		return err
+	}
+	if err := h.svc.Unban(r.Context(), reportActor(r), id, req.Reason); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

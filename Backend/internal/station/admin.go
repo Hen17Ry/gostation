@@ -3,7 +3,9 @@ package station
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -19,11 +21,15 @@ import (
 
 // AdminFilter filtre la liste admin des stations.
 type AdminFilter struct {
-	Status      string
-	Query       string
-	NeedsReview bool // épingle signalée ou demande de déplacement en attente
-	Cursor      string
-	Limit       int
+	Status          string // pending (défaut côté handler), approved, rejected, suspended ; "all" = tous
+	Query           string
+	NeedsReview     bool   // épingle signalée ou demande de déplacement en attente
+	Freshness       string // stale (8 à 24 h) | expired (plus de 24 h ou jamais) ; vide = indifférent
+	ManagerInactive bool   // alerte « gérant inactif » ouverte
+	NoHours         bool   // aucun horaire
+	Reported        bool   // effet de signalement en cours (badge ou exclusion)
+	Cursor          string
+	Limit           int
 }
 
 // AdminPage est une page de la liste admin.
@@ -56,29 +62,48 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 // likeEscaper protège les jokers de LIKE dans la recherche par nom ou IFU.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// AdminList liste les stations d'un statut, les plus récentes d'abord. Un dossier pending n'y
-// figure qu'une fois l'email du gérant vérifié (D5).
+// AdminList liste les stations, les plus récentes d'abord. Un dossier pending n'y figure qu'une
+// fois l'email du gérant vérifié (D5).
 func (s *Service) AdminList(ctx context.Context, f AdminFilter) (AdminPage, error) {
+	var fe fieldErrors
+	p := dbgen.ListStationsForAdminParams{
+		NeedsReview: f.NeedsReview, ManagerInactive: f.ManagerInactive, NoHours: f.NoHours, Reported: f.Reported,
+	}
 	switch f.Status {
+	case "all":
 	case StatusPending, StatusApproved, StatusRejected, StatusSuspended:
+		st := dbgen.StationStatus(f.Status)
+		p.Status = &st
 	default:
-		return AdminPage{}, apperr.Validation(apperr.FieldError{Field: "status", Code: "invalid", Message: "must be pending, approved, rejected or suspended"})
+		fe.add("status", "invalid", "must be pending, approved, rejected, suspended or all")
+	}
+	switch f.Freshness {
+	case "":
+	case FreshnessStale, FreshnessExpired:
+		p.Freshness = &f.Freshness
+	default:
+		fe.add("freshness", "invalid", "must be stale or expired")
 	}
 	limit := f.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
-		return AdminPage{}, apperr.Validation(apperr.FieldError{Field: "limit", Code: "out_of_range", Message: "must be between 1 and 100"})
+		fe.add("limit", "out_of_range", "must be between 1 and 100")
 	}
-	p := dbgen.ListStationsForAdminParams{Status: dbgen.StationStatus(f.Status), NeedsReview: f.NeedsReview, PageSize: int32(limit + 1)} //nolint:gosec // ≤ 101
 	if q := strings.TrimSpace(f.Query); q != "" {
 		if len([]rune(q)) > 100 {
-			return AdminPage{}, apperr.Validation(apperr.FieldError{Field: "q", Code: "too_long", Message: "must be at most 100 characters"})
+			fe.add("q", "too_long", "must be at most 100 characters")
 		}
 		escaped := likeEscaper.Replace(q)
 		p.Query = &escaped
 	}
+	if err := fe.err(); err != nil {
+		return AdminPage{}, err
+	}
+	now := s.now()
+	p.StaleSince, p.ExpiredSince = now.Add(-s.cfg.StaleAfter), now.Add(-s.cfg.ExpiredAfter)
+	p.PageSize = int32(limit + 1) //nolint:gosec // ≤ 101
 	if f.Cursor != "" {
 		t, id, err := decodeCursor(f.Cursor)
 		if err != nil {
@@ -97,6 +122,43 @@ func (s *Service) AdminList(ctx context.Context, f AdminFilter) (AdminPage, erro
 		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, nil
+}
+
+// StationFreshness classe la dernière saisie ou confirmation d'une station : fresh, stale,
+// expired, ou none si le gérant n'a jamais saisi ses stocks.
+func (s *Service) StationFreshness(last *time.Time) string {
+	if last == nil {
+		return "none"
+	}
+	return s.Freshness(*last)
+}
+
+// MapStation est une station de la carte admin.
+type MapStation struct {
+	dbgen.ListStationsForMapRow
+	Freshness string
+}
+
+// Map renvoie toutes les stations épinglées (d'un statut, ou toutes) pour la carte admin.
+func (s *Service) Map(ctx context.Context, status string) ([]MapStation, error) {
+	var p *dbgen.StationStatus
+	switch status {
+	case "", "all":
+	case StatusPending, StatusApproved, StatusRejected, StatusSuspended:
+		st := dbgen.StationStatus(status)
+		p = &st
+	default:
+		return nil, apperr.Validation(apperr.FieldError{Field: "status", Code: "invalid", Message: "must be pending, approved, rejected, suspended or all"})
+	}
+	rows, err := s.Store.ListStationsForMap(ctx, p)
+	if err != nil {
+		return nil, fmt.Errorf("station: map: %w", err)
+	}
+	out := make([]MapStation, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, MapStation{ListStationsForMapRow: r, Freshness: s.StationFreshness(r.LastStockUpdateAt)})
+	}
+	return out, nil
 }
 
 // ensureStation renvoie 404 si la station n'existe pas (avant le contrôle de version, qui
@@ -267,4 +329,106 @@ func (s *Service) DismissLocationFlag(ctx context.Context, admin Actor, stationI
 	}
 	s.audit(ctx, admin, audit.ActionLocationFlagDismissed, stationID, nil)
 	return s.AdminDetail(ctx, stationID)
+}
+
+// Libellés français des champs corrigés (email au gérant).
+var fieldLabels = map[string]string{
+	"name": "nom", "brand": "marque", "address": "adresse", "city": "ville",
+	"phone": "téléphone", "ifu": "IFU", "rccm": "RCCM",
+}
+
+// profileFields renvoie les champs du profil d'une station, dans l'ordre d'affichage.
+func profileFields(st dbgen.GetStationForAdminRow) [][2]string {
+	return [][2]string{
+		{"name", st.Name},
+		{"brand", deref(st.Brand)},
+		{"address", st.Address},
+		{"city", deref(st.City)},
+		{"phone", st.Phone},
+		{"ifu", st.Ifu},
+		{"rccm", st.Rccm},
+	}
+}
+
+func deref(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// AdminUpdate corrige les informations d'une station (nom, marque, adresse, ville, téléphone, IFU,
+// RCCM), avec un motif obligatoire. Le statut ne change pas : l'admin est le valideur (un IFU ou un
+// RCCM corrigé par lui ne renvoie pas en pending). Audit avant/après, email au gérant, invalidation
+// du cache (le nom et la marque figurent dans les résultats). Les stocks ne sont jamais modifiables
+// par l'admin.
+func (s *Service) AdminUpdate(ctx context.Context, admin Actor, stationID uuid.UUID, expected int32, in ProfileInput, reason string) (AdminStation, error) {
+	params, err := validateProfile(in)
+	r, rerr := requireReason(reason)
+	if err != nil || rerr != nil {
+		var fe fieldErrors
+		var ae *apperr.Error
+		for _, e := range []error{err, rerr} {
+			if errors.As(e, &ae) {
+				fe = append(fe, ae.Fields...)
+			}
+		}
+		return AdminStation{}, fe.err()
+	}
+	if len(changedFields(in)) == 0 {
+		return AdminStation{}, apperr.Validation(apperr.FieldError{Field: "name", Code: "required", Message: "at least one field must be provided"})
+	}
+	var before dbgen.GetStationForAdminRow
+	err = s.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		if before, err = q.GetStationForAdmin(ctx, stationID); err != nil {
+			return fmt.Errorf("station: load station: %w", store.Translate(err))
+		}
+		if _, err := bump(ctx, q, stationID, expected); err != nil {
+			return err
+		}
+		params.ID = stationID
+		if err := q.UpdateStationProfile(ctx, params); err != nil {
+			return fmt.Errorf("station: admin update: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return AdminStation{}, err
+	}
+	after, err := s.AdminDetail(ctx, stationID)
+	if err != nil {
+		return AdminStation{}, err
+	}
+	changes := map[string]any{}
+	var labels []string
+	old := profileFields(before)
+	for i, f := range profileFields(after.GetStationForAdminRow) {
+		if f[1] != old[i][1] {
+			changes[f[0]] = map[string]string{"from": old[i][1], "to": f[1]}
+			labels = append(labels, fieldLabels[f[0]])
+		}
+	}
+	s.audit(ctx, admin, audit.ActionStationCorrected, stationID, map[string]any{"reason": r, "changes": changes})
+	if len(changes) > 0 {
+		s.invalidate(ctx, true)
+		s.notifyCorrection(ctx, stationID, labels, r)
+	}
+	return after, nil
+}
+
+// notifyCorrection prévient le gérant d'une correction de l'admin ; un échec est journalisé.
+func (s *Service) notifyCorrection(ctx context.Context, stationID uuid.UUID, fields []string, reason string) {
+	contact, err := s.Store.GetStationContact(ctx, stationID)
+	if store.IsNotFound(err) {
+		return // station sans gérant (données fictives)
+	}
+	if err == nil {
+		var m mail.Message
+		if m, err = s.Templates.StationCorrected(contact.Email, contact.FirstName, contact.Name, fields, reason); err == nil {
+			err = s.Mailer.Send(ctx, m)
+		}
+	}
+	if err != nil {
+		s.Log.ErrorContext(ctx, "station: correction email", slog.Any("err", err))
+	}
 }

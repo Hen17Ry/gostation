@@ -42,6 +42,10 @@ const (
 	TypeRemindersScan  = "reminders:scan"
 	TypeStatsFlush     = "stats:flush"
 	TypeRetentionPurge = "retention:purge"
+	// Étape 7.
+	TypeFreshnessSnapshot = "stats:freshness"
+	TypeExportGenerate    = "export:generate"
+	TypeExportPurge       = "export:purge"
 )
 
 // EmailPayload porte un email chiffré (adresse et codes à usage unique ne sont jamais en clair
@@ -72,6 +76,11 @@ type ReceiptsPayload struct {
 type BackInStockPayload struct {
 	StationID  uuid.UUID `json:"s"`
 	ProductIDs []int16   `json:"p"`
+}
+
+// ExportPayload désigne l'export à générer (les filtres sont en base, jamais dans Redis).
+type ExportPayload struct {
+	ExportID uuid.UUID `json:"e"`
 }
 
 // Client met des tâches en file. Il partage le pool de connexions Redis de l'application.
@@ -130,6 +139,15 @@ func (c *Client) EnqueueBackInStock(ctx context.Context, stationID uuid.UUID, pr
 	}
 	return c.enqueue(ctx, TypeBackInStock, BackInStockPayload{StationID: stationID, ProductIDs: productIDs},
 		asynq.Queue(QueueDefault), asynq.MaxRetry(5), asynq.Timeout(2*time.Minute))
+}
+
+// ExportMaxRetry borne les essais d'une génération d'export (le worker la déclare échouée au dernier).
+const ExportMaxRetry = 3
+
+// EnqueueExport met en file la génération d'un export admin.
+func (c *Client) EnqueueExport(ctx context.Context, id uuid.UUID) error {
+	return c.enqueue(ctx, TypeExportGenerate, ExportPayload{ExportID: id},
+		asynq.Queue(QueueDefault), asynq.MaxRetry(ExportMaxRetry), asynq.Timeout(10*time.Minute))
 }
 
 // Decode lit la charge utile d'une tâche ; une charge illisible ne sera jamais traitée : elle

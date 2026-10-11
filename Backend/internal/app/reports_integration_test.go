@@ -105,7 +105,8 @@ func TestReportValidationAndLimits(t *testing.T) {
 	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban", map[string]string{}), http.StatusUnprocessableEntity, "request.validation_failed")
 	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban", map[string]string{"reason": "Signalements abusifs répétés"}), http.StatusNoContent, "")
 	expect(t, postReport(b, stationID, reportBody(report.ReasonWrongLocation, 0, nil, "")), http.StatusForbidden, report.CodeReportingSuspended)
-	expect(t, admin.do(http.MethodDelete, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban", nil), http.StatusNoContent, "")
+	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban/lift", map[string]string{}), http.StatusUnprocessableEntity, "request.validation_failed")
+	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban/lift", map[string]string{"reason": "Avertissement donné, droit rétabli"}), http.StatusNoContent, "")
 	expect(t, postReport(b, stationID, reportBody(report.ReasonWrongLocation, 0, nil, "")), http.StatusCreated, "")
 	if !contains(auditActions(t, "user", bsess.User.ID), "admin.reporting_banned", "admin.reporting_unbanned") {
 		t.Error("reporting ban not audited")

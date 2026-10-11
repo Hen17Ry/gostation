@@ -21,10 +21,11 @@ WHERE station_id = @station_id AND NOT (product_id = ANY(@product_ids::smallint[
 RETURNING product_id;
 
 -- name: ListStationStocksForUpdate :many
--- Stocks vendus, verrouillés pour la mise à jour groupée.
+-- Stocks vendus, verrouillés pour la mise à jour groupée. Un produit désactivé par l'admin sort
+-- de la saisie (sa ligne et son historique restent).
 SELECT ss.product_id, ss.quantity, p.unit, p.code
 FROM station_stocks ss
-JOIN products p ON p.id = ss.product_id
+JOIN products p ON p.id = ss.product_id AND p.is_active
 WHERE ss.station_id = @station_id
 ORDER BY ss.product_id
 FOR UPDATE OF ss;
@@ -39,7 +40,7 @@ WHERE station_id = @station_id AND product_id = @product_id;
 -- « Rien n'a changé » : remet le délai de fraîcheur à zéro sans toucher aux quantités.
 UPDATE station_stocks
 SET last_confirmed_at = now(), updated_by = @updated_by
-WHERE station_id = @station_id;
+WHERE station_id = @station_id AND product_id IN (SELECT id FROM products WHERE is_active);
 
 -- name: InsertStockHistory :copyfrom
 INSERT INTO stock_history (station_id, product_id, quantity, previous_quantity, source, changed_by)
