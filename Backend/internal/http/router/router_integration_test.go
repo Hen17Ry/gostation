@@ -80,6 +80,7 @@ func fakeOSRM(t *testing.T) (*httptest.Server, *atomic.Bool) {
 // newStack assemble le routeur exactement comme cmd/api, sur les vraies dépendances.
 func newStack(t *testing.T, ipLimit int) (http.Handler, *atomic.Bool) {
 	t.Helper()
+	testutil.ResetRedis(t, itRedis) // quotas par IP : chaque test part de zéro
 	osrmSrv, osrmHealthy := fakeOSRM(t)
 	osrmClient, err := osrm.New(osrmSrv.URL, time.Second)
 	if err != nil {

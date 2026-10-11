@@ -4,7 +4,9 @@ package app_test
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +77,34 @@ func TestAdminAccessRequiresTwoFactorCookieAndCSRF(t *testing.T) {
 
 	// Validation stricte : paramètre inconnu.
 	expect(t, admin.do(http.MethodGet, "/api/v1/admin/users?sort=email", nil), http.StatusBadRequest, "request.invalid_parameter")
+}
+
+// freeSize renvoie une taille de bouteille (au centième, 20 à 99,99 kg) absente du catalogue : un
+// test qui crée des produits par l'API reste rejouable (unicité type + taille).
+func freeSize(t *testing.T) float64 {
+	t.Helper()
+	for range 50 {
+		size := float64(2000+rand.IntN(8000)) / 100
+		var n int
+		if err := it.pool.QueryRow(t.Context(), `SELECT count(*) FROM products WHERE kind = 'lpg' AND size_kg = $1::numeric`,
+			strconv.FormatFloat(size, 'f', 2, 64)).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n == 0 {
+			return size
+		}
+	}
+	t.Fatal("no free product size")
+	return 0
+}
+
+// sizeCode est le code dérivé d'une taille (« lpg_38_5kg »).
+func sizeCode(size float64) string {
+	return "lpg_" + strings.ReplaceAll(strconv.FormatFloat(size, 'f', -1, 64), ".", "_") + "kg"
+}
+
+func sizeLabel(size float64) string {
+	return "Gaz " + strings.ReplaceAll(strconv.FormatFloat(size, 'f', -1, 64), ".", ",") + " kg"
 }
 
 type adminUserResp struct {
@@ -231,13 +261,14 @@ func TestAdminCatalog(t *testing.T) {
 	expect(t, admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "petrol", "label": "Essence bis"}), http.StatusConflict, "product.already_exists")
 
 	var p adminProductResp
-	r := admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "lpg", "sizeKg": 38.5, "label": "Gaz 38,5 kg"})
+	size := freeSize(t)
+	r := admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "lpg", "sizeKg": size, "label": sizeLabel(size)})
 	expect(t, r, http.StatusCreated, "")
 	r.decode(t, &p)
-	if p.Code != "lpg_38_5kg" || p.Unit != "cylinder" || p.SizeKg == nil || *p.SizeKg != 38.5 || !p.Active || p.SortOrder <= 0 {
+	if p.Code != sizeCode(size) || p.Unit != "cylinder" || p.SizeKg == nil || *p.SizeKg != size || !p.Active || p.SortOrder <= 0 {
 		t.Fatalf("created product = %+v", p)
 	}
-	expect(t, admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "lpg", "sizeKg": 38.5, "label": "Doublon"}), http.StatusConflict, "product.already_exists")
+	expect(t, admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "lpg", "sizeKg": size, "label": "Doublon"}), http.StatusConflict, "product.already_exists")
 	path := fmt.Sprintf("/api/v1/admin/products/%d", p.ID)
 
 	// Type et taille figés ; libellé et ordre modifiables.
@@ -248,10 +279,10 @@ func TestAdminCatalog(t *testing.T) {
 		t.Fatalf("immutable fields not reported: %s", r.Body.String())
 	}
 	expect(t, admin.do(http.MethodPatch, path, map[string]any{}), http.StatusUnprocessableEntity, "request.validation_failed")
-	r = admin.do(http.MethodPatch, path, map[string]any{"label": "Gaz 38,5 kg (B)", "sortOrder": 77})
+	r = admin.do(http.MethodPatch, path, map[string]any{"label": sizeLabel(size) + " (B)", "sortOrder": 77})
 	expect(t, r, http.StatusOK, "")
 	r.decode(t, &p)
-	if p.Label != "Gaz 38,5 kg (B)" || p.SortOrder != 77 || p.Code != "lpg_38_5kg" || *p.SizeKg != 38.5 {
+	if p.Label != sizeLabel(size)+" (B)" || p.SortOrder != 77 || p.Code != sizeCode(size) || *p.SizeKg != size {
 		t.Fatalf("patched product = %+v", p)
 	}
 
@@ -478,9 +509,8 @@ func TestAdminStationFiltersAndMap(t *testing.T) {
 func TestAdminAuditLog(t *testing.T) {
 	admin := adminClient(t)
 	adminID := adminUserID(t, admin)
-	for i, l := range []string{"Gaz audit A", "Gaz audit B"} {
-		size := 61.6 + float64(i)*0.7 // 61.6 × 100 n'est pas entier en flottant : doit être accepté
-		expect(t, admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "lpg", "sizeKg": size, "label": l}), http.StatusCreated, "")
+	for _, l := range []string{"Gaz audit A", "Gaz audit B"} {
+		expect(t, admin.do(http.MethodPost, "/api/v1/admin/products", map[string]any{"kind": "lpg", "sizeKg": freeSize(t), "label": l}), http.StatusCreated, "")
 	}
 	type entry struct {
 		ID     string `json:"id"`
