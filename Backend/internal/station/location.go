@@ -134,6 +134,9 @@ func (s *Service) SetLocation(ctx context.Context, a Actor, expected int32, in L
 		if err := q.SetStationLocation(ctx, dbgen.SetStationLocationParams{ID: st.ID, Lat: in.Lat, Lng: in.Lng, H3R8: ptr(h3.ToInt64(cell))}); err != nil {
 			return fmt.Errorf("station: set location: %w", err)
 		}
+		if err := locationChanged(ctx, q, st.ID); err != nil {
+			return err
+		}
 		if flagged {
 			if err := q.FlagStationLocation(ctx, dbgen.FlagStationLocationParams{ID: st.ID, DistanceM: deviceDist, AccuracyM: deviceAcc}); err != nil {
 				return fmt.Errorf("station: flag location: %w", err)

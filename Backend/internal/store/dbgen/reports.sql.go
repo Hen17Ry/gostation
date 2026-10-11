@@ -41,6 +41,33 @@ func (q *Queries) AutoResolveAdminAlerts(ctx context.Context, arg AutoResolveAdm
 	return result.RowsAffected(), nil
 }
 
+const autoResolveReportAlerts = `-- name: AutoResolveReportAlerts :execrows
+UPDATE admin_alerts SET resolved_at = now(), resolution = $1
+WHERE station_id = $2 AND resolved_at IS NULL AND kind = 'reports_threshold'
+  AND (reason::text = ANY($3::text[])
+       OR (reason = 'out_of_stock' AND product_id = ANY($4::smallint[])))
+`
+
+type AutoResolveReportAlertsParams struct {
+	Resolution *string   `json:"resolution"`
+	StationID  uuid.UUID `json:"stationId"`
+	Reasons    []string  `json:"reasons"`
+	ProductIds []int16   `json:"productIds"`
+}
+
+func (q *Queries) AutoResolveReportAlerts(ctx context.Context, arg AutoResolveReportAlertsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, autoResolveReportAlerts,
+		arg.Resolution,
+		arg.StationID,
+		arg.Reasons,
+		arg.ProductIds,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const clearReportingBan = `-- name: ClearReportingBan :execrows
 UPDATE users SET reporting_banned_at = NULL, reporting_ban_reason = NULL WHERE id = $1
 `
@@ -53,15 +80,33 @@ func (q *Queries) ClearReportingBan(ctx context.Context, id uuid.UUID) (int64, e
 	return result.RowsAffected(), nil
 }
 
-const closeStationReports = `-- name: CloseStationReports :execrows
+const closeReportsForCauses = `-- name: CloseReportsForCauses :execrows
+
 UPDATE reports
-SET status = 'resolved', resolution_note = 'Closed by a stock update or confirmation.', resolved_at = now()
-WHERE station_id = $1 AND status = 'open'
+SET status = 'resolved', resolution_note = $1, resolved_at = now()
+WHERE station_id = $2 AND status = 'open'
+  AND (reason::text = ANY($3::text[])
+       OR (reason = 'out_of_stock' AND product_id = ANY($4::smallint[])))
 `
 
-// Mise à jour ou confirmation du gérant : clôture automatique des signalements ouverts.
-func (q *Queries) CloseStationReports(ctx context.Context, stationID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, closeStationReports, stationID)
+type CloseReportsForCausesParams struct {
+	Note       *string   `json:"note"`
+	StationID  uuid.UUID `json:"stationId"`
+	Reasons    []string  `json:"reasons"`
+	ProductIds []int16   `json:"productIds"`
+}
+
+// Clôture automatique par une action du gérant (étape 7) : une saisie ou une confirmation des
+// stocks clôt les ruptures des produits concernés (product_ids) et « station fermée » ; un
+// changement de position clôt « position incorrecte » (reasons). « Autre » ne se clôt que par
+// l'admin. Les trois requêtes partagent le même filtre de causes.
+func (q *Queries) CloseReportsForCauses(ctx context.Context, arg CloseReportsForCausesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, closeReportsForCauses,
+		arg.Note,
+		arg.StationID,
+		arg.Reasons,
+		arg.ProductIds,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -195,24 +240,34 @@ func (q *Queries) DeleteReportFlag(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-const deleteStationReportFlags = `-- name: DeleteStationReportFlags :many
-DELETE FROM station_report_flags WHERE station_id = $1 RETURNING reason, product_id
+const deleteReportFlagsForCauses = `-- name: DeleteReportFlagsForCauses :many
+DELETE FROM station_report_flags
+WHERE station_id = $1
+  AND (reason::text = ANY($2::text[])
+       OR (reason = 'out_of_stock' AND product_id = ANY($3::smallint[])))
+RETURNING reason, product_id
 `
 
-type DeleteStationReportFlagsRow struct {
+type DeleteReportFlagsForCausesParams struct {
+	StationID  uuid.UUID `json:"stationId"`
+	Reasons    []string  `json:"reasons"`
+	ProductIds []int16   `json:"productIds"`
+}
+
+type DeleteReportFlagsForCausesRow struct {
 	Reason    ReportReason `json:"reason"`
 	ProductID *int16       `json:"productId"`
 }
 
-func (q *Queries) DeleteStationReportFlags(ctx context.Context, stationID uuid.UUID) ([]DeleteStationReportFlagsRow, error) {
-	rows, err := q.db.Query(ctx, deleteStationReportFlags, stationID)
+func (q *Queries) DeleteReportFlagsForCauses(ctx context.Context, arg DeleteReportFlagsForCausesParams) ([]DeleteReportFlagsForCausesRow, error) {
+	rows, err := q.db.Query(ctx, deleteReportFlagsForCauses, arg.StationID, arg.Reasons, arg.ProductIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []DeleteStationReportFlagsRow
+	var items []DeleteReportFlagsForCausesRow
 	for rows.Next() {
-		var i DeleteStationReportFlagsRow
+		var i DeleteReportFlagsForCausesRow
 		if err := rows.Scan(&i.Reason, &i.ProductID); err != nil {
 			return nil, err
 		}

@@ -214,6 +214,9 @@ func (s *Service) ResolveMove(ctx context.Context, admin Actor, stationID, reque
 			} else if n == 0 {
 				return apperr.NotFound("No pending location request with this id.")
 			}
+			if err := locationChanged(ctx, q, stationID); err != nil {
+				return err
+			}
 		}
 		status := dbgen.LocationRequestStatusRejected
 		if approve {

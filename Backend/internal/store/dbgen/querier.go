@@ -23,6 +23,7 @@ type Querier interface {
 	// Applique une demande en attente à la station (nouvelle position, nouvelle cellule H3).
 	ApplyLocationRequest(ctx context.Context, requestID uuid.UUID) (int64, error)
 	AutoResolveAdminAlerts(ctx context.Context, arg AutoResolveAdminAlertsParams) (int64, error)
+	AutoResolveReportAlerts(ctx context.Context, arg AutoResolveReportAlertsParams) (int64, error)
 	// Verrouillage optimiste : réussit seulement si la version attendue est la version courante.
 	// Pose aussi le verrou de ligne pour le reste de la transaction.
 	BumpStationVersion(ctx context.Context, arg BumpStationVersionParams) (int32, error)
@@ -42,8 +43,11 @@ type Querier interface {
 	CheckStationPin(ctx context.Context, arg CheckStationPinParams) (CheckStationPinRow, error)
 	ClearReportingBan(ctx context.Context, id uuid.UUID) (int64, error)
 	ClearStationLocationFlag(ctx context.Context, id uuid.UUID) error
-	// Mise à jour ou confirmation du gérant : clôture automatique des signalements ouverts.
-	CloseStationReports(ctx context.Context, stationID uuid.UUID) (int64, error)
+	// Clôture automatique par une action du gérant (étape 7) : une saisie ou une confirmation des
+	// stocks clôt les ruptures des produits concernés (product_ids) et « station fermée » ; un
+	// changement de position clôt « position incorrecte » (reasons). « Autre » ne se clôt que par
+	// l'admin. Les trois requêtes partagent le même filtre de causes.
+	CloseReportsForCauses(ctx context.Context, arg CloseReportsForCausesParams) (int64, error)
 	// « Rien n'a changé » : remet le délai de fraîcheur à zéro sans toucher aux quantités.
 	ConfirmStationStocks(ctx context.Context, arg ConfirmStationStocksParams) (int64, error)
 	// Alertes envoyées pour un couple (station, produit) depuis since (limite des 6 h).
@@ -86,7 +90,7 @@ type Querier interface {
 	DeleteOpeningHours(ctx context.Context, stationID uuid.UUID) error
 	DeleteRecoveryCodes(ctx context.Context, userID uuid.UUID) error
 	DeleteReportFlag(ctx context.Context, id uuid.UUID) error
-	DeleteStationReportFlags(ctx context.Context, stationID uuid.UUID) ([]DeleteStationReportFlagsRow, error)
+	DeleteReportFlagsForCauses(ctx context.Context, arg DeleteReportFlagsForCausesParams) ([]DeleteReportFlagsForCausesRow, error)
 	DeleteUserBackInStockAlerts(ctx context.Context, userID uuid.UUID) error
 	DeleteUserDeviceTokens(ctx context.Context, userID uuid.UUID) error
 	DeleteUserFavorites(ctx context.Context, userID uuid.UUID) error
