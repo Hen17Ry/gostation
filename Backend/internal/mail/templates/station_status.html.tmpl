@@ -4,6 +4,8 @@
   <tr>
     {{if eq .Tone "success"}}
     <td style="background-color:#F0FDF4;border:1px solid #BBF7D0;border-radius:999px;padding:6px 14px;font-size:14px;line-height:20px;font-weight:700;color:#15803D;">&#10003;&nbsp;{{.Badge}}</td>
+    {{else if eq .Tone "info"}}
+    <td style="background-color:#FFF7ED;border:1px solid #FED7AA;border-radius:999px;padding:6px 14px;font-size:14px;line-height:20px;font-weight:700;color:#C2410C;">&#8226;&nbsp;{{.Badge}}</td>
     {{else}}
     <td style="background-color:#FEF2F2;border:1px solid #FECACA;border-radius:999px;padding:6px 14px;font-size:14px;line-height:20px;font-weight:700;color:#B91C1C;">&#9888;&nbsp;{{.Badge}}</td>
     {{end}}

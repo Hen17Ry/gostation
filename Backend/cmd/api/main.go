@@ -90,11 +90,17 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 		return err
 	}
 
-	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Mailer: mailer, Storage: docs}, log)
+	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Mailer: mailer, Storage: docs, OSRM: osrmClient}, log)
 	if err != nil {
 		return err
 	}
-	handler, health := app.NewHandler(cfg, svc, rdb, osrmClient, log)
+	handler, health := app.NewHandler(cfg, svc, rdb, log)
+
+	// Vidage périodique des compteurs anonymes de recherche (D23) ; dernier vidage à l'arrêt.
+	statsCtx, stopStats := context.WithCancel(context.WithoutCancel(ctx))
+	statsDone := make(chan struct{})
+	go func() { defer close(statsDone); svc.Stats.Run(statsCtx, cfg.Search.StatsFlushInterval) }()
+	defer func() { stopStats(); <-statsDone }()
 
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,

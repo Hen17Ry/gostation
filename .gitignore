@@ -20,6 +20,8 @@ var/
 
 # ── Go (Backend/) ────────────────────────────────────────────────────────────
 Backend/bin/
+# Résultats de make bench (JSON k6, logs de l'API de bench)
+bench/results/
 Backend/tmp/
 *.test
 *.out

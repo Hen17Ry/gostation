@@ -4,6 +4,7 @@ package h3
 
 import (
 	"fmt"
+	"math"
 
 	uberh3 "github.com/uber/h3-go/v4"
 )
@@ -42,4 +43,32 @@ func Center(c Cell) (lat, lng float64, err error) {
 // tient toujours sur 63 bits.
 func ToInt64(c Cell) int64 {
 	return int64(c) //nolint:gosec // le bit de poids fort d'un index H3 est toujours 0
+}
+
+// Circumradius renvoie la distance maximale (mètres) entre le centre de la cellule et ses sommets :
+// tout point de la cellule est à cette distance du centre ou moins. Sert de marge à la recherche
+// faite depuis le centre de la cellule (le cache est partagé par cellule).
+func Circumradius(c Cell) (float64, error) {
+	center, err := uberh3.CellToLatLng(c)
+	if err != nil {
+		return 0, fmt.Errorf("h3: cell center: %w", err)
+	}
+	boundary, err := uberh3.CellToBoundary(c)
+	if err != nil {
+		return 0, fmt.Errorf("h3: cell boundary: %w", err)
+	}
+	var maxDist float64
+	for _, v := range boundary {
+		maxDist = math.Max(maxDist, Haversine(center.Lat, center.Lng, v.Lat, v.Lng))
+	}
+	return maxDist, nil
+}
+
+// Haversine calcule la distance orthodromique en mètres (rayon terrestre moyen).
+func Haversine(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadius = 6_371_008.8
+	rad := math.Pi / 180
+	dLat, dLng := (lat2-lat1)*rad, (lng2-lng1)*rad
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLng/2)*math.Sin(dLng/2)
+	return 2 * earthRadius * math.Asin(math.Min(1, math.Sqrt(a)))
 }

@@ -139,6 +139,20 @@ func (s *Service) audit(ctx context.Context, a Actor, action string, stationID u
 	})
 }
 
+// notify envoie au gérant un email de statut ; un échec est journalisé, jamais renvoyé.
+func (s *Service) notify(ctx context.Context, stationID uuid.UUID, change mail.StationStatusChange, reason string) {
+	contact, err := s.Store.GetStationContact(ctx, stationID)
+	if err == nil {
+		var m mail.Message
+		if m, err = s.Templates.StationStatus(contact.Email, contact.FirstName, contact.Name, change, reason); err == nil {
+			err = s.Mailer.Send(ctx, m)
+		}
+	}
+	if err != nil {
+		s.Log.ErrorContext(ctx, "station: status email", slog.String("change", string(change)), slog.Any("err", err))
+	}
+}
+
 // ManagerStationStatus renvoie le statut de la station du gérant ("" s'il n'en a pas).
 func (s *Service) ManagerStationStatus(ctx context.Context, managerID uuid.UUID) (string, error) {
 	st, err := s.Store.GetStationByManager(ctx, &managerID)
@@ -179,10 +193,73 @@ func (s *Service) pendingMove(ctx context.Context, q *dbgen.Queries, stationID u
 	return lr, nil
 }
 
+// Éléments de configuration manquants pour apparaître dans la recherche.
+const (
+	MissingApproval     = "approval"
+	MissingLocation     = "location"
+	MissingOpeningHours = "opening_hours"
+	MissingProducts     = "products"
+	MissingStock        = "stock" // aucun produit vendu en quantité > 0 avec un stock de moins de 24 h
+)
+
+// Setup est la checklist de configuration de la station.
+type Setup struct {
+	Location     bool
+	OpeningHours bool
+	Products     bool
+	Stocks       bool
+	Missing      []string
+}
+
+// Searchable indique que la station remplit toutes les conditions de la recherche.
+func (s Setup) Searchable() bool { return len(s.Missing) == 0 }
+
 // ManagerStation est la vue gérant d'une station.
 type ManagerStation struct {
 	dbgen.GetStationByManagerRow
 	PendingMove *LocationRequest
+	Setup       Setup
+}
+
+// setup calcule la checklist (l'ouverture à l'instant présent n'en fait pas partie).
+func (s *Service) setup(ctx context.Context, st dbgen.GetStationByManagerRow) (Setup, error) {
+	hours, err := s.Store.ListOpeningHours(ctx, st.ID)
+	if err != nil {
+		return Setup{}, fmt.Errorf("station: setup hours: %w", err)
+	}
+	products, err := s.Store.ListStationProducts(ctx, st.ID)
+	if err != nil {
+		return Setup{}, fmt.Errorf("station: setup products: %w", err)
+	}
+	out := Setup{Location: st.Lat != nil && st.Lng != nil, OpeningHours: len(hours) > 0}
+	for _, p := range products {
+		if !p.Sold {
+			continue
+		}
+		out.Products = true
+		if p.Quantity != nil && *p.Quantity > 0 && p.UpdatedAt != nil && p.LastConfirmedAt != nil {
+			fresh := *p.UpdatedAt
+			if p.LastConfirmedAt.After(fresh) {
+				fresh = *p.LastConfirmedAt
+			}
+			if s.Freshness(fresh) != FreshnessExpired {
+				out.Stocks = true
+			}
+		}
+	}
+	out.Missing = []string{}
+	if string(st.Status) != StatusApproved {
+		out.Missing = append(out.Missing, MissingApproval)
+	}
+	for _, m := range []struct {
+		ok   bool
+		code string
+	}{{out.Location, MissingLocation}, {out.OpeningHours, MissingOpeningHours}, {out.Products, MissingProducts}, {out.Stocks, MissingStock}} {
+		if !m.ok {
+			out.Missing = append(out.Missing, m.code)
+		}
+	}
+	return out, nil
 }
 
 // ForManager renvoie la station du gérant et sa demande de déplacement en attente.
@@ -195,7 +272,11 @@ func (s *Service) ForManager(ctx context.Context, managerID uuid.UUID) (ManagerS
 	if err != nil {
 		return ManagerStation{}, err
 	}
-	return ManagerStation{GetStationByManagerRow: st, PendingMove: move}, nil
+	setup, err := s.setup(ctx, st)
+	if err != nil {
+		return ManagerStation{}, err
+	}
+	return ManagerStation{GetStationByManagerRow: st, PendingMove: move, Setup: setup}, nil
 }
 
 // Document déchiffre le justificatif d'une station pour un admin et journalise la lecture.

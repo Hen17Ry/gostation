@@ -40,6 +40,19 @@ type Config struct {
 	Documents Documents
 	SMTP      SMTP
 	Stock     Stock
+	Search    Search
+}
+
+// Search regroupe les réglages de la recherche (ARCHITECTURE §4).
+type Search struct {
+	CacheTTL      time.Duration
+	MinResults    int
+	MaxCandidates int
+	// Quotas : par IP, et par installation (X-Install-Id) ou utilisateur connecté (D22).
+	RateLimitIP     int
+	RateLimitClient int
+	// StatsFlushInterval : vidage des compteurs Redis de stats vers search_stats.
+	StatsFlushInterval time.Duration
 }
 
 // Stock regroupe les plafonds de saisie et les seuils de fraîcheur des stocks (D16).
@@ -179,7 +192,7 @@ func Load(getenv func(string) string) (Config, error) {
 		Timeout: l.duration("OSRM_TIMEOUT", 800*time.Millisecond),
 	}
 	c.RateLimit = RateLimit{
-		IPRequests: l.integer("RATE_LIMIT_IP_REQUESTS", 300, 1, 1_000_000),
+		IPRequests: l.integer("RATE_LIMIT_IP_REQUESTS", 1200, 1, 1_000_000),
 		IPWindow:   l.duration("RATE_LIMIT_IP_WINDOW", time.Minute),
 	}
 	if c.RateLimit.IPWindow < time.Second {
@@ -215,6 +228,17 @@ func Load(getenv func(string) string) (Config, error) {
 		MaxLiters:    l.integer("STOCK_MAX_LITERS", 200_000, 1, 10_000_000),
 		StaleAfter:   l.duration("STOCK_STALE_AFTER", 8*time.Hour),
 		ExpiredAfter: l.duration("STOCK_EXPIRED_AFTER", 24*time.Hour),
+	}
+	c.Search = Search{
+		CacheTTL:           l.duration("SEARCH_CACHE_TTL", time.Minute),
+		MinResults:         l.integer("SEARCH_MIN_RESULTS", 3, 1, 20),
+		MaxCandidates:      l.integer("SEARCH_MAX_CANDIDATES", 20, 5, 100),
+		RateLimitIP:        l.integer("SEARCH_RATE_LIMIT_IP", 300, 1, 10_000_000),
+		RateLimitClient:    l.integer("SEARCH_RATE_LIMIT_CLIENT", 30, 1, 10_000_000),
+		StatsFlushInterval: l.duration("STATS_FLUSH_INTERVAL", 5*time.Minute),
+	}
+	if c.Search.MinResults > c.Search.MaxCandidates {
+		l.fail("SEARCH_MIN_RESULTS", "must not exceed SEARCH_MAX_CANDIDATES (%d)", c.Search.MaxCandidates)
 	}
 	if c.Stock.ExpiredAfter <= c.Stock.StaleAfter {
 		l.fail("STOCK_EXPIRED_AFTER", "must be greater than STOCK_STALE_AFTER (%s)", c.Stock.StaleAfter)

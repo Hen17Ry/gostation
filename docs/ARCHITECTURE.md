@@ -477,8 +477,8 @@ CREATE INDEX idx_favorites_station ON favorites (station_id);
 
 ## 4. Algorithme de recherche
 
-**Entrée** : `productId`, `lat`, `lng` (position courante, jamais stockée). Endpoint **public**, sans compte, protégé par un rate limit par IP (Redis, fenêtre glissante).
-**Sortie** : jusqu'à 10 stations `approved`, avec `quantity > 0`, **ouvertes maintenant** et dont le stock date de moins de 24 h, classées par temps de trajet réel. S'il n'y a aucune station ouverte à 50 km, on renvoie les plus proches fermées avec leur heure de réouverture.
+**Entrée** : `product_id`, `lat`, `lng` (position courante, jamais stockée ni journalisée). Endpoint **public**, connexion facultative. Quotas (D22) : 300/min par IP et 30/min par installation (`X-Install-Id`) ou par utilisateur connecté.
+**Sortie** : jusqu'à 10 stations `approved`, avec horaires, produit vendu en `quantity > 0`, stock de moins de 24 h et **ouvertes maintenant**, classées par temps de trajet réel. S'il n'y a aucune station ouverte à 50 km : repli sur les ouvertes plus loin et les fermées, triées par heure à laquelle on peut être servi (D19).
 
 **Fraîcheur du stock** (âge = `now() - GREATEST(updated_at, last_confirmed_at)` : une confirmation « rien n'a changé » compte comme une mise à jour) :
 
@@ -486,9 +486,9 @@ CREATE INDEX idx_favorites_station ON favorites (station_id);
 |---|---|
 | ≤ 8 h (`STOCK_STALE_AFTER`) | Normal |
 | 8 h à 24 h | `stale: true` : badge « à vérifier » côté UI |
-| > 24 h (`STOCK_EXPIRED_AFTER`) | Exclu de la recherche, listé dans `/admin/stale-stocks` |
+| > 24 h (`STOCK_EXPIRED_AFTER`) | Exclu de la recherche, quantité masquée sur la fiche publique |
 
-**Ouverture** : calculée à partir de `station_opening_hours` et `station_closures` dans le fuseau `APP_TIMEZONE` (`Africa/Porto-Novo`), par la même règle que `station.Schedule.IsOpen` (testée sur les cas limites). Les plages qui passent minuit (`closes_at <= opens_at`) et le 24 h/24 (`00:00 → 24:00`) sont gérés. Une fermeture exceptionnelle ferme la journée civile entière, y compris la fin, ce jour-là, d'une plage commencée la veille. Le jour ISO, l'heure locale et la date sont calculés en Go puis passés en paramètres SQL. Une station sans horaires renseignés n'apparaît pas, comme une station sans position.
+**Ouverture** : calculée à partir de `station_opening_hours` et `station_closures` dans le fuseau `APP_TIMEZONE` (`Africa/Porto-Novo`), par la même règle que `station.Schedule.IsOpen` (testée sur les cas limites). Les plages qui passent minuit (`closes_at <= opens_at`) et le 24 h/24 (`00:00 → 24:00`) sont gérés. Une fermeture exceptionnelle ferme la journée civile entière, y compris la fin, ce jour-là, d'une plage commencée la veille. Le jour ISO, l'heure locale, la date et la veille sont calculés en Go puis passés en paramètres SQL. Une station sans horaires ou sans position n'apparaît pas.
 
 ```mermaid
 sequenceDiagram
@@ -498,75 +498,38 @@ sequenceDiagram
   participant R as Redis
   participant P as PostGIS
   participant O as OSRM
-  C->>A: GET /api/v1/search?productId&lat&lng (sans compte)
-  A->>R: rate limit par IP (fenêtre glissante)
-  A->>A: cell = H3(lat,lng, res 8) · compteur stats (cellule res 7)
-  A->>R: GET search:v1:p{id}:g{gen}:c{cell}
-  alt cache hit
-    R-->>A: résultats classés
-  else cache miss
-    loop rayons 500 m → 50 km, stations ouvertes
-      A->>P: ST_DWithin(centre de cellule, r + marge)
-      P-->>A: candidats (≤ 20)
+  C->>A: GET /api/v1/search?lat&lng&product_id (X-Install-Id)
+  A->>R: quotas IP + installation/utilisateur
+  A->>P: couverture (Bénin ? ≤ 30 km ?) · produit actif
+  A->>A: cellule H3 res 8
+  A->>R: GET search:v1:p{id}:g{all}.{gen}:c{cell}
+  alt candidats en cache
+    R-->>A: ensemble des candidats (sans position utilisateur)
+  else
+    loop rayons 500 m → 50 km depuis le centre de la cellule (+ marge)
+      A->>P: ST_DWithin, ouvertes, en stock, fraîches (≤ 20)
     end
-    opt aucune station ouverte à 50 km
-      A->>P: stations fermées à 50 km au plus
+    opt aucune ouverte à 50 km
+      A->>P: KNN ouvertes (≤ 10) + KNN en stock avec horaires (≤ 20)
+      A->>A: prochaine ouverture des fermées
     end
-    opt toujours rien
-      A->>P: KNN ORDER BY location <-> point LIMIT 10
-    end
-    A->>O: /table 1 → N (sources=0)
-    O-->>A: durées et distances routières
     A->>R: SET … EX 60
   end
-  A->>A: distance et flag stale recalculés à la volée
-  A-->>C: 200 résultats + stockUpdatedAt
+  A->>A: distance exacte (haversine), tri, 10 meilleurs
+  A->>O: /table 1 → 10 depuis la position exacte (jamais en cache)
+  O-->>A: durées et distances routières
+  A->>R: HINCRBY stats (cellule res 7, produit, heure)
+  A-->>C: 200 résultats (X-Cache, Server-Timing)
 ```
 
 ### 4.1 Étapes
 
-1. **Cache.** `cell = h3.LatLngToCell(lat, lng, 8)`. Clé : `search:v1:p{productId}:g{all}.{gen}:c{cell}`, où `all = GET search:gen:all` et `gen = GET search:gen:p{productId}` (paquet `searchcache`). En cas de hit, on passe à l'étape 6.
-   Le calcul se fait depuis le **centre de la cellule**, pas depuis la position exacte. Deux utilisateurs de la même cellule partagent donc le résultat, et la position précise n'entre jamais dans le calcul mis en cache.
-2. **Rayons progressifs sur les stations ouvertes** `[500, 1000, 2000, 5000, 10000, 25000, 50000]` m. Chaque rayon est augmenté de la distance centre → sommet de la cellule (≈ 0,5 km en res 8) : ainsi aucune station située dans le rayon autour de la position réelle n'est manquée.
-   ```sql
-   -- name: ListAvailableStationsWithinRadius :many
-   SELECT s.id, s.name, s.brand, s.address,
-          ST_Y(s.location::geometry) AS lat, ST_X(s.location::geometry) AS lng,
-          ss.quantity, ss.updated_at AS stock_updated_at,
-          ST_Distance(s.location, @point::geography) AS distance_m
-   FROM stations s
-   JOIN station_stocks ss ON ss.station_id = s.id
-   WHERE ss.product_id = @product_id
-     AND ss.quantity > 0
-     AND GREATEST(ss.updated_at, ss.last_confirmed_at) > now() - @expired_after::interval  -- 24 h
-     AND s.status = 'approved'
-     AND s.location IS NOT NULL
-     AND ST_DWithin(s.location, @point::geography, @radius_m)
-     AND NOT EXISTS (SELECT 1 FROM station_closures c            -- fermeture aujourd'hui
-                     WHERE c.station_id = s.id AND c.closed_on = @local_date)
-     AND EXISTS (                                                -- ouverte maintenant
-       SELECT 1 FROM station_opening_hours h
-       WHERE h.station_id = s.id AND (
-         (h.opens_at < h.closes_at AND h.weekday = @isodow
-            AND @local_time >= h.opens_at AND @local_time < h.closes_at)
-         OR (h.closes_at <= h.opens_at AND (                     -- plage qui passe minuit
-            (h.weekday = @isodow      AND @local_time >= h.opens_at) OR
-            (h.weekday = @prev_isodow AND @local_time <  h.closes_at
-             AND NOT EXISTS (SELECT 1 FROM station_closures c
-                             WHERE c.station_id = s.id AND c.closed_on = @local_date - 1))))))
-   ORDER BY s.location <-> @point::geography
-   LIMIT @max_candidates;                                        -- SEARCH_MAX_CANDIDATES = 20
-   ```
-   On s'arrête au premier rayon qui renvoie au moins `SEARCH_MIN_RESULTS` candidats (3 par défaut, pour que le re-classement OSRM ait du sens ; mettre 1 pour le comportement strict). Si le dernier rayon ne renvoie que 1 ou 2 candidats, on les garde.
-   `@point` = `ST_SetSRID(ST_MakePoint(lng, lat), 4326)` : **lng d'abord**.
-3. **Repli sur les stations fermées** si aucune station ouverte n'est trouvée à 50 km. Même requête, rayon 50 km, `LIMIT 10`, en remplaçant le filtre d'ouverture par « a des horaires mais n'est pas ouverte maintenant ». Pour chaque station, l'API calcule `reopensAt`, la prochaine ouverture d'après ses horaires. `strategy: "closed"`.
-4. **Repli KNN illimité** si rien n'est trouvé à 50 km, même parmi les fermées. Requête sans `ST_DWithin` ni filtre d'ouverture, `ORDER BY location <-> point LIMIT 10` ; l'opérateur `<->` sur `geography` utilise l'index GiST. Les stations ouvertes passent en premier, les fermées portent leur `reopensAt`. `strategy: "knn"`. Il y a donc toujours un résultat tant qu'une station du pays a un stock frais. Sinon `strategy: "none"`, et l'UI propose d'autres tailles ou produits.
-5. **Re-classement OSRM.** `GET /table/v1/driving/{lng,lat};{s1};…;{sN}?sources=0&annotations=duration,distance`, timeout `OSRM_TIMEOUT` (800 ms).
-   - On trie par `duration` croissante. Une durée `null` (non joignable par la route) passe en fin de liste.
-   - Si OSRM échoue ou dépasse le timeout, on garde l'ordre par distance, `ranking: "distance"`, et on ne met **pas** le résultat en cache.
-   - On tronque à 10 résultats.
-   - `SET` de la clé avec `EX = SEARCH_CACHE_TTL` (60 s).
-6. **Réponse.** L'API recalcule en mémoire `distanceM` (haversine) depuis la position exacte, ainsi que `stale` à partir de `stockUpdatedAt`. La durée affichée est celle calculée depuis le centre de la cellule (≈), suffisante pour classer ; l'itinéraire précis vient de `/routes`.
+1. **Validation et couverture (D20).** Coordonnées dans les bornes, produit actif. `CheckCoverage` : `ST_Covers(boundary_buffered, p)` → au Bénin (frontière élargie de 2 km), classement OSRM ; sinon `ST_DWithin(boundary, p, 30 km)` → classement à vol d'oiseau, `routingApproximate: true` ; sinon 422 `search.out_of_coverage`.
+2. **Candidats, en cache par cellule.** `cell = H3(lat, lng, res 8)`. Clé `search:v1:p{productId}:g{all}.{gen}:c{cell}` (paquet `searchcache`), TTL `SEARCH_CACHE_TTL` (60 s). Le cache ne contient **que l'ensemble des stations candidates** (id, nom, marque, position de la station, quantité, fraîcheur, ouverte ou non, prochaine ouverture) et la stratégie : ni la position de l'utilisateur, ni un classement. Les candidats sont calculés depuis le **centre de la cellule** ; chaque rayon est augmenté du rayon circonscrit de la cellule (`h3.Circumradius`, ≈ 0,5 km en res 8), pour ne manquer aucune station dans le rayon autour de la position réelle.
+3. **Rayons progressifs** `[500, 1000, 2000, 5000, 10000, 25000, 50000]` m (`ListOpenCandidatesWithin`, `LIMIT SEARCH_MAX_CANDIDATES` = 20, tri KNN `<->`). Filtres : `approved`, épinglée, horaires renseignés et ouverte maintenant, pas fermée aujourd'hui, produit actif vendu, `quantity > 0`, fraîcheur < 24 h. Arrêt au premier rayon qui donne `SEARCH_MIN_RESULTS` (3) candidats ; au dernier rayon, 1 ou 2 suffisent. `strategy: "radius"`, `radiusM` = rayon atteint. Les fermetures du jour sont lues une fois par requête (`s.id NOT IN (…)`, sous-plan haché, index `idx_station_closures_day`).
+4. **Repli (D19)** si aucune station ouverte à 50 km : KNN illimité sur les ouvertes (`ListOpenCandidatesKNN`, 10) et sur les stations en stock avec horaires (`ListStockedCandidatesKNN`, 20), dont on garde les fermées avec leur prochaine ouverture (`Schedule.NextOpening`). `strategy: "fallback"`, `radiusM: null`. Si rien : `strategy: "none"`, résultats vides (l'UI propose d'autres tailles ou produits).
+5. **Classement par requête**, depuis la position exacte, **jamais mis en cache ni enregistré** : distance haversine, tri, 10 meilleurs, puis OSRM `/table` 1 → 10 (`sources=0&annotations=duration,distance`, timeout `OSRM_TIMEOUT`). Tri par durée (non joignables en fin) ; en repli, par heure à laquelle on peut être servi `servedAt = max(maintenant + trajet, prochaine ouverture)`, puis par trajet. Hors du Bénin ou si OSRM échoue (D21) : vol d'oiseau, durées estimées (détour × 1,3, 40 km/h), `routingApproximate: true`. Les erreurs OSRM journalisées sont expurgées de leur URL (qui contient les coordonnées).
+6. **Stats anonymes (D23).** `HINCRBY stats:search:{heure}` sur `cellule res 7:produit:s` (et `:e` si aucune station ouverte à 5 km ou moins). Vidage périodique (`STATS_FLUSH_INTERVAL`, 5 min, et à l'arrêt) dans `search_stats` : RENAMENX puis upsert additif, sous verrou Redis, sans perte si l'écriture en base échoue.
 
 ### 4.2 Invalidation du cache
 
@@ -575,45 +538,48 @@ Toute écriture qui peut changer un résultat incrémente une **génération** (
 | Écriture | Génération incrémentée |
 |---|---|
 | Saisie ou confirmation de stock | `search:gen:p{id}` de chaque produit vendu (la fraîcheur de tous change) |
-| Statut (approve, reject, suspend, unsuspend, IFU/RCCM → pending, renvoi), position (épinglage, correction, déplacement validé), horaires, fermetures, produits vendus | `search:gen:all` |
+| Statut (approve, reject, suspend, unsuspend, IFU/RCCM → pending, renvoi), position (épinglage, correction, déplacement validé), horaires, fermetures, produits vendus, `make seed-dev` | `search:gen:all` |
 | Activation ou désactivation d'un produit (admin, plus tard) | `search:gen:p{id}` |
 
-L'ouverture et la fermeture des stations au fil de la journée ne changent pas de génération : le TTL de 60 s borne le décalage. Un échec d'invalidation n'annule pas l'écriture (journalisé, borné par le TTL).
+L'ouverture et la fermeture des stations au fil de la journée ne changent pas de génération : le TTL de 60 s borne le décalage, et un candidat dont le stock expire pendant ce délai est écarté au classement. Un échec d'invalidation n'annule pas l'écriture (journalisé, borné par le TTL).
 
 On utilise des générations plutôt que `DEL` par motif, car une station qui repasse de 0 à > 0 doit apparaître dans des cellules dont le cache ne la contient pas encore ; un index inverse ne suffit pas. À l'échelle du Bénin (quelques milliers de stations), invalider largement reste bon marché.
-Évolution possible si le taux de hit baisse : une génération par cellule H3 res 5, incrémentée sur le `gridDisk` couvrant 50 km autour de la station modifiée, plus la génération globale réservée aux résultats issus du repli KNN.
+Évolution possible si le taux de hit baisse : une génération par cellule H3 res 5, incrémentée sur le `gridDisk` couvrant 50 km autour de la station modifiée, plus la génération globale réservée aux résultats issus du repli.
 
 ### 4.3 Réponse
 
 ```json
 {
-  "product": { "id": 2, "code": "lpg_12_5kg", "label": "Gaz 12,5 kg", "unit": "cylinder" },
+  "product": { "id": 2, "code": "lpg_10kg", "label": "Gaz 10 kg", "unit": "cylinder" },
   "strategy": "radius",
   "radiusM": 2000,
-  "ranking": "duration",
+  "routingApproximate": false,
   "results": [
     {
-      "station": { "id": "0192…", "name": "Station Akpakpa", "brand": "…", "address": "…",
-                   "location": { "lat": 6.3601, "lng": 2.4498 },
-                   "isOpenNow": true, "reopensAt": null },
-      "quantity": 14,
-      "stockUpdatedAt": "2026-10-10T14:03:00Z",
-      "stale": false,
+      "station": { "id": "0192…", "name": "Station Akpakpa", "brand": "…",
+                   "location": { "lat": 6.3601, "lng": 2.4498 } },
       "distanceM": 1830,
+      "routeDistanceM": 2400,
       "durationS": 420,
-      "routeDistanceM": 2400
+      "quantity": 14,
+      "stale": false,
+      "stockUpdatedAt": "2026-10-10T14:03:00Z",
+      "updatedAgoS": 132,
+      "isOpen": true,
+      "nextOpening": null,
+      "servedAt": "2026-10-10T14:12:12Z"
     }
   ],
   "generatedAt": "2026-10-10T14:05:12Z"
 }
 ```
-`strategy` vaut `radius`, `closed`, `knn` ou `none`. « Mis à jour il y a X min » est calculé côté client à partir de `stockUpdatedAt` : le texte reste juste même quand la réponse vient du cache. `stale` signale un stock vieux de 8 à 24 h.
+`strategy` vaut `radius`, `fallback` ou `none`. `updatedAgoS` est calculé à la requête ; le client peut aussi recalculer « mis à jour il y a X min » depuis `stockUpdatedAt`. En-têtes : `Cache-Control: no-store`, `X-Cache: HIT|MISS` (candidats), `Server-Timing: db, osrm, total`.
 
-### 4.4 Points d'attention
+### 4.4 Points d'attention et mesures
 - **Ordre des coordonnées** : JSON `{lat,lng}`, mais PostGIS (`ST_MakePoint`) et OSRM attendent `lng,lat`. Des tests unitaires dédiés couvrent ce point.
-- **Lagune de Cotonou** : la distance à vol d'oiseau trompe souvent (il faut passer par les ponts), d'où le minimum de 3 candidats avant le re-classement.
-- **Hors du Bénin** (frontières) : OSRM ne couvre que l'extrait ; on gère les durées `null` et le code `NoRoute` sans échouer.
-- **Performance cible** : p95 < 150 ms sur miss, < 20 ms sur hit. Vérifier avec `EXPLAIN (ANALYZE, BUFFERS)` que l'index GiST partiel est bien utilisé.
+- **Lagune de Cotonou** : la distance à vol d'oiseau trompe souvent (il faut passer par les ponts), d'où le minimum de 3 candidats avant le classement OSRM.
+- **Confidentialité** : le journal d'accès masque toute valeur de query string hors liste blanche (`lat=***&lng=***`) ; aucune position dans Redis (clé = cellule), en base (stats = cellule res 7) ni dans les logs. Test d'intégration dédié.
+- **Performance** (cible p95 < 150 ms hors cache, < 30 ms avec cache, hors OSRM). `make bench` (k6, 100 req/s, 60 s, 5 zones, 5 000 stations fictives) au 2026-10-10 : hors cache p50 7,5 / p95 12,9 / p99 21,6 ms ; avec cache p50 3,7 / p95 5,5 / p99 9,7 ms ; OSRM `/table` p95 5,8 ms ; HTTP de bout en bout p95 19,1 ms ; 44,8 % de hits. `make explain-search` vérifie l'usage de l'index GiST partiel (`idx_stations_location_approved`).
 
 ## 5. Endpoints API
 
@@ -658,6 +624,9 @@ Toute erreur est renvoyée en `application/problem+json`. Le champ `code` est **
 | `station.manager_email_unverified` | 409 | Approbation refusée : email du gérant non vérifié |
 | `station.location_outside_country` | 422 | Épingle hors du Bénin (frontière élargie de 2 km) |
 | `station.closure_exists` | 409 | Une fermeture existe déjà à cette date |
+| `search.out_of_coverage` | 422 | Position à plus de 30 km du Bénin (recherche), ou hors du Bénin (itinéraire) |
+| `routing.no_route` | 422 | Aucun itinéraire routier vers la station |
+| `routing.unavailable` | 503 | OSRM indisponible ou hors délai (l'itinéraire n'a pas de repli ; la recherche, si) |
 | `station.no_products_sold` | 422 | Saisie ou confirmation de stock sans produit déclaré |
 | `resource.version_conflict` | 412 | `If-Match` périmé : recharger la ressource puis rejouer |
 | `request.precondition_required` | 428 | En-tête `If-Match` absent sur une écriture verrouillée |
@@ -716,12 +685,14 @@ En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est v
 | POST | `/me/devices` | Enregistre le token push Expo — 🔒 **email vérifié** |
 | DELETE | `/me/devices/{token}` | Désenregistre l'appareil |
 
-### Recherche et itinéraire : publics, sans compte (rate limit par IP)
+### Recherche et itinéraire : publics, connexion facultative
+Quotas de `/search` et `/routes` (D22) : 300/min par IP + 30/min par installation (`X-Install-Id`) ou par utilisateur connecté. Les positions reçues ne sont jamais stockées ni journalisées.
+
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/search?productId&lat&lng` | Recherche (§4) |
-| GET | `/stations/{id}` | Fiche publique d'une station `approved` : infos, horaires, stocks > 0 avec leur âge et le flag `stale` |
-| GET | `/routes?fromLat&fromLng&stationId` | Itinéraire OSRM proxifié (`polyline6`, étapes, durée) ; origine jamais journalisée |
+| GET | `/search?lat&lng&product_id` | ✅ Recherche (§4). 422 `search.out_of_coverage` au-delà de 30 km de la frontière |
+| GET | `/stations/{id}` | ✅ Fiche publique d'une station `approved` (404 sinon) : infos, horaires et fermetures à venir, stocks des produits vendus avec `freshness` (quantité masquée si expirée) |
+| GET | `/routes?lat&lng&station_id` | ✅ Itinéraire OSRM (`polyline6`, `overview=full`, `steps=true`) : distance, durée, géométrie, étapes structurées sans texte (manœuvre `type`/`modifier`/`exit`, rue, distance, durée) traduites par le mobile (`osrm-text-instructions`, `fr`). Position hors du Bénin → 422 `search.out_of_coverage` ; pas de route → 422 `routing.no_route` ; OSRM indisponible → 503 `routing.unavailable` |
 
 ### Fonctions réservées aux comptes vérifiés 🔒 (`RequireVerifiedEmail`)
 | Méthode | Route | Description |
@@ -735,7 +706,7 @@ Gérant `pending` ou `suspended` : rien d'autre que son compte (`/me` montre le 
 
 | Méthode | Route | Statuts | Description |
 |---|---|---|---|
-| GET | `/manager/station` | approved, rejected | ✅ Station, signalement d'épingle, demande de déplacement en attente ; `ETag` |
+| GET | `/manager/station` | approved, rejected | ✅ Station, signalement d'épingle, demande de déplacement en attente, checklist `setup` (position, horaires, produits, stocks) et `missing` : ce qui manque pour apparaître dans la recherche ; `ETag` |
 | PATCH | `/manager/station` | approved, rejected | ✅ Nom, marque, adresse, ville, téléphone, IFU, RCCM. IFU ou RCCM modifié sur une station approuvée → `pending` |
 | POST | `/manager/station/resubmission` | rejected | ✅ Nouveau justificatif (multipart) → `pending` ; l'ancien est supprimé |
 | PUT | `/manager/station/location` | approved | ✅ `{ lat, lng, confirmStationLocation: true, device?: { lat, lng, accuracyM } }` : hors Bénin → 422 ; premier épinglage ou correction < 200 m → 200 ; déplacement ≥ 200 m → 202 (demande en attente) ; épingle à plus de 500 m de l'appareil → signalée |
@@ -903,11 +874,13 @@ sequenceDiagram
 |---|---|---|
 | `stock:reminders:scan` | Toutes les 15 min | Stations `approved` **ouvertes maintenant** (fuseau `Africa/Porto-Novo`) avec `last_stock_update_at` et `last_reminder_at` plus vieux que 4 h → `push:send` au gérant |
 | `push:send` | À la demande | Envoi par lots de 100 vers l'Expo Push API, puis lecture des reçus : `DeviceNotRegistered` supprime le token |
-| `stats:flush` | Toutes les 5 min | Compteurs Redis → `search_stats` (upsert) |
+| `stats:flush` | Toutes les 5 min | ✅ Compteurs Redis → `search_stats` (upsert additif). En attendant asynq : goroutine de l'API (`searchstats.Flusher`, `STATS_FLUSH_INTERVAL`), verrou Redis, dernier vidage à l'arrêt |
 | `retention:purge` | Chaque jour à 03:00 | Purges selon §8 |
 | `data-requests:export` | À la demande | Archive JSON des données d'un utilisateur, chiffrée, lien valable 7 j |
 
 Les tâches sont idempotentes (clé d'unicité asynq), avec retry et backoff exponentiel, et une file `critical` séparée pour les push.
+
+Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation, refus, suspension, réactivation, déplacement validé ou refusé avec motif) et accusés de réception quand la station repasse en `pending` à l'initiative du gérant (IFU ou RCCM modifié, renvoi du justificatif).
 
 En attendant asynq, les **emails transactionnels** partent via une file en mémoire (`mail.Async` : 2 workers, file bornée, vidée à l'arrêt propre). Ils basculeront sur une tâche `email:send` pour survivre aux redémarrages.
 
@@ -958,6 +931,12 @@ En attendant asynq, les **emails transactionnels** partent via une file en mémo
 | D16 | Stocks | Le gérant **déclare les produits qu'il vend**. « Non vendu » (pas de ligne) ≠ « 0 en stock » : les deux sont exclus de la recherche, mais seul le 0 compte comme rupture dans les stats. Plafonds configurables : 10 000 bouteilles par taille, 200 000 litres par carburant. Mise à jour groupée en un seul appel, chaque changement écrit dans `stock_history`. Endpoint « rien n'a changé » qui pose `last_confirmed_at` (distinct de `updated_at`). **Fraîcheur** (stale à 8 h, exclusion à 24 h) = le plus récent des deux. |
 | D17 | Rappels push | Étape dédiée ultérieure, avec **asynq**, qui remplacera aussi la file d'emails en mémoire. |
 | D18 | Cache de recherche | Invalidé à chaque écriture de stock (produits concernés), de statut, d'horaires, de fermeture, de produits vendus ou de position (tous les produits). |
+| D19 | Fermées en repli | Quand aucune station ouverte n'est trouvée à 50 km : stations ouvertes au-delà (KNN illimité) et stations fermées, triées par **heure à laquelle on peut être servi** = `max(maintenant + trajet, prochaine ouverture)`, puis par trajet. Les stations sans horaires sont exclues de la recherche. |
+| D20 | Couverture | Utilisateur au Bénin (frontière élargie de 2 km) → classement OSRM. Hors du Bénin mais à **30 km** de la frontière ou moins → classement à vol d'oiseau, flag `routingApproximate`. Au-delà → 422 `search.out_of_coverage`. |
+| D21 | Résilience du routage | OSRM en erreur ou hors délai → repli sur le vol d'oiseau avec le même flag `routingApproximate` (durées estimées). |
+| D22 | Rate limit de la recherche | **300/min par IP** (beaucoup d'abonnés mobiles partagent la même IP) **+ 30/min par installation** (en-tête `X-Install-Id`, UUID généré par l'app) ou par utilisateur connecté. Le quota global de `/api/v1` passe à 1 200/min par IP pour ne pas être plus strict. |
+| D23 | Stats anonymes de recherche | Cellule H3 res 7, produit, tranche horaire, nombre de recherches, nombre de recherches sans station ouverte à moins de 5 km (signal de pénurie). Aucun identifiant utilisateur ni position exacte. Compteurs Redis vidés en base périodiquement. |
+| D24 | Itinéraire | OSRM `route` (polyline6, `overview=full`, `steps=true`). L'API renvoie des étapes structurées (type et modifier de la manœuvre, rue, distance, durée), sans texte ; le mobile les traduit en français avec `osrm-text-instructions` (langue `fr`). |
 
 ### Questions ouvertes
 

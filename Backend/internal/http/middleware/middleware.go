@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -109,8 +110,32 @@ func isTrusted(ip netip.Addr, trusted []netip.Prefix) bool {
 	return false
 }
 
-// AccessLog journalise chaque requête : méthode, route, statut, taille, durée. Jamais la
-// query string (elle peut contenir une position) ni l'IP. Les sondes de santé sont en debug.
+// loggableParams sont les paramètres de query string dont la valeur peut être journalisée. Tous
+// les autres (lat, lng de /search et /routes, recherche texte de l'admin, curseurs…) sont
+// masqués : une position ne doit jamais atteindre les logs (CLAUDE.md, règle 10).
+var loggableParams = map[string]bool{"product_id": true, "station_id": true, "status": true, "limit": true, "needs_review": true}
+
+// maskedQuery renvoie la query string avec les valeurs sensibles remplacées par « *** ».
+func maskedQuery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parts := strings.Split(raw, "&")
+	for i, kv := range parts {
+		k, _, _ := strings.Cut(kv, "=")
+		key, err := url.QueryUnescape(k)
+		switch {
+		case err != nil:
+			parts[i] = "?=***"
+		case !loggableParams[key]:
+			parts[i] = url.QueryEscape(key) + "=***"
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+// AccessLog journalise chaque requête : méthode, route, statut, taille, durée et query string
+// masquée (voir loggableParams). Jamais l'IP. Les sondes de santé sont en debug.
 func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,13 +157,19 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 				case route == "/healthz" || route == "/readyz":
 					level = slog.LevelDebug
 				}
-				log.LogAttrs(r.Context(), level, "http request",
+				attrs := []slog.Attr{
 					slog.String("method", r.Method),
 					slog.String("route", route),
 					slog.String("path", r.URL.Path),
+				}
+				if q := maskedQuery(r.URL.RawQuery); q != "" {
+					attrs = append(attrs, slog.String("query", q))
+				}
+				attrs = append(attrs,
 					slog.Int("status", status),
 					slog.Int("bytes", ww.BytesWritten()),
 					slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000))
+				log.LogAttrs(r.Context(), level, "http request", attrs...)
 			}()
 			next.ServeHTTP(ww, r)
 		})

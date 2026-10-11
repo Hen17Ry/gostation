@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -187,13 +186,7 @@ func (s *Service) ChangeStatus(ctx context.Context, admin Actor, stationID uuid.
 	}
 	s.audit(ctx, admin, tr.audit, stationID, meta)
 	s.invalidate(ctx, true)
-	m, err := s.Templates.StationStatus(contact.Email, contact.FirstName, contact.Name, tr.email, reason)
-	if err == nil {
-		err = s.Mailer.Send(ctx, m)
-	}
-	if err != nil {
-		s.Log.ErrorContext(ctx, "station: status email", slog.Any("err", err))
-	}
+	s.notify(ctx, stationID, tr.email, reason)
 	return s.AdminDetail(ctx, stationID)
 }
 
@@ -241,13 +234,17 @@ func (s *Service) ResolveMove(ctx context.Context, admin Actor, stationID, reque
 		return AdminStation{}, err
 	}
 	action, meta := audit.ActionLocationRequestRejected, map[string]any{"requestId": requestID.String()}
+	change := mail.StationMoveRejected
 	if approve {
-		action = audit.ActionLocationRequestApproved
+		action, change = audit.ActionLocationRequestApproved, mail.StationMoveApproved
 		s.invalidate(ctx, true)
+		reason = ""
 	} else {
 		meta["reason"] = *reasonPtr
+		reason = *reasonPtr
 	}
 	s.audit(ctx, admin, action, stationID, meta)
+	s.notify(ctx, stationID, change, reason)
 	return s.AdminDetail(ctx, stationID)
 }
 

@@ -64,6 +64,16 @@ type stationResp struct {
 	} `json:"pendingMove"`
 }
 
+// managerEmail renvoie l'email du gérant d'une station.
+func managerEmail(t *testing.T, stationID string) string {
+	t.Helper()
+	var email string
+	if err := it.pool.QueryRow(t.Context(), `SELECT u.email FROM stations s JOIN users u ON u.id = s.manager_id WHERE s.id = $1`, stationID).Scan(&email); err != nil {
+		t.Fatal(err)
+	}
+	return email
+}
+
 // pendingManager inscrit un gérant et vérifie son email (dossier visible chez l'admin).
 func pendingManager(t *testing.T) (*client, string, string) {
 	t.Helper()
@@ -358,6 +368,10 @@ func TestLocationMovesAndFlags(t *testing.T) {
 	d = admin.do(http.MethodGet, "/api/v1/admin/stations/"+stationID, nil)
 	d.decode(t, &adminView)
 	expect(t, admin.doIf(http.MethodPost, fmt.Sprintf("/api/v1/admin/stations/%s/location-requests/%s/approve", stationID, adminView.PendingMove.ID), d.Header().Get("ETag"), nil), http.StatusOK, "")
+	email := managerEmail(t, stationID)
+	if msg, err := it.mailpit.WaitFor(t.Context(), email, "Nouvelle position validée"); err != nil || !strings.Contains(msg.Text, "[Position validée]") {
+		t.Fatalf("move approval email = %+v, %v", msg.Text, err)
+	}
 	var mine stationResp
 	m.do(http.MethodGet, "/api/v1/manager/station", nil).decode(t, &mine)
 	if mine.Location.Lat != moved[0] || mine.PendingMove != nil {
@@ -371,6 +385,9 @@ func TestLocationMovesAndFlags(t *testing.T) {
 	rejectPath := fmt.Sprintf("/api/v1/admin/stations/%s/location-requests/%s/reject", stationID, adminView.PendingMove.ID)
 	expect(t, admin.doIf(http.MethodPost, rejectPath, d.Header().Get("ETag"), map[string]string{"reason": ""}), http.StatusUnprocessableEntity, apperr.CodeValidation)
 	expect(t, admin.doIf(http.MethodPost, rejectPath, d.Header().Get("ETag"), map[string]string{"reason": "Adresse incohérente"}), http.StatusOK, "")
+	if msg, err := it.mailpit.WaitFor(t.Context(), email, "Déplacement refusé"); err != nil || !strings.Contains(msg.Text, "Adresse incohérente") || !strings.Contains(msg.HTML, "Adresse incohérente") {
+		t.Fatalf("move rejection email = %+v, %v", msg.Text, err)
+	}
 	m.do(http.MethodGet, "/api/v1/manager/station", nil).decode(t, &mine)
 	if mine.Location.Lat != moved[0] || mine.PendingMove != nil {
 		t.Fatalf("rejected move changed the station: %+v", mine)
@@ -396,9 +413,12 @@ func TestIFUChangeSendsBackToPending(t *testing.T) {
 	if generations(t, 1).All <= gens.All {
 		t.Error("leaving the search must invalidate the cache")
 	}
+	if msg, err := it.mailpit.WaitFor(t.Context(), managerEmail(t, stationID), "Modification en cours de vérification"); err != nil ||
+		!strings.Contains(msg.Text, "[En attente de validation]") || !strings.Contains(msg.Text, "Station Akpakpa Nord") {
+		t.Fatalf("IFU change acknowledgement = %+v, %v", msg.Text, err)
+	}
 	expect(t, m.do(http.MethodGet, "/api/v1/manager/station", nil), http.StatusForbidden, auth.CodeStationNotApproved)
 	expect(t, m.doIf(http.MethodPatch, "/api/v1/manager/station", `"v1"`, map[string]string{"rccm": "!!"}), http.StatusForbidden, auth.CodeStationNotApproved)
-	_ = stationID
 }
 
 func multipartIf(c *client, path, etag string, file []byte) response {
@@ -445,6 +465,9 @@ func TestRejectAndResubmit(t *testing.T) {
 	r.decode(t, &st)
 	if st.Status != station.StatusPending || st.StatusReason != nil {
 		t.Fatalf("resubmitted station = %+v", st)
+	}
+	if msg, err := it.mailpit.WaitFor(t.Context(), email, "Demande reçue"); err != nil || !strings.Contains(msg.Text, "nouveau justificatif") {
+		t.Fatalf("resubmission acknowledgement = %+v, %v", msg.Text, err)
 	}
 	doc := admin.do(http.MethodGet, "/api/v1/admin/stations/"+stationID+"/document", nil)
 	if !bytes.Equal(doc.Body.Bytes(), newDoc) {
@@ -630,4 +653,52 @@ func TestCacheInvalidation(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestSetupChecklist(t *testing.T) {
+	admin := adminClient(t)
+	m, stationID := approvedManager(t, admin)
+	type setup struct {
+		Location     bool     `json:"location"`
+		OpeningHours bool     `json:"openingHours"`
+		Products     bool     `json:"products"`
+		Stocks       bool     `json:"stocks"`
+		Searchable   bool     `json:"searchable"`
+		Missing      []string `json:"missing"`
+	}
+	check := func(want ...string) setup {
+		t.Helper()
+		var st struct {
+			Setup setup `json:"setup"`
+		}
+		m.do(http.MethodGet, "/api/v1/manager/station", nil).decode(t, &st)
+		if strings.Join(st.Setup.Missing, ",") != strings.Join(want, ",") || st.Setup.Searchable != (len(want) == 0) {
+			t.Fatalf("setup = %+v, want missing %v", st.Setup, want)
+		}
+		return st.Setup
+	}
+	check(station.MissingLocation, station.MissingOpeningHours, station.MissingProducts, station.MissingStock)
+
+	expect(t, pin(t, m, offset(cotonouDantokpa, 3000), nil), http.StatusOK, "")
+	if s := check(station.MissingOpeningHours, station.MissingProducts, station.MissingStock); !s.Location {
+		t.Fatal("location should be checked")
+	}
+	expect(t, m.doIf(http.MethodPut, "/api/v1/manager/station/opening-hours", etag(t, m, "/api/v1/manager/station/opening-hours"),
+		map[string]any{"allWeek24h": true}), http.StatusOK, "")
+	check(station.MissingProducts, station.MissingStock)
+
+	gas := productID(t, "lpg_25kg")
+	expect(t, m.doIf(http.MethodPut, "/api/v1/manager/station/products", etag(t, m, "/api/v1/manager/station/products"),
+		map[string]any{"productIds": []int16{gas}}), http.StatusOK, "")
+	check(station.MissingStock) // vendu mais à 0
+	expect(t, m.doIf(http.MethodPut, "/api/v1/manager/station/stocks", etag(t, m, "/api/v1/manager/station/stocks"),
+		map[string]any{"items": []map[string]int{{"productId": int(gas), "quantity": 4}}}), http.StatusOK, "")
+	check()
+
+	// Stock de plus de 24 h : la station sort de la recherche.
+	if _, err := it.pool.Exec(t.Context(), `UPDATE station_stocks SET updated_at = now() - interval '25 hours',
+		last_confirmed_at = now() - interval '25 hours' WHERE station_id = $1`, stationID); err != nil {
+		t.Fatal(err)
+	}
+	check(station.MissingStock)
 }

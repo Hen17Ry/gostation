@@ -8,7 +8,10 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/http/httpctx"
@@ -69,7 +72,31 @@ func ByClientIP(r *http.Request) string {
 	if !ok {
 		return ""
 	}
-	sum := sha256.Sum256(ip.AsSlice())
+	return fingerprint(ip.AsSlice())
+}
+
+// HeaderInstallID porte l'identifiant d'installation de l'app mobile (UUID généré au premier
+// lancement). Il ne sert qu'aux quotas : il n'est ni stocké en clair ni journalisé.
+const HeaderInstallID = "X-Install-Id"
+
+// ByInstallOrUser identifie le client par l'utilisateur connecté, sinon par l'en-tête
+// X-Install-Id (D22). Sans en-tête valide, le quota s'applique par IP : omettre l'en-tête ne
+// permet pas d'y échapper. À placer après Authenticator.Optional.
+func ByInstallOrUser(r *http.Request) string {
+	if p, ok := httpctx.PrincipalFrom(r.Context()); ok {
+		return "u:" + fingerprint(p.UserID[:])
+	}
+	if id, err := uuid.Parse(strings.TrimSpace(r.Header.Get(HeaderInstallID))); err == nil && id != uuid.Nil {
+		return "i:" + fingerprint(id[:])
+	}
+	if ip := ByClientIP(r); ip != "" {
+		return "ip:" + ip
+	}
+	return ""
+}
+
+func fingerprint(b []byte) string {
+	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:12])
 }
 

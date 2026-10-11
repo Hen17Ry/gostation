@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoStation API
-  version: 0.4.0
+  version: 0.5.0
   summary: Trouver la station la plus proche qui a le produit recherché en stock (Bénin).
   description: |
     API REST de GoStation. Source des types générés pour les clients mobile (Expo) et web (admin).
@@ -15,6 +15,9 @@ info:
       Refresh token opaque, renouvelé à chaque usage ; réutiliser un ancien token révoque la session.
       Les clients doivent sérialiser leurs appels à `/auth/refresh` (un seul à la fois).
     - Chaque réponse porte `X-Request-ID` ; les routes `/api/v1` portent `RateLimit-*`.
+    - L'app mobile envoie `X-Install-Id` (UUID généré au premier lancement) sur la recherche et
+      l'itinéraire : il sert uniquement aux quotas.
+    - Confidentialité : les positions reçues (`lat`, `lng`) ne sont jamais stockées ni journalisées.
 
     Cette spec est vérifiée par un test : elle liste exactement les routes servies par l'API.
 servers:
@@ -25,6 +28,8 @@ tags:
     description: Sondes d'infrastructure
   - name: catalog
     description: Catalogue des produits
+  - name: search
+    description: Recherche de stations, fiche publique et itinéraire (publics, connexion facultative)
   - name: auth
     description: Inscription, vérification de l'email, connexion et sessions (utilisateurs et gérants)
   - name: admin-auth
@@ -96,6 +101,104 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProductList" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/search:
+    get:
+      tags: [search]
+      operationId: searchStations
+      summary: Stations les plus proches ayant le produit en stock
+      description: |
+        Rayons progressifs (500 m → 50 km) sur les stations approuvées, avec horaires, ouvertes, en
+        stock (> 0) et à jour (< 24 h) ; arrêt dès `SEARCH_MIN_RESULTS` stations. Rien d'ouvert à
+        50 km : repli (`strategy = fallback`) sur les ouvertes plus loin et les fermées, triées par
+        heure à laquelle on peut être servi (`servedAt`), puis par trajet. Les 10 meilleures sont
+        classées par temps de trajet OSRM depuis la position exacte (jamais mise en cache).
+
+        Couverture : au Bénin → trajets OSRM ; hors du Bénin à 30 km ou moins de la frontière, ou
+        OSRM indisponible → vol d'oiseau et durées estimées (`routingApproximate = true`) ;
+        au-delà → 422 `search.out_of_coverage`.
+
+        Quotas : 300/min par IP et 30/min par installation (`X-Install-Id`) ou par utilisateur
+        connecté ; sans `X-Install-Id`, le second quota s'applique à l'IP.
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { name: product_id, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/InstallId"
+      responses:
+        "200":
+          description: Résultats (éventuellement vides, `strategy = none`)
+          headers:
+            X-Cache: { description: "HIT si l'ensemble des candidats venait du cache (cellule H3 res 8 + produit, 60 s), sinon MISS", schema: { type: string, enum: [HIT, MISS] } }
+            Server-Timing: { description: "Durées db, osrm et total (ms)", schema: { type: string } }
+            RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+            RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "422":
+          description: "Paramètres invalides (`request.validation_failed`) ou position hors couverture (`search.out_of_coverage`)"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/stations/{id}:
+    get:
+      tags: [search]
+      operationId: getPublicStation
+      summary: Fiche publique d'une station approuvée
+      description: Infos, horaires et fermetures à venir, stocks des produits vendus avec leur fraîcheur. Station non approuvée → 404.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/StationId"
+      responses:
+        "200":
+          description: Fiche
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicStation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/routes:
+    get:
+      tags: [search]
+      operationId: getRoute
+      summary: Itinéraire vers une station
+      description: |
+        OSRM `route` (polyline6, `overview=full`, `steps=true`). Les étapes sont structurées et sans
+        texte : le mobile les traduit en français avec `osrm-text-instructions` (langue `fr`).
+        Position hors du Bénin → 422 `search.out_of_coverage` ; aucun itinéraire routier → 422
+        `routing.no_route` ; OSRM indisponible → 503 `routing.unavailable` (le mobile peut alors
+        proposer l'ouverture d'une app de navigation externe).
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { name: station_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/InstallId"
+      responses:
+        "200":
+          description: Itinéraire
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: "Paramètres invalides, position hors couverture ou aucun itinéraire (`routing.no_route`)"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: Routage indisponible (`routing.unavailable`)
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /api/v1/auth/register:
     post:
@@ -947,6 +1050,12 @@ components:
       description: Valeur du cookie `gs_csrf`, exigée sur les requêtes non GET authentifiées par cookie.
 
   parameters:
+    InstallId:
+      name: X-Install-Id
+      in: header
+      required: false
+      description: UUID généré par l'app au premier lancement ; sert uniquement aux quotas (jamais stocké en clair).
+      schema: { type: string, format: uuid }
     IfMatch:
       name: If-Match
       in: header
@@ -1348,6 +1457,121 @@ components:
         csrfToken: { type: string }
         expiresIn: { type: integer }
 
+    SearchResponse:
+      type: object
+      required: [product, strategy, radiusM, routingApproximate, results, generatedAt]
+      properties:
+        product:
+          type: object
+          required: [id, code, label, unit]
+          properties:
+            id: { type: integer }
+            code: { type: string }
+            label: { type: string }
+            unit: { type: string, enum: [cylinder, liter] }
+        strategy:
+          type: string
+          enum: [radius, fallback, none]
+          description: "radius : stations ouvertes à 50 km ou moins ; fallback : ouvertes plus loin et fermées ; none : aucune station en stock"
+        radiusM: { type: [integer, "null"], enum: [500, 1000, 2000, 5000, 10000, 25000, 50000, null], description: Rayon utilisé (null en repli) }
+        routingApproximate: { type: boolean, description: "Trajets à vol d'oiseau, durées estimées (hors du Bénin ou OSRM indisponible)" }
+        results:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/SearchResult" }
+        generatedAt: { type: string, format: date-time }
+    SearchResult:
+      type: object
+      required: [station, distanceM, routeDistanceM, durationS, quantity, stale, stockUpdatedAt, updatedAgoS, isOpen, nextOpening, servedAt]
+      properties:
+        station:
+          type: object
+          required: [id, name, brand, location]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            brand: { type: [string, "null"] }
+            location: { $ref: "#/components/schemas/LatLng" }
+        distanceM: { type: integer, description: "Distance à vol d'oiseau (m)" }
+        routeDistanceM: { type: [integer, "null"], description: "Distance routière (null si approximatif ou non joignable)" }
+        durationS: { type: [integer, "null"], description: "Trajet en secondes (estimé si routingApproximate ; null si non joignable par la route)" }
+        quantity: { type: integer, minimum: 1 }
+        stale: { type: boolean, description: "Stock mis à jour il y a plus de 8 h" }
+        stockUpdatedAt: { type: string, format: date-time, description: "Dernière saisie ou confirmation du stock" }
+        updatedAgoS: { type: integer, description: "« Mis à jour il y a » (secondes)" }
+        isOpen: { type: boolean }
+        nextOpening: { type: [string, "null"], format: date-time, description: Prochaine ouverture (stations fermées) }
+        servedAt: { type: [string, "null"], format: date-time, description: "Heure à laquelle on peut être servi : max(maintenant + trajet, prochaine ouverture)" }
+    PublicStation:
+      type: object
+      required: [id, name, brand, address, city, location, openingHours, stocks]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        brand: { type: [string, "null"] }
+        address: { type: string }
+        city: { type: [string, "null"] }
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/LatLng"
+            - type: "null"
+        openingHours:
+          type: object
+          required: [timezone, isOpenNow, nextOpening, days, closures]
+          properties:
+            timezone: { type: string, examples: [Africa/Porto-Novo] }
+            isOpenNow: { type: boolean }
+            nextOpening: { type: [string, "null"], format: date-time }
+            days:
+              type: array
+              items: { $ref: "#/components/schemas/OpeningDay" }
+            closures:
+              type: array
+              description: Fermetures exceptionnelles à venir (dates locales)
+              items: { type: string, format: date }
+        stocks:
+          type: array
+          items:
+            type: object
+            required: [productId, code, label, unit, sizeKg, quantity, updatedAt, freshness]
+            properties:
+              productId: { type: integer }
+              code: { type: string }
+              label: { type: string }
+              unit: { type: string, enum: [cylinder, liter] }
+              sizeKg: { type: [number, "null"] }
+              quantity: { type: [integer, "null"], description: "null si le stock est expiré (plus de 24 h)" }
+              updatedAt: { type: string, format: date-time }
+              freshness: { type: string, enum: [fresh, stale, expired] }
+    Route:
+      type: object
+      required: [stationId, distanceM, durationS, geometry, geometryEncoding, steps]
+      properties:
+        stationId: { type: string, format: uuid }
+        distanceM: { type: integer }
+        durationS: { type: integer }
+        geometry: { type: string, description: "Tracé complet encodé en polyline (précision 6)" }
+        geometryEncoding: { type: string, const: polyline6 }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/RouteStep" }
+    RouteStep:
+      type: object
+      description: "Étape sans texte, traduite par le mobile avec osrm-text-instructions (langue fr)."
+      required: [maneuver, name, distanceM, durationS]
+      properties:
+        maneuver:
+          type: object
+          required: [type, location]
+          properties:
+            type: { type: string, examples: [depart, turn, "end of road", roundabout, arrive], description: Type de manœuvre OSRM }
+            modifier: { type: string, examples: [left, "slight right", uturn] }
+            exit: { type: integer, description: Sortie de rond-point }
+            location: { $ref: "#/components/schemas/LatLng" }
+        name: { type: string, description: Nom de la rue (peut être vide) }
+        ref: { type: string, description: "Numéro de route (ex. RNIE 1)" }
+        distanceM: { type: number }
+        durationS: { type: number }
     LatLng:
       type: object
       required: [lat, lng]
@@ -1356,7 +1580,7 @@ components:
         lng: { type: number, minimum: -180, maximum: 180 }
     ManagerStation:
       type: object
-      required: [id, status, statusReason, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, lastStockUpdateAt, createdAt, updatedAt]
+      required: [id, status, statusReason, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, setup, lastStockUpdateAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending, approved, rejected, suspended] }
@@ -1382,9 +1606,23 @@ components:
           oneOf:
             - $ref: "#/components/schemas/MoveRequest"
             - type: "null"
+        setup: { $ref: "#/components/schemas/StationSetup" }
         lastStockUpdateAt: { type: [string, "null"], format: date-time, description: Dernière saisie ou confirmation de stock }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    StationSetup:
+      type: object
+      description: Checklist de configuration et ce qui manque pour apparaître dans la recherche.
+      required: [location, openingHours, products, stocks, searchable, missing]
+      properties:
+        location: { type: boolean, description: Station épinglée }
+        openingHours: { type: boolean, description: Au moins une plage horaire }
+        products: { type: boolean, description: Au moins un produit vendu }
+        stocks: { type: boolean, description: "Au moins un produit vendu en quantité > 0, stock de moins de 24 h" }
+        searchable: { type: boolean, description: "Toutes les conditions sont remplies (l'ouverture à l'instant présent n'en fait pas partie)" }
+        missing:
+          type: array
+          items: { type: string, enum: [approval, location, opening_hours, products, stock] }
     UpdateStationRequest:
       type: object
       additionalProperties: false

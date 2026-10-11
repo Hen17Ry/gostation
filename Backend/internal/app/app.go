@@ -28,7 +28,9 @@ import (
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/storage"
 	"gostation/backend/internal/ratelimit"
+	"gostation/backend/internal/search"
 	"gostation/backend/internal/searchcache"
+	"gostation/backend/internal/searchstats"
 	"gostation/backend/internal/station"
 	"gostation/backend/internal/store"
 )
@@ -39,6 +41,8 @@ type Infra struct {
 	Redis   *goredis.Client
 	Mailer  mail.Mailer
 	Storage storage.Storage
+	// OSRM est une dépendance douce : en panne, la recherche se replie sur le vol d'oiseau.
+	OSRM *osrm.Client
 }
 
 // Services regroupe les services métier.
@@ -46,6 +50,9 @@ type Services struct {
 	Store    *store.Store
 	Auth     *auth.Service
 	Station  *station.Service
+	Search   *search.Service
+	Stats    *searchstats.Flusher
+	OSRM     *osrm.Client
 	Limiter  *ratelimit.Limiter
 	Sessions *auth.SessionStore
 	Tokens   *auth.TokenManager
@@ -109,15 +116,27 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		EmailKey:   emailKey,
 		Log:        log,
 	})
+	cache := searchcache.New(infra.Redis)
 	stationSvc := station.NewService(station.Config{
 		Timezone: cfg.Timezone, MaxCylinders: cfg.Stock.MaxCylinders, MaxLiters: cfg.Stock.MaxLiters,
 		StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 	}, station.Deps{
-		Store: st, Documents: docs, Audit: auditLog, Cache: searchcache.New(infra.Redis),
+		Store: st, Documents: docs, Audit: auditLog, Cache: cache,
 		Mailer: infra.Mailer, Templates: renderer, Log: log,
 	})
+	osrmClient := infra.OSRM
+	if osrmClient == nil {
+		if osrmClient, err = osrm.New(cfg.OSRM.URL, cfg.OSRM.Timeout); err != nil {
+			return nil, err
+		}
+	}
+	searchSvc := search.New(search.Config{
+		Timezone: cfg.Timezone, CacheTTL: cfg.Search.CacheTTL, MinResults: cfg.Search.MinResults,
+		MaxCandidates: cfg.Search.MaxCandidates, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
+	}, st, infra.Redis, cache, osrmClient, searchstats.NewRecorder(infra.Redis), log)
 	return &Services{
-		Store: st, Auth: authSvc, Station: stationSvc, Limiter: limiter,
+		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient,
+		Stats: searchstats.NewFlusher(infra.Redis, st, log), Limiter: limiter,
 		Sessions: sessions, Tokens: tokens, CSRFKey: csrfKey, EmailKey: emailKey,
 	}, nil
 }
@@ -126,12 +145,12 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 const readinessTimeout = 2 * time.Second
 
 // NewHandler construit le handler HTTP et les sondes de santé.
-func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, osrmClient *osrm.Client, log *slog.Logger) (http.Handler, *handler.Health) {
+func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog.Logger) (http.Handler, *handler.Health) {
 	rs := respond.New(log)
 	health := handler.NewHealth(rs, log, readinessTimeout, map[string]handler.Check{
 		"postgres": svc.Store.Ping,
 		"redis":    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
-		"osrm":     osrmClient.Ping,
+		"osrm":     svc.OSRM.Ping,
 	})
 	cookies := handler.Cookies{Secure: cfg.Auth.CookieSecure}
 	authHandler := handler.NewAuth(rs, svc.Auth, svc.Limiter, cookies, svc.CSRFKey, svc.EmailKey, log)
@@ -144,6 +163,8 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, osrmClien
 		CORSAllowedOrigins: cfg.HTTP.CORSAllowedOrigins,
 		IPRateLimit:        cfg.RateLimit.IPRequests,
 		IPRateWindow:       cfg.RateLimit.IPWindow,
+		SearchIPLimit:      cfg.Search.RateLimitIP,
+		SearchClientLimit:  cfg.Search.RateLimitClient,
 	}, router.Deps{
 		Log:           log,
 		Responder:     rs,
@@ -154,6 +175,7 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, osrmClien
 		Auth:          authHandler,
 		Me:            handler.NewMe(rs, svc.Auth, authHandler),
 		Stations:      handler.NewStations(rs, svc.Station),
+		Search:        handler.NewSearch(rs, svc.Search),
 		EmailVerifier: svc.Auth,
 		StationStatus: svc.Station,
 	})

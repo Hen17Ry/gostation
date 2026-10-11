@@ -14,7 +14,9 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 7. **Auth** : email vérifié par code à 6 chiffres (obligatoire pour signaler, favoris, notifications) ; 2FA TOTP obligatoire pour les admins ; réponses génériques (anti-énumération) sur login, forgot et resend ; toute action sensible écrit dans `audit_logs`.
 8. Les justificatifs IFU sont chiffrés (envelope AES-256-GCM) et ne sont jamais servis publiquement : seuls les admins les lisent, via un endpoint dédié et audité.
 9. **Stocks** : « non vendu » (pas de ligne) ≠ « 0 en stock ». Fraîcheur = `GREATEST(updated_at, last_confirmed_at)` : stale au-delà de 8 h, exclu de la recherche au-delà de 24 h. Toute écriture de stock, statut, horaires, fermeture, produits vendus ou position invalide le cache de recherche.
-10. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
+10. **Recherche** : couverture = Bénin (OSRM), jusqu'à 30 km au-delà de la frontière (vol d'oiseau, `routingApproximate`), sinon 422 `search.out_of_coverage`. Le cache Redis ne contient que l'ensemble des stations candidates par (cellule H3 res 8, produit) ; le classement depuis la position exacte (OSRM `/table`) n'est jamais mis en cache ni journalisé. **Aucun lat/lng dans les logs** (le journal d'accès n'écrit jamais la query string, les erreurs OSRM sont expurgées de leur URL) : un test le vérifie.
+11. **Itinéraire** : l'API renvoie des étapes structurées sans texte ; le mobile les traduit en français avec `osrm-text-instructions` (langue `fr`).
+12. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
 
 ## Rôles
 
@@ -32,7 +34,7 @@ GoStation/
 ├── Mobile/             Expo React Native — app unique user + manager
 ├── Web/                Admin React (Vite)
 ├── docs/               ARCHITECTURE.md
-├── scripts/            osrm-prepare.sh, check-infra.sh, _lib.sh
+├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, bench.sh (+ bench/search.js k6), _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM (+ osrm-tools, profil « tools »)
 ├── Makefile            make help
 └── .env.example        source de vérité des variables (infra + backend)
@@ -70,18 +72,25 @@ make migrate-up | migrate-down | migrate-status | migrate-new name=add_x
 make api-up         # API dans Docker (profil compose « api »), healthcheck sur /readyz
 make admin-create email=… first=… last=…   # crée un admin (mot de passe saisi au clavier, jamais en argument)
 make admin-reset-2fa email=…               # réinitialise la 2FA d'un admin
+
+# Recherche
+make seed-dev       # remplace les stations fictives (5 000 au Bénin, is_demo, dev uniquement ; RESET=1 pour supprimer)
+make explain-search # EXPLAIN ANALYZE des requêtes de recherche, vérifie l'index GiST
+make bench          # k6 (Docker) sur /search, 5 zones : p50/p95/p99 hors cache / avec cache / OSRM, taux de cache
+scripts/with-env.sh <cmd>   # comme « . .env » mais sans écraser les variables déjà définies (surcharges ponctuelles)
 ```
 
 Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), Vite **5173**. Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 
-1. **Cache** Redis devant tout : clé = cellule H3 res 8 + produit (+ génération), TTL court (60 s). Toute mise à jour de stock, de statut ou de position invalide le cache.
+1. **Cache** Redis devant la base : ensemble des candidats par cellule H3 res 8 + produit (+ générations), TTL 60 s, rayon élargi du rayon de la cellule. Toute écriture de stock, statut, horaires, fermeture, produits vendus ou position invalide le cache.
 2. **Rayons progressifs** avec `ST_DWithin` : 500 m, 1, 2, 5, 10, 25, 50 km, sur les stations `approved`, **ouvertes**, avec `stock > 0` frais (≤ 24 h). On s'arrête au premier rayon qui donne `SEARCH_MIN_RESULTS` candidats.
-3. **Repli sur les fermées** : s'il n'y a aucune station ouverte à 50 km, on renvoie les plus proches fermées avec leur `reopensAt`.
-4. **Repli KNN illimité** si rien du tout : `ORDER BY location <-> point LIMIT 10`. Il y a donc toujours un résultat dès qu'une station du pays a un stock frais.
-5. **Re-classement** par temps de trajet réel via OSRM `/table` (1 source → N). Si OSRM est en panne ou en timeout : ordre par distance + `ranking: "distance"`.
-6. Chaque résultat porte `stockUpdatedAt` (le client affiche « mis à jour il y a X min ») et `stale` (8 h à 24 h).
+3. **Repli** s'il n'y a aucune station ouverte à 50 km : ouvertes au-delà (KNN illimité) et fermées, triées par heure à laquelle on peut être servi = `max(maintenant + trajet, prochaine ouverture)`, puis par trajet. Il y a donc toujours un résultat dès qu'une station du pays a un stock frais et des horaires.
+4. Stations sans horaires, non vendues, à 0, expirées (> 24 h) ou non approuvées : exclues.
+5. **Classement par requête** depuis la position exacte : OSRM `/table` (1 source → 10 meilleurs candidats), jamais mis en cache. Hors du Bénin (≤ 30 km) ou OSRM en panne / hors délai : vol d'oiseau, durées estimées, `routingApproximate: true`.
+6. Chaque résultat porte `stockUpdatedAt`, `updatedAgoS` (« mis à jour il y a ») et `stale` (8 h à 24 h), `isOpen`, `nextOpening`, `servedAt`.
+7. **Stats anonymes** : cellule H3 res 7, produit, heure, recherches, recherches sans station ouverte à 5 km ou moins. Compteurs Redis vidés dans `search_stats`.
 
 ## Conventions
 
@@ -106,9 +115,10 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
   - `internal/store` : transactions (`InTx`) et traduction des erreurs pgx ; `internal/store/dbgen` contient le code **généré** par sqlc, à ne jamais éditer.
   - `internal/platform/{postgres,redis,osrm,h3,logging}` : clients d'infrastructure ; `internal/ratelimit` : fenêtre glissante Redis.
   - `internal/app` : assemblage (`NewServices`, `NewHandler`), partagé par `cmd/api`, `cmd/admin` et les tests d'intégration.
-  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche).
+  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche), `internal/search` (recherche, fiche publique, itinéraire), `internal/searchstats` (compteurs anonymes et vidage).
   - `internal/platform/{crypto,storage}` : chiffrement (enveloppe, HKDF) et stockage d'objets (local, S3 plus tard).
   - `cmd/admin` : CLI des comptes admin (`create`, `reset-2fa`).
+  - `cmd/seed` : stations fictives de développement (`make seed-dev`, refuse hors `APP_ENV=development`).
   - `api/openapi.yaml` : contrat OpenAPI 3.1, **mis à jour dans le même commit que toute route** (un test compare la spec aux routes servies). Les types des clients mobile et web en sont générés.
   - `db/migrations/` (goose, `YYYYMMDDHHMMSS_desc.sql` en **UTC**, créées par `make migrate-new`, toujours avec un Down, une migration de données à part) et `db/queries/` (sqlc). Les migrations sont embarquées (`db.Migrations`) pour les tests. Après modification d'une requête : `make sqlc`.
   - Piège SQL : un `CHECK` évalué à NULL passe. Toute condition sur une colonne nullable doit donc tester `IS NOT NULL` explicitement.

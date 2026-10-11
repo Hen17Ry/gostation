@@ -42,6 +42,8 @@ var it struct {
 	rdb     *goredis.Client
 	mailpit *testutil.Mailpit
 	cfg     config.Config
+	osrm    *fakeOSRM
+	logs    *logBuffer
 }
 
 const password = "Lagune-Cotonou-88"
@@ -56,7 +58,7 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func runTests(m *testing.M) int {
+func runTests(m *testing.M) (code int) {
 	ctx := context.Background()
 	fail := func(err error) int { fmt.Fprintln(os.Stderr, err); return 1 }
 
@@ -76,8 +78,12 @@ func runTests(m *testing.M) int {
 	}
 	defer stopMailpit()
 
+	fake := &fakeOSRM{delay: 2 * time.Second}
+	osrmSrv := httptest.NewServer(fake)
+	defer osrmSrv.Close()
+
 	env := map[string]string{
-		"DATABASE_URL": dsn, "REDIS_URL": redisURL, "OSRM_URL": "http://127.0.0.1:9",
+		"DATABASE_URL": dsn, "REDIS_URL": redisURL, "OSRM_URL": osrmSrv.URL, "OSRM_TIMEOUT": "300ms",
 		"JWT_SIGNING_KEYS": "it-key:" + randomHex(32), "APP_SECRET": randomHex(32),
 		"DOCUMENTS_ENCRYPTION_KEY": randomHex(32), "SMTP_HOST": mp.SMTPHost, "SMTP_PORT": fmt.Sprint(mp.SMTPPort),
 	}
@@ -104,15 +110,26 @@ func runTests(m *testing.M) int {
 	if err != nil {
 		return fail(err)
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs}, log)
+	// Tous les logs (debug compris) sont capturés ; WARN et ERROR sont affichés en cas d'échec.
+	logs := &logBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	defer func() {
+		if code != 0 {
+			fmt.Fprintln(os.Stderr, "── application warnings and errors ──\n"+logs.problems())
+		}
+	}()
+	osrmClient, err := osrm.New(osrmSrv.URL, cfg.OSRM.Timeout)
 	if err != nil {
 		return fail(err)
 	}
-	osrmClient, _ := osrm.New("http://127.0.0.1:9", 100*time.Millisecond)
-	handler, _ := app.NewHandler(cfg, svc, rdb, osrmClient, log)
+	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs, OSRM: osrmClient}, log)
+	if err != nil {
+		return fail(err)
+	}
+	handler, _ := app.NewHandler(cfg, svc, rdb, log)
 
 	it.handler, it.svc, it.pool, it.rdb, it.mailpit, it.cfg = handler, svc, pool, rdb, mp, cfg
+	it.osrm, it.logs = fake, logs
 	return m.Run()
 }
 
