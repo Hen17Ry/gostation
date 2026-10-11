@@ -49,6 +49,7 @@ var it struct {
 	clock   *testClock
 	mailer  *flakyMailer
 	logs    *logBuffer
+	docs    storage.Storage
 }
 
 const password = "Lagune-Cotonou-88"
@@ -152,7 +153,7 @@ func runTests(m *testing.M) (code int) {
 	defer w.Shutdown()
 
 	it.handler, it.svc, it.pool, it.rdb, it.mailpit, it.cfg = handler, svc, pool, rdb, mp, cfg
-	it.osrm, it.expo, it.clock, it.mailer, it.logs = fake, expo, clock, mailer, logs
+	it.osrm, it.expo, it.clock, it.mailer, it.logs, it.docs = fake, expo, clock, mailer, logs, docs
 	return m.Run()
 }
 

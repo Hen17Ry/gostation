@@ -105,7 +105,8 @@ func TestReportValidationAndLimits(t *testing.T) {
 	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban", map[string]string{}), http.StatusUnprocessableEntity, "request.validation_failed")
 	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban", map[string]string{"reason": "Signalements abusifs répétés"}), http.StatusNoContent, "")
 	expect(t, postReport(b, stationID, reportBody(report.ReasonWrongLocation, 0, nil, "")), http.StatusForbidden, report.CodeReportingSuspended)
-	expect(t, admin.do(http.MethodDelete, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban", nil), http.StatusNoContent, "")
+	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban/lift", map[string]string{}), http.StatusUnprocessableEntity, "request.validation_failed")
+	expect(t, admin.do(http.MethodPost, "/api/v1/admin/users/"+bsess.User.ID+"/reporting-ban/lift", map[string]string{"reason": "Avertissement donné, droit rétabli"}), http.StatusNoContent, "")
 	expect(t, postReport(b, stationID, reportBody(report.ReasonWrongLocation, 0, nil, "")), http.StatusCreated, "")
 	if !contains(auditActions(t, "user", bsess.User.ID), "admin.reporting_banned", "admin.reporting_unbanned") {
 		t.Error("reporting ban not audited")
@@ -321,5 +322,125 @@ func TestReportThresholds(t *testing.T) {
 	}
 	if !contains(auditActions(t, "report", ids[0]), "admin.report_dismissed") {
 		t.Error("dismissal not audited")
+	}
+}
+
+// reportStatus renvoie le statut d'un signalement.
+func reportStatus(t *testing.T, id string) string {
+	t.Helper()
+	var s string
+	if err := it.pool.QueryRow(t.Context(), `SELECT status::text FROM reports WHERE id = $1`, id).Scan(&s); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// flagReasons renvoie les causes en cours d'effet (badge ou exclusion) d'une station.
+func flagReasons(t *testing.T, stationID string) []string {
+	t.Helper()
+	rows, err := it.pool.Query(t.Context(), `SELECT reason::text FROM station_report_flags WHERE station_id = $1 ORDER BY reason::text`, stationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var r string
+		if err := rows.Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func createReport(t *testing.T, c *client, stationID string, body map[string]any) string {
+	t.Helper()
+	r := postReport(c, stationID, body)
+	expect(t, r, http.StatusCreated, "")
+	var rep struct {
+		ID string `json:"id"`
+	}
+	r.decode(t, &rep)
+	return rep.ID
+}
+
+// Clôture automatique (étape 7) : la saisie ou la confirmation des stocks ne clôt que les ruptures
+// des produits concernés et « station fermée » ; « position incorrecte » se clôt au changement de
+// position ; « autre » uniquement par l'admin.
+func TestReportAutoClosure(t *testing.T) {
+	admin := adminClient(t)
+	gas, petrol, dropped := newProduct(t), newProduct(t), newProduct(t)
+	at := offset(bohicon, 21000)
+	m, stationID := readyStation(t, admin, at, map[int16]int{gas: 5, petrol: 8, dropped: 2})
+	near := move(at, 400, 0)
+
+	reporters := make([]*client, 3)
+	for i := range reporters {
+		reporters[i], _, _ = verifiedUser(t)
+	}
+	var gasIDs, locationIDs, otherIDs []string
+	for _, c := range reporters {
+		gasIDs = append(gasIDs, createReport(t, c, stationID, reportBody(report.ReasonOutOfStock, gas, &near, "")))
+		locationIDs = append(locationIDs, createReport(t, c, stationID, reportBody(report.ReasonWrongLocation, 0, nil, "")))
+		otherIDs = append(otherIDs, createReport(t, c, stationID, reportBody(report.ReasonOther, 0, nil, "Pompe hors service")))
+	}
+	closedID := createReport(t, reporters[0], stationID, reportBody(report.ReasonStationClosed, 0, &near, ""))
+	droppedID := createReport(t, reporters[0], stationID, reportBody(report.ReasonOutOfStock, dropped, &near, ""))
+	if got := flagReasons(t, stationID); fmt.Sprint(got) != "[other out_of_stock wrong_location]" {
+		t.Fatalf("flags before the update = %v", got)
+	}
+
+	// La station ne vend plus « dropped » : la saisie ne concerne que gas et petrol.
+	expect(t, m.doIf(http.MethodPut, "/api/v1/manager/station/products", etag(t, m, "/api/v1/manager/station/products"),
+		map[string]any{"productIds": []int16{gas, petrol}}), http.StatusOK, "")
+	expect(t, updateStocks(t, m, map[int16]int{gas: 0, petrol: 8}), http.StatusOK, "")
+	for _, id := range append(gasIDs, closedID) {
+		if s := reportStatus(t, id); s != "resolved" {
+			t.Fatalf("report %s after a stock update = %s, want resolved", id, s)
+		}
+	}
+	for _, id := range append(append([]string{droppedID}, locationIDs...), otherIDs...) {
+		if s := reportStatus(t, id); s != "open" {
+			t.Fatalf("report %s closed by a stock update (status %s)", id, s)
+		}
+	}
+	if got := flagReasons(t, stationID); fmt.Sprint(got) != "[other wrong_location]" {
+		t.Fatalf("flags after the update = %v, want wrong_location and other kept", got)
+	}
+	var page struct {
+		Reported bool `json:"reported"`
+	}
+	newClient(t).do(http.MethodGet, "/api/v1/stations/"+stationID, nil).decode(t, &page)
+	if !page.Reported {
+		t.Fatal("station badge lifted by a stock update although wrong_location and other are still open")
+	}
+
+	// Une confirmation ne clôt pas davantage ; une correction de l'épingle clôt « position incorrecte ».
+	expect(t, confirmStocks(t, m), http.StatusOK, "")
+	if s := reportStatus(t, locationIDs[0]); s != "open" {
+		t.Fatalf("wrong_location closed by a confirmation (%s)", s)
+	}
+	expect(t, pin(t, m, move(at, 50, 0), nil), http.StatusOK, "")
+	for _, id := range locationIDs {
+		if s := reportStatus(t, id); s != "resolved" {
+			t.Fatalf("wrong_location report after a location change = %s", s)
+		}
+	}
+	if got := flagReasons(t, stationID); fmt.Sprint(got) != "[other]" {
+		t.Fatalf("flags after the location change = %v", got)
+	}
+
+	// « Autre » : seul l'admin le clôt ; traité, son effet est recalculé (2 auteurs : plus de badge).
+	expect(t, admin.do(http.MethodPost, "/api/v1/admin/reports/"+otherIDs[0]+"/resolve", map[string]any{"note": "Pompe réparée"}), http.StatusOK, "")
+	if got := flagReasons(t, stationID); len(got) != 0 {
+		t.Fatalf("flags after the admin resolved an 'other' report = %v", got)
+	}
+	newClient(t).do(http.MethodGet, "/api/v1/stations/"+stationID, nil).decode(t, &page)
+	if page.Reported {
+		t.Fatal("station still reported after the admin handled the 'other' cause")
+	}
+	if s := reportStatus(t, otherIDs[1]); s != "open" {
+		t.Fatalf("other report closed without the admin (%s)", s)
 	}
 }

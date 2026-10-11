@@ -426,7 +426,7 @@ const getStationForAdmin = `-- name: GetStationForAdmin :one
 SELECT s.id, s.status, s.version, s.name, s.brand, s.ifu, s.rccm, s.address, s.city, s.phone,
        s.lat, s.lng, s.h3_r8, s.location_set_at, s.location_flagged_at, s.location_flag_distance_m, s.location_flag_accuracy_m,
        s.status_reason, s.reviewed_by, s.reviewed_at, s.last_stock_update_at, s.document_mime, s.created_at, s.updated_at,
-       u.id AS manager_id, u.first_name AS manager_first_name, u.last_name AS manager_last_name,
+       s.status_changed_at, u.id AS manager_id, u.first_name AS manager_first_name, u.last_name AS manager_last_name,
        u.email AS manager_email, u.email_verified_at AS manager_email_verified_at
 FROM stations s
 LEFT JOIN users u ON u.id = s.manager_id
@@ -458,6 +458,7 @@ type GetStationForAdminRow struct {
 	DocumentMime           *string       `json:"documentMime"`
 	CreatedAt              time.Time     `json:"createdAt"`
 	UpdatedAt              time.Time     `json:"updatedAt"`
+	StatusChangedAt        time.Time     `json:"statusChangedAt"`
 	ManagerID              *uuid.UUID    `json:"managerId"`
 	ManagerFirstName       *string       `json:"managerFirstName"`
 	ManagerLastName        *string       `json:"managerLastName"`
@@ -493,6 +494,7 @@ func (q *Queries) GetStationForAdmin(ctx context.Context, id uuid.UUID) (GetStat
 		&i.DocumentMime,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.StatusChangedAt,
 		&i.ManagerID,
 		&i.ManagerFirstName,
 		&i.ManagerLastName,
@@ -504,12 +506,16 @@ func (q *Queries) GetStationForAdmin(ctx context.Context, id uuid.UUID) (GetStat
 
 const listStationsForAdmin = `-- name: ListStationsForAdmin :many
 SELECT s.id, s.name, s.brand, s.ifu, s.city, s.status, s.version, s.created_at, s.updated_at,
-       s.location_flagged_at, s.lat, s.lng,
+       s.location_flagged_at, s.lat, s.lng, s.last_stock_update_at,
        (u.email_verified_at IS NOT NULL)::boolean AS manager_email_verified,
-       EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move
+       EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move,
+       EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id)::boolean AS has_opening_hours,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id)::boolean AS reported,
+       EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive'
+               AND a.resolved_at IS NULL)::boolean AS manager_inactive
 FROM stations s
 LEFT JOIN users u ON u.id = s.manager_id
-WHERE s.status = $1
+WHERE ($1::station_status IS NULL OR s.status = $1::station_status)
   AND (s.status <> 'pending' OR u.email_verified_at IS NOT NULL)
   AND ($2::text IS NULL
        OR s.name ILIKE '%' || $2::text || '%' ESCAPE '\'
@@ -517,19 +523,34 @@ WHERE s.status = $1
   AND (NOT $3::boolean
        OR s.location_flagged_at IS NOT NULL
        OR EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending'))
-  AND ($4::timestamptz IS NULL
-       OR (s.created_at, s.id) < ($4::timestamptz, $5::uuid))
+  AND ($4::text IS NULL
+       OR ($4::text = 'stale' AND s.last_stock_update_at <= $5::timestamptz
+           AND s.last_stock_update_at > $6::timestamptz)
+       OR ($4::text = 'expired'
+           AND (s.last_stock_update_at IS NULL OR s.last_stock_update_at <= $6::timestamptz)))
+  AND (NOT $7::boolean
+       OR EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive' AND a.resolved_at IS NULL))
+  AND (NOT $8::boolean OR NOT EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id))
+  AND (NOT $9::boolean OR EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id))
+  AND ($10::timestamptz IS NULL
+       OR (s.created_at, s.id) < ($10::timestamptz, $11::uuid))
 ORDER BY s.created_at DESC, s.id DESC
-LIMIT $6
+LIMIT $12
 `
 
 type ListStationsForAdminParams struct {
-	Status          StationStatus `json:"status"`
-	Query           *string       `json:"query"`
-	NeedsReview     bool          `json:"needsReview"`
-	CursorCreatedAt *time.Time    `json:"cursorCreatedAt"`
-	CursorID        *uuid.UUID    `json:"cursorId"`
-	PageSize        int32         `json:"pageSize"`
+	Status          *StationStatus `json:"status"`
+	Query           *string        `json:"query"`
+	NeedsReview     bool           `json:"needsReview"`
+	Freshness       *string        `json:"freshness"`
+	StaleSince      time.Time      `json:"staleSince"`
+	ExpiredSince    time.Time      `json:"expiredSince"`
+	ManagerInactive bool           `json:"managerInactive"`
+	NoHours         bool           `json:"noHours"`
+	Reported        bool           `json:"reported"`
+	CursorCreatedAt *time.Time     `json:"cursorCreatedAt"`
+	CursorID        *uuid.UUID     `json:"cursorId"`
+	PageSize        int32          `json:"pageSize"`
 }
 
 type ListStationsForAdminRow struct {
@@ -545,17 +566,29 @@ type ListStationsForAdminRow struct {
 	LocationFlaggedAt    *time.Time    `json:"locationFlaggedAt"`
 	Lat                  *float64      `json:"lat"`
 	Lng                  *float64      `json:"lng"`
+	LastStockUpdateAt    *time.Time    `json:"lastStockUpdateAt"`
 	ManagerEmailVerified bool          `json:"managerEmailVerified"`
 	HasPendingMove       bool          `json:"hasPendingMove"`
+	HasOpeningHours      bool          `json:"hasOpeningHours"`
+	Reported             bool          `json:"reported"`
+	ManagerInactive      bool          `json:"managerInactive"`
 }
 
 // Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
-// Pagination par curseur (created_at, id) décroissants.
+// Filtres (étape 7) : statut (NULL = tous), fraîcheur de la dernière saisie ou confirmation
+// (stale : 8 à 24 h, expired : plus de 24 h ou jamais), gérant inactif (alerte ouverte), sans
+// horaires, signalée (effet de signalement en cours). Curseur (created_at, id) décroissants.
 func (q *Queries) ListStationsForAdmin(ctx context.Context, arg ListStationsForAdminParams) ([]ListStationsForAdminRow, error) {
 	rows, err := q.db.Query(ctx, listStationsForAdmin,
 		arg.Status,
 		arg.Query,
 		arg.NeedsReview,
+		arg.Freshness,
+		arg.StaleSince,
+		arg.ExpiredSince,
+		arg.ManagerInactive,
+		arg.NoHours,
+		arg.Reported,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.PageSize,
@@ -580,8 +613,60 @@ func (q *Queries) ListStationsForAdmin(ctx context.Context, arg ListStationsForA
 			&i.LocationFlaggedAt,
 			&i.Lat,
 			&i.Lng,
+			&i.LastStockUpdateAt,
 			&i.ManagerEmailVerified,
 			&i.HasPendingMove,
+			&i.HasOpeningHours,
+			&i.Reported,
+			&i.ManagerInactive,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStationsForMap = `-- name: ListStationsForMap :many
+SELECT s.id, s.name, s.status, s.lat, s.lng, s.last_stock_update_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id)::boolean AS reported
+FROM stations s
+WHERE s.location IS NOT NULL
+  AND ($1::station_status IS NULL OR s.status = $1::station_status)
+ORDER BY s.id
+`
+
+type ListStationsForMapRow struct {
+	ID                uuid.UUID     `json:"id"`
+	Name              string        `json:"name"`
+	Status            StationStatus `json:"status"`
+	Lat               *float64      `json:"lat"`
+	Lng               *float64      `json:"lng"`
+	LastStockUpdateAt *time.Time    `json:"lastStockUpdateAt"`
+	Reported          bool          `json:"reported"`
+}
+
+// Carte admin (GeoJSON léger, regroupement côté client) : stations épinglées.
+func (q *Queries) ListStationsForMap(ctx context.Context, status *StationStatus) ([]ListStationsForMapRow, error) {
+	rows, err := q.db.Query(ctx, listStationsForMap, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStationsForMapRow
+	for rows.Next() {
+		var i ListStationsForMapRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Status,
+			&i.Lat,
+			&i.Lng,
+			&i.LastStockUpdateAt,
+			&i.Reported,
 		); err != nil {
 			return nil, err
 		}

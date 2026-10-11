@@ -6,7 +6,11 @@
 // autour des villes (pondérées par leur taille) et un semis uniforme sur le pays ; les points
 // hors frontière sont écartés par PostGIS.
 //
-// Usage : seed [-count 5000] [-seed 42] [-reset]
+// Elle génère aussi un historique de stats de recherche et de relevés de fraîcheur des stocks sur
+// les -stats-days derniers jours (tableau de bord admin, mesure des requêtes de stats) : les lignes
+// de cette période sont remplacées (stats.go).
+//
+// Usage : seed [-count 5000] [-seed 42] [-stats-days 30] [-reset]
 package main
 
 import (
@@ -79,6 +83,7 @@ func run() error {
 	count := flag.Int("count", 5000, "nombre de stations fictives")
 	seed := flag.Uint64("seed", 42, "graine du générateur (résultat déterministe)")
 	reset := flag.Bool("reset", false, "supprime les stations fictives sans en recréer")
+	statsDays := flag.Int("stats-days", 30, "jours d'historique de stats générés (0 : aucun)")
 	flag.Parse()
 
 	cfg, err := config.Load(os.Getenv)
@@ -90,6 +95,9 @@ func run() error {
 	}
 	if *count < 1 || *count > 100_000 {
 		return errors.New("-count must be between 1 and 100000")
+	}
+	if *statsDays < 0 || *statsDays > 400 {
+		return errors.New("-stats-days must be between 0 and 400")
 	}
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -128,6 +136,14 @@ func run() error {
 	}
 	if _, err := pool.Exec(ctx, `ANALYZE stations; ANALYZE station_stocks; ANALYZE station_opening_hours`); err != nil {
 		return err
+	}
+	if !*reset && *statsDays > 0 {
+		r := rand.New(rand.NewPCG(*seed^0x5eed, *seed)) //nolint:gosec // données fictives
+		n, err := generateStats(ctx, pool, *statsDays, r, cfg.Timezone)
+		if err != nil {
+			return fmt.Errorf("search stats: %w", err)
+		}
+		log.Info("search stats history generated", slog.Int("days", *statsDays), slog.Int("rows", n))
 	}
 	log.Info("done", slog.Int("count", map[bool]int{true: 0, false: *count}[*reset]), slog.Duration("took", time.Since(start).Round(time.Millisecond)))
 	return nil
@@ -259,6 +275,10 @@ func generate(ctx context.Context, tx pgx.Tx, count int, r *rand.Rand, tz *time.
 		case x < 0.05:
 			status = "suspended"
 		}
+		statusSince := now
+		if status != "approved" {
+			statusSince = now.Add(-time.Duration(r.Int64N(int64(10 * 24 * time.Hour)))) // dossiers en attente depuis 0 à 10 jours
+		}
 		var brand *string
 		if r.Float64() < 0.7 {
 			b := brands[r.IntN(len(brands))]
@@ -292,7 +312,19 @@ func generate(ctx context.Context, tx pgx.Tx, count int, r *rand.Rand, tz *time.
 			closures = append(closures, []any{id, pgtype.Date{Time: time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC), Valid: true}})
 		}
 
-		// Stocks : 15 % à 0 ; fraîcheur 70 % < 8 h, 20 % 8–24 h, 10 % expirée.
+		// Stocks : 15 % à 0 ; fraîcheur 70 % < 8 h, 20 % 8–24 h, 10 % expirée. La saisie du gérant
+		// porte sur tous ses produits à la fois : une seule date par station.
+		var age time.Duration
+		switch x := r.Float64(); {
+		case x < 0.70:
+			age = time.Duration(r.Int64N(int64(8 * time.Hour)))
+		case x < 0.90:
+			age = 8*time.Hour + time.Duration(r.Int64N(int64(16*time.Hour)))
+		default:
+			age = 24*time.Hour + time.Duration(r.Int64N(int64(72*time.Hour)))
+		}
+		at := now.Add(-age)
+		stations[len(stations)-1] = append(stations[len(stations)-1], at, statusSince)
 		for _, pr := range products {
 			if r.Float64() >= pr.sellPct {
 				continue
@@ -305,34 +337,24 @@ func generate(ctx context.Context, tx pgx.Tx, count int, r *rand.Rand, tz *time.
 					qty = int32(1 + r.IntN(120)) //nolint:gosec // borné
 				}
 			}
-			var age time.Duration
-			switch x := r.Float64(); {
-			case x < 0.70:
-				age = time.Duration(r.Int64N(int64(8 * time.Hour)))
-			case x < 0.90:
-				age = 8*time.Hour + time.Duration(r.Int64N(int64(16*time.Hour)))
-			default:
-				age = 24*time.Hour + time.Duration(r.Int64N(int64(72*time.Hour)))
-			}
-			at := now.Add(-age)
 			stocks = append(stocks, []any{id, pr.id, qty, at, at})
 		}
 	}
 
 	if _, err := tx.Exec(ctx, `CREATE TEMP TABLE seed_stations (
 		id uuid, status text, name text, brand text, ifu text, rccm text, address text, city text, phone text,
-		lat float8, lng float8, h3_r8 bigint) ON COMMIT DROP`); err != nil {
+		lat float8, lng float8, h3_r8 bigint, last_update timestamptz, status_since timestamptz) ON COMMIT DROP`); err != nil {
 		return err
 	}
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"seed_stations"},
-		[]string{"id", "status", "name", "brand", "ifu", "rccm", "address", "city", "phone", "lat", "lng", "h3_r8"},
+		[]string{"id", "status", "name", "brand", "ifu", "rccm", "address", "city", "phone", "lat", "lng", "h3_r8", "last_update", "status_since"},
 		pgx.CopyFromRows(stations)); err != nil {
 		return fmt.Errorf("copy stations: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO stations (id, status, name, brand, ifu, rccm, address, city, phone,
-		location, location_set_at, h3_r8, is_demo, reviewed_at, last_stock_update_at)
+		location, location_set_at, h3_r8, is_demo, reviewed_at, last_stock_update_at, status_changed_at)
 		SELECT id, status::station_status, name, brand, ifu, rccm, address, city, phone,
-		       ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography, now(), h3_r8, true, now(), now()
+		       ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography, now(), h3_r8, true, now(), last_update, status_since
 		FROM seed_stations`); err != nil {
 		return fmt.Errorf("insert stations: %w", err)
 	}

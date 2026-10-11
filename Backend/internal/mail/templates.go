@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	htmltemplate "html/template"
+	"strings"
 	texttemplate "text/template"
 	"time"
 )
@@ -128,6 +129,16 @@ const (
 	// Rappels de stock ignorés de suite : arrêt pour la journée (étape 6).
 	StationRemindersPaused StationStatusChange = "reminders_paused"
 )
+
+// StationCorrected prévient le gérant que l'admin a corrigé les informations de sa station
+// (fields : libellés français des champs modifiés), avec le motif.
+func (r *Renderer) StationCorrected(to, firstName, stationName string, fields []string, reason string) (Message, error) {
+	d := templateData{FirstName: firstName, Reason: reason, Title: "Informations corrigées", Badge: "Informations corrigées", Tone: "info"}
+	d.Lead = "L'équipe GoStation a corrigé les informations de « " + stationName + " » : " + strings.Join(fields, ", ") + "."
+	d.Next = "Vérifiez votre fiche dans l'application. Si une information est inexacte, répondez à l'équipe GoStation."
+	d.Preheader = d.Lead
+	return r.render(tmplStationStatus, to, "Informations de votre station corrigées – GoStation", d)
+}
 
 // StationStatus notifie le gérant d'une décision de l'admin sur sa station. Le statut est porté
 // par un libellé, jamais par la seule couleur.

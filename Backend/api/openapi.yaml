@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoStation API
-  version: 0.6.0
+  version: 0.7.0
   summary: Trouver la station la plus proche qui a le produit recherché en stock (Bénin).
   description: |
     API REST de GoStation. Source des types générés pour les clients mobile (Expo) et web (admin).
@@ -11,6 +11,10 @@ info:
       s'appuient sur ce code, jamais sur `title`/`detail` (anglais, pour les développeurs).
     - Authentification : `Authorization: Bearer <accessToken>` (mobile) ; l'admin web utilise des
       cookies httpOnly et doit renvoyer le jeton CSRF dans `X-CSRF-Token` sur les requêtes non GET.
+      Les routes `/api/v1/admin/*` n'acceptent que la session web (cookie, 2FA passée) : un Bearer y
+      est refusé (403), le CSRF est donc toujours contrôlé.
+    - Listes paginées par curseur : `?limit=&cursor=` → `{ items, nextCursor }`. Les routes admin
+      refusent les paramètres de requête inconnus ou répétés (400 `request.invalid_parameter`).
     - Access token : JWT EdDSA (Ed25519) de 15 min, clés publiques sur `/.well-known/jwks.json`.
       Refresh token opaque, renouvelé à chaque usage ; réutiliser un ancien token révoque la session.
       Les clients doivent sérialiser leurs appels à `/auth/refresh` (un seul à la fois).
@@ -47,7 +51,17 @@ tags:
   - name: manager
     description: Espace gérant (station approuvée uniquement)
   - name: admin
-    description: Back-office (session admin ouverte après 2FA)
+    description: Back-office (session web admin ouverte après 2FA, cookie + CSRF)
+  - name: admin-stats
+    description: Tableau de bord, stats des recherches et carte des pénuries (k-anonymat ≥ 5)
+  - name: admin-users
+    description: Comptes (liste, fiche, désactivation, réactivation, renvoi du code)
+  - name: admin-catalog
+    description: Catalogue produits (création, libellé, ordre, activation ; aucune suppression)
+  - name: admin-audit
+    description: Journal d'audit en lecture seule
+  - name: admin-exports
+    description: Exports CSV/JSON générés par le worker, lien signé valable 1 h, fichiers supprimés à 24 h
 
 paths:
   /healthz:
@@ -1100,17 +1114,93 @@ paths:
               schema: { $ref: "#/components/schemas/MuteResponse" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v1/admin/dashboard:
+    get:
+      tags: [admin, admin-stats]
+      operationId: getAdminDashboard
+      summary: Tableau de bord en un appel (indicateurs, évolution sur la période précédente, séries)
+      description: |
+        Période : 24 h (par heure), 7 jours (défaut) ou 30 jours (jours locaux, aujourd'hui compris jusqu'à
+        maintenant ; la période précédente s'arrête à la même heure), ou plage `custom` de dates locales.
+        `change` = évolution relative (null si la période précédente vaut 0). Zones en pénurie : cellules H3
+        res 7 d'au moins 5 recherches (k-anonymat) dont 50 % ou plus n'ont trouvé aucune station ouverte à 5 km.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Period"
+        - $ref: "#/components/parameters/PeriodFrom"
+        - $ref: "#/components/parameters/PeriodTo"
+      responses:
+        "200":
+          description: Indicateurs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/stats/searches:
+    get:
+      tags: [admin, admin-stats]
+      operationId: getAdminSearchStats
+      summary: Séries des recherches et répartition par heure de la journée, tous lieux confondus
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Period"
+        - $ref: "#/components/parameters/PeriodFrom"
+        - $ref: "#/components/parameters/PeriodTo"
+        - $ref: "#/components/parameters/ProductFilter"
+      responses:
+        "200":
+          description: Stats des recherches
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/stats/shortages:
+    get:
+      tags: [admin, admin-stats]
+      operationId: getAdminShortages
+      summary: Carte des pénuries (GeoJSON des cellules H3 res 7 et de leur taux)
+      description: |
+        Une cellule n'apparaît que si l'agrégat affiché (cellule, produit filtré ou tous produits, période)
+        compte au moins `k` = 5 recherches ; les autres sont masquées (`maskedCells`). `shortage` = au moins
+        50 % des recherches sans station ouverte à 5 km.
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Period"
+        - $ref: "#/components/parameters/PeriodFrom"
+        - $ref: "#/components/parameters/PeriodTo"
+        - $ref: "#/components/parameters/ProductFilter"
+        - { name: onlyShortages, in: query, description: Ne renvoyer que les cellules en pénurie, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: FeatureCollection
+          content:
+            application/geo+json:
+              schema: { $ref: "#/components/schemas/ShortageMap" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
   /api/v1/admin/stations:
     get:
       tags: [admin]
       operationId: listAdminStations
-      summary: Stations d'un statut, les plus récentes d'abord (pagination par curseur)
+      summary: Stations d'un statut (ou toutes), les plus récentes d'abord (pagination par curseur)
       description: Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié.
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [] }]
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, suspended], default: pending } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, suspended, all], default: pending } }
         - { name: q, in: query, description: Recherche par nom (contient) ou IFU (préfixe), schema: { type: string, maxLength: 100 } }
         - { name: needsReview, in: query, description: Épingle signalée ou demande de déplacement en attente, schema: { type: boolean } }
+        - { name: freshness, in: query, description: "Dernière saisie ou confirmation des stocks : stale (8 à 24 h), expired (plus de 24 h ou jamais)", schema: { type: string, enum: [stale, expired] } }
+        - { name: managerInactive, in: query, description: "Alerte « gérant inactif » ouverte", schema: { type: boolean } }
+        - { name: noHours, in: query, description: Aucun horaire renseigné, schema: { type: boolean } }
+        - { name: reported, in: query, description: Effet de signalement en cours (badge ou exclusion), schema: { type: boolean } }
         - { name: cursor, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
       responses:
@@ -1123,12 +1213,30 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/stations/map:
+    get:
+      tags: [admin]
+      operationId: getAdminStationMap
+      summary: GeoJSON léger de toutes les stations épinglées (statut, fraîcheur, signalée), regroupement côté client
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [all, pending, approved, rejected, suspended], default: all } }
+      responses:
+        "200":
+          description: FeatureCollection de points
+          content:
+            application/geo+json:
+              schema: { $ref: "#/components/schemas/StationMap" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
   /api/v1/admin/stations/{id}:
     get:
       tags: [admin]
       operationId: getAdminStation
       summary: Détail d'une station (gérant, signalement, demande de déplacement)
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }]
       responses:
         "200":
@@ -1140,12 +1248,42 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [admin]
+      operationId: correctAdminStation
+      summary: Corrige les informations d'une station (motif obligatoire, audit, email au gérant)
+      description: |
+        Nom, marque, adresse, ville, téléphone, IFU, RCCM. Le statut ne change pas (l'admin est le valideur).
+        Aucune modification des stocks par l'admin. Exige If-Match.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/StationId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminUpdateStationRequest" }
+      responses:
+        "200":
+          description: Station corrigée
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminStation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /api/v1/admin/stations/{id}/approve:
     post:
       tags: [admin]
       operationId: approveStation
       summary: Approuve une station pending (email du gérant vérifié requis) ; email au gérant
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
       responses:
         "200":
@@ -1166,7 +1304,7 @@ paths:
       tags: [admin]
       operationId: rejectStation
       summary: Rejette une station pending (motif obligatoire) ; email au gérant
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
       requestBody: { $ref: "#/components/requestBodies/Reason" }
       responses:
@@ -1188,7 +1326,7 @@ paths:
       tags: [admin]
       operationId: suspendStation
       summary: Suspend une station approuvée (motif obligatoire) ; email au gérant
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
       requestBody: { $ref: "#/components/requestBodies/Reason" }
       responses:
@@ -1210,7 +1348,7 @@ paths:
       tags: [admin]
       operationId: unsuspendStation
       summary: Lève la suspension (motif obligatoire) ; email au gérant
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
       requestBody: { $ref: "#/components/requestBodies/Reason" }
       responses:
@@ -1232,7 +1370,7 @@ paths:
       tags: [admin]
       operationId: approveLocationRequest
       summary: Valide une demande de déplacement (nouvelle position et cellule H3 appliquées)
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/LocationRequestId" }, { $ref: "#/components/parameters/IfMatch" }]
       responses:
         "200":
@@ -1253,7 +1391,7 @@ paths:
       tags: [admin]
       operationId: rejectLocationRequest
       summary: Refuse une demande de déplacement (motif obligatoire)
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/LocationRequestId" }, { $ref: "#/components/parameters/IfMatch" }]
       requestBody: { $ref: "#/components/requestBodies/Reason" }
       responses:
@@ -1275,7 +1413,7 @@ paths:
       tags: [admin]
       operationId: dismissLocationFlag
       summary: Lève le signalement d'une épingle éloignée de l'appareil du gérant
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }, { $ref: "#/components/parameters/IfMatch" }]
       responses:
         "200":
@@ -1296,7 +1434,7 @@ paths:
       tags: [admin]
       operationId: getStationDocument
       summary: Justificatif IFU déchiffré (téléchargement, audité)
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/StationId"
       responses:
@@ -1319,7 +1457,7 @@ paths:
       tags: [admin, reports]
       operationId: listAdminReports
       summary: Signalements, les plus récents d'abord, avec auteur et commentaire (modération)
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [] }]
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [open, resolved, dismissed] } }
         - { name: stationId, in: query, schema: { type: string, format: uuid } }
@@ -1340,7 +1478,7 @@ paths:
       tags: [admin, reports]
       operationId: resolveReport
       summary: Marque un signalement ouvert comme traité (ses effets restent jusqu'à la mise à jour du gérant)
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/ReportId" }]
       requestBody:
         required: false
@@ -1364,7 +1502,7 @@ paths:
       operationId: dismissReport
       summary: Classe un signalement ouvert sans suite, éventuellement comme abusif
       description: L'effet de sa cause (badge, exclusion) est recalculé sur les signalements encore ouverts.
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/ReportId" }]
       requestBody:
         required: false
@@ -1387,7 +1525,7 @@ paths:
       tags: [admin, reports]
       operationId: banReporter
       summary: Retire le droit de signaler à un utilisateur (après abus)
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/UserId" }]
       requestBody:
         required: true
@@ -1400,23 +1538,30 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
-    delete:
-      tags: [admin, reports]
-      operationId: unbanReporter
-      summary: Rend le droit de signaler
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+  /api/v1/admin/users/{id}/reporting-ban/lift:
+    post:
+      tags: [admin, reports, admin-users]
+      operationId: liftReportingBan
+      summary: Rend le droit de signaler (motif obligatoire, audité)
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/UserId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportingBanRequest" }
       responses:
         "204": { description: Droit rendu }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
   /api/v1/admin/alerts:
     get:
       tags: [admin]
       operationId: listAdminAlerts
       summary: Alertes admin (gérant inactif, seuil de 5 signalements), les plus récentes d'abord
-      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [] }]
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [open, resolved, all], default: open } }
         - { name: kind, in: query, schema: { type: string, enum: [manager_inactive, reports_threshold] } }
@@ -1437,7 +1582,7 @@ paths:
       tags: [admin]
       operationId: resolveAdminAlert
       summary: Clôt une alerte (elles se résolvent aussi seules à la mise à jour des stocks du gérant)
-      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      security: [{ cookieAuth: [], csrfToken: [] }]
       parameters: [{ $ref: "#/components/parameters/AlertId" }]
       requestBody:
         required: false
@@ -1455,6 +1600,280 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/users:
+    get:
+      tags: [admin, admin-users]
+      operationId: listAdminUsers
+      summary: Comptes, les plus récents d'abord (recherche par nom ou email, filtres)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: q, in: query, description: "Recherche dans l'email, le prénom, le nom ou « prénom nom »", schema: { type: string, maxLength: 100 } }
+        - { name: role, in: query, schema: { type: string, enum: [user, manager, admin] } }
+        - { name: status, in: query, schema: { type: string, enum: [active, disabled, pending_deletion] } }
+        - { name: emailVerified, in: query, schema: { type: boolean } }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de comptes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/users/{id}:
+    get:
+      tags: [admin, admin-users]
+      operationId: getAdminUser
+      summary: Fiche d'un compte (profil, sessions actives, signalements, favoris)
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/UserId" }]
+      responses:
+        "200":
+          description: Compte
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/users/{id}/disable:
+    post:
+      tags: [admin, admin-users]
+      operationId: disableUser
+      summary: Désactive un compte (sessions et appareils révoqués, connexion refusée par `auth.account_disabled`)
+      description: Motif obligatoire, audité. Les comptes admin se gèrent par la CLI (403 `user.admin_protected`).
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: "#/components/parameters/UserId" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: Compte désactivé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/users/{id}/reactivate:
+    post:
+      tags: [admin, admin-users]
+      operationId: reactivateUser
+      summary: Réactive un compte désactivé (motif obligatoire, audité)
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: "#/components/parameters/UserId" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "200":
+          description: Compte réactivé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/users/{id}/resend-verification:
+    post:
+      tags: [admin, admin-users]
+      operationId: resendUserVerification
+      summary: Renvoie le code de vérification de l'email (compte actif non vérifié ; 1/min et 5/h)
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: "#/components/parameters/UserId" }]
+      requestBody: { $ref: "#/components/requestBodies/Reason" }
+      responses:
+        "202": { description: Code envoyé }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/admin/products:
+    get:
+      tags: [admin, admin-catalog]
+      operationId: listAdminProducts
+      summary: Catalogue complet, désactivés compris, dans l'ordre d'affichage
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 100 } }
+      responses:
+        "200":
+          description: Page de produits
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminProductPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [admin, admin-catalog]
+      operationId: createProduct
+      summary: Crée un produit (type et taille figés ensuite ; code dérivé, ex. lpg_12_5kg)
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProductRequest" }
+      responses:
+        "201":
+          description: Produit créé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminProduct" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/products/{id}:
+    patch:
+      tags: [admin, admin-catalog]
+      operationId: updateProduct
+      summary: Modifie le libellé, l'ordre d'affichage ou l'activation (aucune suppression)
+      description: |
+        `kind`, `unit`, `sizeKg` et `code` sont refusés (422, code de champ `immutable`). Un produit désactivé
+        sort de la recherche, du catalogue public et des choix du gérant ; ses stocks et son historique restent.
+        Le cache de recherche du produit est invalidé.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: "#/components/parameters/ProductId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProductRequest" }
+      responses:
+        "200":
+          description: Produit modifié
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminProduct" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/audit:
+    get:
+      tags: [admin, admin-audit]
+      operationId: listAuditLogs
+      summary: Journal d'audit, en lecture seule (les entrées les plus récentes d'abord)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: actorId, in: query, schema: { type: string, format: uuid } }
+        - { name: action, in: query, description: "Action exacte, ou préfixe terminé par `*` (`admin.*`)", schema: { type: string, maxLength: 65 } }
+        - { name: entityType, in: query, description: "Type de cible : station, user, report, product, export…", schema: { type: string, maxLength: 32 } }
+        - { name: entityId, in: query, schema: { type: string, maxLength: 64 } }
+        - { name: from, in: query, description: "Date (YYYY-MM-DD, minuit local) ou instant RFC 3339", schema: { type: string } }
+        - { name: to, in: query, description: "Date (incluse) ou instant RFC 3339 (exclu)", schema: { type: string } }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page du journal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/exports:
+    get:
+      tags: [admin, admin-exports]
+      operationId: listExports
+      summary: Exports récents, les plus récents d'abord
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page d'exports
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [admin, admin-exports]
+      operationId: createExport
+      summary: Lance un export (généré par le worker, fichier chiffré supprimé 24 h après sa génération)
+      description: |
+        Jeux : `stations` (avec IFU et RCCM), `stocks` (actuels), `search_stats` (agrégées par cellule et produit,
+        seuil k ≥ 5), `reports` (auteur pseudonymisé, jamais l'email), `audit`. CSV UTF-8 avec BOM, séparateur
+        « ; », décimaux à virgule, dates en heure locale (Excel en français) ; ou JSON. Période (`from`, `to`,
+        dates locales incluses, 30 derniers jours par défaut, 366 jours au plus) pour `search_stats`, `reports`
+        et `audit` ; `productId` pour `search_stats`. Jamais la liste des utilisateurs. Audité.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportRequest" }
+      responses:
+        "202":
+          description: Export en attente de génération
+          headers:
+            Location: { description: URL de l'export, schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Export" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /api/v1/admin/exports/{id}:
+    get:
+      tags: [admin, admin-exports]
+      operationId: getExport
+      summary: Statut d'un export et, s'il est prêt, lien de téléchargement signé valable 1 h
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ExportId" }]
+      responses:
+        "200":
+          description: Export
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Export" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/exports/{id}/download:
+    get:
+      tags: [admin, admin-exports]
+      operationId: downloadExport
+      summary: Télécharge le fichier (lien signé valable 1 h et session admin ; audité)
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+        - { name: expires, in: query, required: true, schema: { type: integer, description: Échéance du lien (secondes Unix) } }
+        - { name: signature, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Fichier (pièce jointe, jamais mis en cache)
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "410": { $ref: "#/components/responses/Gone" }
 
 components:
   securitySchemes:
@@ -1532,6 +1951,35 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    ExportId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Period:
+      name: period
+      in: query
+      description: "24h (par heure), 7d (défaut), 30d (jours locaux, aujourd'hui compris), custom (avec from et to)"
+      schema: { type: string, enum: ["24h", "7d", "30d", custom], default: "7d" }
+    PeriodFrom:
+      name: from
+      in: query
+      description: Premier jour local (period=custom uniquement)
+      schema: { type: string, format: date }
+    PeriodTo:
+      name: to
+      in: query
+      description: "Dernier jour local inclus, au plus aujourd'hui ; 366 jours au plus (period=custom uniquement)"
+      schema: { type: string, format: date }
+    ProductFilter:
+      name: productId
+      in: query
+      schema: { type: integer, minimum: 1 }
     Cursor:
       name: cursor
       in: query
@@ -1593,7 +2041,7 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     Forbidden:
-      description: "Interdit (`auth.forbidden`, `auth.csrf_failed`, `auth.email_not_verified`, `station.not_approved`)"
+      description: "Interdit (`auth.forbidden`, `auth.csrf_failed`, `auth.email_not_verified`, `auth.account_disabled`, `station.not_approved`, `user.admin_protected`, `export.invalid_signature`)"
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -1603,7 +2051,7 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
     Conflict:
-      description: "Conflit (`auth.email_taken`, `resource.conflict`, `station.invalid_status_transition`, `station.manager_email_unverified`, `station.closure_exists`)"
+      description: "Conflit (`auth.email_taken`, `resource.conflict`, `station.invalid_status_transition`, `station.manager_email_unverified`, `station.closure_exists`, `user.invalid_status`, `user.already_verified`, `product.already_exists`, `export.not_ready`)"
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -1619,6 +2067,16 @@ components:
           schema: { $ref: "#/components/schemas/Problem" }
     ValidationFailed:
       description: "Validation échouée (`request.validation_failed`, détail par champ dans `errors`), `upload.invalid_file`, `station.location_outside_country`, `station.no_products_sold`"
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Gone:
+      description: "Lien expiré (`export.link_expired`) ou fichier supprimé après 24 h (`export.expired`)"
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ServiceUnavailable:
+      description: Dépendance indisponible (`service.unavailable`)
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
@@ -2263,7 +2721,8 @@ components:
         reason: { type: string, minLength: 3, maxLength: 500 }
     AdminStationSummary:
       type: object
-      required: [id, name, brand, ifu, city, status, version, location, managerEmailVerified, locationFlagged, hasPendingMove, createdAt, updatedAt]
+      required: [id, name, brand, ifu, city, status, version, location, managerEmailVerified, locationFlagged, hasPendingMove,
+        hasOpeningHours, lastStockUpdateAt, freshness, reported, managerInactive, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -2279,6 +2738,11 @@ components:
         managerEmailVerified: { type: boolean }
         locationFlagged: { type: boolean }
         hasPendingMove: { type: boolean }
+        hasOpeningHours: { type: boolean }
+        lastStockUpdateAt: { type: [string, "null"], format: date-time }
+        freshness: { $ref: "#/components/schemas/StationFreshness" }
+        reported: { type: boolean }
+        managerInactive: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     AdminStationPage:
@@ -2300,7 +2764,7 @@ components:
         emailVerified: { type: boolean }
     AdminStation:
       type: object
-      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, createdAt, updatedAt]
+      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, statusChangedAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending, approved, rejected, suspended] }
@@ -2333,6 +2797,7 @@ components:
             - $ref: "#/components/schemas/AdminManager"
             - type: "null"
         lastStockUpdateAt: { type: [string, "null"], format: date-time }
+        statusChangedAt: { type: string, format: date-time, description: Dernier changement de statut }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     DeviceRequest:
@@ -2620,3 +3085,421 @@ components:
       required: [mutedUntil]
       properties:
         mutedUntil: { type: string, format: date-time }
+    Period:
+      type: object
+      required: [key, from, to, previousFrom, previousTo, granularity, timezone]
+      properties:
+        key: { type: string, enum: ["24h", "7d", "30d", custom] }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time, description: Exclu }
+        previousFrom: { type: string, format: date-time }
+        previousTo: { type: string, format: date-time }
+        granularity: { type: string, enum: [hour, day], description: Tranches des séries }
+        timezone: { type: string, examples: ["Africa/Porto-Novo"] }
+    KPI:
+      type: object
+      required: [value, previous, change]
+      properties:
+        value: { type: number }
+        previous: { type: number, description: Même indicateur sur la période précédente }
+        change: { type: [number, "null"], description: "Évolution relative (0.25 = +25 %) ; null si previous vaut 0" }
+    ProductCodeRef:
+      type: object
+      required: [id, code, label]
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        label: { type: string }
+    SearchSeriesPoint:
+      type: object
+      required: [at, searches, emptySearches, byProduct]
+      properties:
+        at: { type: string, format: date-time, description: "Début de la tranche (heure, ou minuit local)" }
+        searches: { type: integer }
+        emptySearches: { type: integer, description: Recherches sans station ouverte à 5 km }
+        byProduct: { type: object, additionalProperties: { type: integer }, description: Recherches par code produit }
+    FreshnessPoint:
+      type: object
+      required: [at, fresh, stale, expired]
+      properties:
+        at: { type: string, format: date-time }
+        fresh: { type: [integer, "null"], description: Moyenne des relevés horaires ; null si aucun relevé }
+        stale: { type: [integer, "null"] }
+        expired: { type: [integer, "null"] }
+    Zone:
+      type: object
+      required: [cell, center, searches, emptySearches, emptyRate]
+      properties:
+        cell: { type: string, description: Index H3 res 7 hexadécimal }
+        center: { $ref: "#/components/schemas/LatLng" }
+        searches: { type: integer }
+        emptySearches: { type: integer }
+        emptyRate: { type: number }
+    Dashboard:
+      type: object
+      required: [period, stations, stockFreshness, inactiveManagers, searches, shortages, reports, alerts, registrations, series]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        stations:
+          type: object
+          required: [byStatus, pendingApplications]
+          properties:
+            byStatus:
+              type: object
+              description: "Stations par statut (un dossier pending ne compte qu'une fois l'email du gérant vérifié)"
+              additionalProperties: { type: integer }
+            pendingApplications:
+              type: object
+              required: [count, oldestSince, oldestAgeS]
+              properties:
+                count: { type: integer }
+                oldestSince: { type: [string, "null"], format: date-time, description: Passage en attente du plus vieux dossier }
+                oldestAgeS: { type: [integer, "null"] }
+        stockFreshness:
+          type: object
+          description: "Stocks des stations approuvées : frais (< 8 h), stale (8 à 24 h), exclus (> 24 h)"
+          required: [fresh, stale, expired, total, freshShare, staleShare, expiredShare]
+          properties:
+            fresh: { type: integer }
+            stale: { type: integer }
+            expired: { type: integer }
+            total: { type: integer }
+            freshShare: { type: number }
+            staleShare: { type: number }
+            expiredShare: { type: number }
+        inactiveManagers: { type: integer, description: "Alertes « gérant inactif » ouvertes" }
+        searches:
+          type: object
+          required: [total, byProduct, emptyRate]
+          properties:
+            total: { $ref: "#/components/schemas/KPI" }
+            byProduct:
+              type: array
+              items:
+                allOf:
+                  - $ref: "#/components/schemas/KPI"
+                  - type: object
+                    required: [product]
+                    properties:
+                      product: { $ref: "#/components/schemas/ProductCodeRef" }
+            emptyRate: { $ref: "#/components/schemas/KPI" }
+        shortages:
+          type: object
+          required: [zones, top, k, threshold]
+          properties:
+            zones: { type: integer }
+            top: { type: array, items: { $ref: "#/components/schemas/Zone" }, description: "10 au plus, par recherches sans résultat" }
+            k: { type: integer, examples: [5] }
+            threshold: { type: number, examples: [0.5] }
+        reports:
+          type: object
+          required: [open, created]
+          properties:
+            open: { type: integer }
+            created: { $ref: "#/components/schemas/KPI" }
+        alerts:
+          type: object
+          required: [open, byKind]
+          properties:
+            open: { type: integer }
+            byKind: { type: object, additionalProperties: { type: integer } }
+        registrations:
+          type: object
+          required: [users, managers]
+          properties:
+            users: { $ref: "#/components/schemas/KPI" }
+            managers: { $ref: "#/components/schemas/KPI" }
+        series:
+          type: object
+          required: [searches, freshness]
+          properties:
+            searches: { type: array, items: { $ref: "#/components/schemas/SearchSeriesPoint" } }
+            freshness: { type: array, items: { $ref: "#/components/schemas/FreshnessPoint" } }
+    SearchStats:
+      type: object
+      required: [period, productId, totals, series, byHourOfDay]
+      properties:
+        period: { $ref: "#/components/schemas/Period" }
+        productId: { type: [integer, "null"] }
+        totals:
+          type: object
+          required: [searches, emptyRate]
+          properties:
+            searches: { $ref: "#/components/schemas/KPI" }
+            emptyRate: { $ref: "#/components/schemas/KPI" }
+        series: { type: array, items: { $ref: "#/components/schemas/SearchSeriesPoint" } }
+        byHourOfDay:
+          type: array
+          description: 24 éléments, heure locale
+          items:
+            type: object
+            required: [hour, searches, emptySearches]
+            properties:
+              hour: { type: integer, minimum: 0, maximum: 23 }
+              searches: { type: integer }
+              emptySearches: { type: integer }
+    ShortageMap:
+      type: object
+      required: [type, period, productId, k, threshold, maskedCells, features]
+      properties:
+        type: { type: string, const: FeatureCollection }
+        period: { $ref: "#/components/schemas/Period" }
+        productId: { type: [integer, "null"] }
+        k: { type: integer, description: Recherches minimum d'une cellule affichée }
+        threshold: { type: number, description: Part de recherches sans station ouverte à 5 km d'une zone en pénurie }
+        maskedCells: { type: integer, description: Cellules masquées (moins de k recherches) }
+        features:
+          type: array
+          items:
+            type: object
+            required: [type, id, geometry, properties]
+            properties:
+              type: { type: string, const: Feature }
+              id: { type: string, description: Index H3 res 7 hexadécimal }
+              geometry:
+                type: object
+                required: [type, coordinates]
+                properties:
+                  type: { type: string, const: Polygon }
+                  coordinates:
+                    type: array
+                    description: Un anneau fermé de positions [lng, lat]
+                    items: { type: array, items: { type: array, items: { type: number }, minItems: 2, maxItems: 2 } }
+              properties:
+                type: object
+                required: [cell, searches, emptySearches, emptyRate, shortage]
+                properties:
+                  cell: { type: string }
+                  searches: { type: integer }
+                  emptySearches: { type: integer }
+                  emptyRate: { type: number }
+                  shortage: { type: boolean }
+    StationMap:
+      type: object
+      required: [type, features]
+      properties:
+        type: { type: string, const: FeatureCollection }
+        features:
+          type: array
+          items:
+            type: object
+            required: [type, id, geometry, properties]
+            properties:
+              type: { type: string, const: Feature }
+              id: { type: string, format: uuid }
+              geometry:
+                type: object
+                required: [type, coordinates]
+                properties:
+                  type: { type: string, const: Point }
+                  coordinates: { type: array, items: { type: number }, minItems: 2, maxItems: 2, description: "[lng, lat]" }
+              properties:
+                type: object
+                required: [name, status, freshness, reported]
+                properties:
+                  name: { type: string }
+                  status: { type: string, enum: [pending, approved, rejected, suspended] }
+                  freshness: { $ref: "#/components/schemas/StationFreshness" }
+                  reported: { type: boolean }
+    StationFreshness:
+      type: string
+      enum: [fresh, stale, expired, none]
+      description: "Dernière saisie ou confirmation des stocks : < 8 h, 8 à 24 h, > 24 h, jamais"
+    AdminUpdateStationRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 2, maxLength: 120 }
+        brand: { type: string, maxLength: 60, description: Chaîne vide = efface }
+        address: { type: string, minLength: 5, maxLength: 255 }
+        city: { type: string, maxLength: 100, description: Chaîne vide = efface }
+        phone: { type: string, description: "E.164, ex. +2290190000000" }
+        ifu: { type: string, pattern: "^[0-9]{13}$" }
+        rccm: { type: string }
+        reason: { type: string, minLength: 3, maxLength: 500, description: "Motif de la correction (email au gérant, audit)" }
+    AdminUserSummary:
+      type: object
+      required: [id, role, status, email, firstName, lastName, emailVerified, reportingBanned, lastLoginAt, disabledAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [user, manager, admin] }
+        status: { type: string, enum: [active, disabled, pending_deletion] }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        emailVerified: { type: boolean }
+        reportingBanned: { type: boolean }
+        lastLoginAt: { type: [string, "null"], format: date-time }
+        disabledAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    AdminUserPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AdminUserSummary" } }
+        nextCursor: { type: [string, "null"] }
+    AdminUser:
+      type: object
+      required: [id, role, status, email, firstName, lastName, emailVerified, emailVerifiedAt, privacyPolicyVersion, privacyAcceptedAt,
+        twoFactorEnabled, lastLoginAt, passwordChangedAt, disabledAt, disabledReason, reportingBannedAt, reportingBanReason,
+        deletionRequestedAt, activeSessions, devices, reports, favorites, station, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [user, manager, admin] }
+        status: { type: string, enum: [active, disabled, pending_deletion] }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        emailVerified: { type: boolean }
+        emailVerifiedAt: { type: [string, "null"], format: date-time }
+        privacyPolicyVersion: { type: string }
+        privacyAcceptedAt: { type: string, format: date-time }
+        twoFactorEnabled: { type: boolean }
+        lastLoginAt: { type: [string, "null"], format: date-time }
+        passwordChangedAt: { type: [string, "null"], format: date-time }
+        disabledAt: { type: [string, "null"], format: date-time }
+        disabledReason: { type: [string, "null"] }
+        reportingBannedAt: { type: [string, "null"], format: date-time }
+        reportingBanReason: { type: [string, "null"] }
+        deletionRequestedAt: { type: [string, "null"], format: date-time }
+        activeSessions: { type: integer }
+        devices: { type: integer, description: Appareils push enregistrés }
+        reports:
+          type: object
+          required: [total, abusive]
+          properties:
+            total: { type: integer }
+            abusive: { type: integer }
+        favorites: { type: integer }
+        station:
+          oneOf:
+            - type: object
+              required: [id, name, status]
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: string }
+                status: { type: string, enum: [pending, approved, rejected, suspended] }
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AdminProduct:
+      type: object
+      required: [id, code, kind, unit, sizeKg, label, active, sortOrder, stations, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        code: { type: string, examples: ["lpg_12_5kg"] }
+        kind: { type: string, enum: [lpg, petrol, diesel] }
+        unit: { type: string, enum: [cylinder, liter] }
+        sizeKg: { type: [number, "null"] }
+        label: { type: string }
+        active: { type: boolean }
+        sortOrder: { type: integer }
+        stations: { type: integer, description: Stations qui vendent le produit }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AdminProductPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AdminProduct" } }
+        nextCursor: { type: [string, "null"] }
+    CreateProductRequest:
+      type: object
+      required: [kind, label]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [lpg, petrol, diesel] }
+        sizeKg: { type: number, minimum: 0.5, maximum: 100, multipleOf: 0.01, description: "Obligatoire pour le gaz, interdite pour les carburants" }
+        label: { type: string, minLength: 2, maxLength: 60 }
+        sortOrder: { type: integer, minimum: 0, maximum: 9999, description: "Défaut : après le dernier produit" }
+        active: { type: boolean, default: true }
+    UpdateProductRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label: { type: string, minLength: 2, maxLength: 60 }
+        sortOrder: { type: integer, minimum: 0, maximum: 9999 }
+        active: { type: boolean }
+    AuditEntry:
+      type: object
+      required: [id, actor, action, entityType, entityId, metadata, requestId, createdAt]
+      properties:
+        id: { type: string }
+        actor:
+          oneOf:
+            - type: object
+              required: [id, role, firstName, lastName, email]
+              properties:
+                id: { type: string, format: uuid }
+                role: { type: [string, "null"] }
+                firstName: { type: [string, "null"] }
+                lastName: { type: [string, "null"] }
+                email: { type: [string, "null"] }
+            - type: "null"
+        action: { type: string, examples: ["admin.station_approved"] }
+        entityType: { type: string }
+        entityId: { type: [string, "null"] }
+        metadata: { type: object, additionalProperties: true }
+        requestId: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+    AuditPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+        nextCursor: { type: [string, "null"] }
+    ExportRequest:
+      type: object
+      required: [dataset]
+      additionalProperties: false
+      properties:
+        dataset: { type: string, enum: [stations, stocks, search_stats, reports, audit] }
+        format: { type: string, enum: [csv, json], default: csv }
+        from: { type: string, format: date, description: "search_stats, reports, audit (défaut : il y a 29 jours)" }
+        to: { type: string, format: date, description: "Inclus, au plus aujourd'hui (défaut : aujourd'hui)" }
+        productId: { type: integer, description: search_stats uniquement }
+    Export:
+      type: object
+      required: [id, dataset, format, params, status, error, rowCount, sizeBytes, requestedBy, createdAt, completedAt, expiresAt, download]
+      properties:
+        id: { type: string, format: uuid }
+        dataset: { type: string, enum: [stations, stocks, search_stats, reports, audit] }
+        format: { type: string, enum: [csv, json] }
+        params:
+          type: object
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+            productId: { type: integer }
+        status: { type: string, enum: [pending, ready, failed, expired] }
+        error: { type: [string, "null"], enum: [too_many_rows, generation_failed, timeout, queue_unavailable, null] }
+        rowCount: { type: [integer, "null"] }
+        sizeBytes: { type: [integer, "null"] }
+        requestedBy:
+          oneOf:
+            - type: object
+              required: [id, firstName, lastName]
+              properties:
+                id: { type: string, format: uuid }
+                firstName: { type: string }
+                lastName: { type: string }
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, "null"], format: date-time }
+        expiresAt: { type: [string, "null"], format: date-time, description: Suppression du fichier (24 h après la génération) }
+        download:
+          oneOf:
+            - type: object
+              required: [url, expiresAt]
+              properties:
+                url: { type: string, description: Chemin signé (à appeler avec la session admin) }
+                expiresAt: { type: string, format: date-time, description: Fin de validité du lien (1 h) }
+            - type: "null"
+    ExportPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Export" } }
+        nextCursor: { type: [string, "null"] }

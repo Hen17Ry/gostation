@@ -275,14 +275,14 @@ func (s *Service) UpdateStocks(ctx context.Context, a Actor, expected int32, ite
 				return fmt.Errorf("station: stock history: %w", err)
 			}
 		}
-		cleared, err = stockActivity(ctx, q, st.ID)
+		cleared, err = stockActivity(ctx, q, st.ID, sold)
 		return err
 	})
 	if err != nil {
 		return StocksView{}, err
 	}
 	// Toute la saisie vaut confirmation : la fraîcheur de chaque produit vendu change. Des effets
-	// de signalement levés (badge, exclusion) peuvent concerner toute la station.
+	// de signalement levés (badge, exclusion) peuvent concerner toute la station (fermeture).
 	s.invalidate(ctx, cleared, sold...)
 	s.restocked(ctx, stationID, replenished)
 	s.Log.DebugContext(ctx, "station: stocks updated", slog.String("station_id", stationID.String()), slog.Int("changed", changed))
@@ -315,7 +315,7 @@ func (s *Service) ConfirmStocks(ctx context.Context, a Actor, expected int32) (S
 		if _, err := q.ConfirmStationStocks(ctx, dbgen.ConfirmStationStocksParams{StationID: st.ID, UpdatedBy: &a.UserID}); err != nil {
 			return fmt.Errorf("station: confirm stocks: %w", err)
 		}
-		cleared, err = stockActivity(ctx, q, st.ID)
+		cleared, err = stockActivity(ctx, q, st.ID, sold)
 		return err
 	})
 	if err != nil {
@@ -326,35 +326,80 @@ func (s *Service) ConfirmStocks(ctx context.Context, a Actor, expected int32) (S
 	return s.Stocks(ctx, a.UserID)
 }
 
-// Résolution enregistrée sur les alertes admin levées par l'activité du gérant.
-const resolvedByActivity = "Resolved by a stock update or confirmation."
+// Notes de clôture automatique des signalements et de résolution des alertes admin.
+const (
+	closedByStockActivity  = "Closed by a stock update or confirmation."
+	closedByLocationChange = "Closed by a location change."
+	resolvedByActivity     = "Resolved by a stock update or confirmation."
+)
+
+// reportCauses désigne les causes de signalement qu'une action du gérant vient de traiter : des
+// motifs entiers (station_closed, wrong_location) et des ruptures de produits (out_of_stock).
+type reportCauses struct {
+	reasons    []string
+	productIDs []int16
+	note       string
+}
+
+// closeReports clôt, dans la transaction, les signalements ouverts des causes traitées, lève leurs
+// effets (badge, exclusion) et résout leurs alertes « seuil de signalements ». « Autre » n'en fait
+// jamais partie : seul l'admin le clôt. Renvoie true si des effets ont été levés.
+func closeReports(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID, c reportCauses) (bool, error) {
+	reasons, products := c.reasons, c.productIDs
+	if reasons == nil {
+		reasons = []string{}
+	}
+	if products == nil {
+		products = []int16{}
+	}
+	if _, err := q.CloseReportsForCauses(ctx, dbgen.CloseReportsForCausesParams{
+		StationID: stationID, Note: &c.note, Reasons: reasons, ProductIds: products,
+	}); err != nil {
+		return false, fmt.Errorf("station: close reports: %w", err)
+	}
+	flags, err := q.DeleteReportFlagsForCauses(ctx, dbgen.DeleteReportFlagsForCausesParams{
+		StationID: stationID, Reasons: reasons, ProductIds: products,
+	})
+	if err != nil {
+		return false, fmt.Errorf("station: clear report flags: %w", err)
+	}
+	if _, err := q.AutoResolveReportAlerts(ctx, dbgen.AutoResolveReportAlertsParams{
+		StationID: stationID, Resolution: &c.note, Reasons: reasons, ProductIds: products,
+	}); err != nil {
+		return false, fmt.Errorf("station: resolve report alerts: %w", err)
+	}
+	return len(flags) > 0, nil
+}
 
 // stockActivity enregistre une mise à jour ou une confirmation du gérant, dans sa transaction :
-// fraîcheur de la station, fin des rappels « ignorés », clôture des signalements ouverts et de
-// leurs effets (badge, exclusion), résolution des alertes admin devenues sans objet (gérant
-// inactif, seuil de signalements). Renvoie true si des effets de signalement ont été levés.
-func stockActivity(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID) (bool, error) {
+// fraîcheur de la station, fin des rappels « ignorés » et de l'alerte « gérant inactif », clôture
+// des signalements que la saisie traite (rupture des produits saisis ou confirmés, station fermée)
+// et de leurs effets. Renvoie true si des effets de signalement ont été levés.
+func stockActivity(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID, products []int16) (bool, error) {
 	if err := q.TouchStationStockActivity(ctx, stationID); err != nil {
 		return false, fmt.Errorf("station: touch stock activity: %w", err)
 	}
 	if err := q.ResetReminderStreak(ctx, stationID); err != nil {
 		return false, fmt.Errorf("station: reset reminder streak: %w", err)
 	}
-	if _, err := q.CloseStationReports(ctx, stationID); err != nil {
-		return false, fmt.Errorf("station: close reports: %w", err)
-	}
-	flags, err := q.DeleteStationReportFlags(ctx, stationID)
-	if err != nil {
-		return false, fmt.Errorf("station: clear report flags: %w", err)
-	}
 	resolution := resolvedByActivity
 	if _, err := q.AutoResolveAdminAlerts(ctx, dbgen.AutoResolveAdminAlertsParams{
-		StationID: stationID, Resolution: &resolution,
-		Kinds: []string{string(dbgen.AdminAlertKindManagerInactive), string(dbgen.AdminAlertKindReportsThreshold)},
+		StationID: stationID, Resolution: &resolution, Kinds: []string{string(dbgen.AdminAlertKindManagerInactive)},
 	}); err != nil {
 		return false, fmt.Errorf("station: resolve admin alerts: %w", err)
 	}
-	return len(flags) > 0, nil
+	return closeReports(ctx, q, stationID, reportCauses{
+		reasons: []string{string(dbgen.ReportReasonStationClosed)}, productIDs: products, note: closedByStockActivity,
+	})
+}
+
+// locationChanged clôt les signalements « position incorrecte » quand la position active change
+// (correction du gérant, déplacement validé par l'admin).
+func locationChanged(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID) error {
+	_, err := closeReports(ctx, q, stationID, reportCauses{
+		reasons: []string{string(dbgen.ReportReasonWrongLocation)}, note: closedByLocationChange,
+	})
+	return err
 }
 
 // restocked déclenche les alertes « de retour en stock » (produits passés de 0 à plus de 0),

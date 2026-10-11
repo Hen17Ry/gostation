@@ -51,6 +51,7 @@ type Deps struct {
 	Favorites     *handler.Favorites
 	Reports       *handler.Reports
 	Reminders     *handler.Reminders
+	Admin         *handler.Admin
 	EmailVerifier middleware.EmailVerifier
 	StationStatus middleware.StationStatusReader
 }
@@ -116,7 +117,7 @@ func New(cfg Config, d Deps) http.Handler {
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(
 			middleware.Timeout(cfg.RequestTimeout),
-			chimw.Compress(5, "application/json", respond.ContentTypeProblem),
+			chimw.Compress(5, "application/json", respond.ContentTypeProblem, respond.ContentTypeGeoJSON, "text/csv"),
 			middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
 				Name: "ip", Limit: cfg.IPRateLimit, Window: cfg.IPRateWindow, Key: middleware.ByClientIP,
 			}, d.Log, rs),
@@ -225,11 +226,18 @@ func New(cfg Config, d Deps) http.Handler {
 				})
 			})
 
-			// Admin : session ouverte après 2FA uniquement (RequireRole vérifie le claim mfa).
+			// Admin : session web ouverte après 2FA uniquement (RequireRole vérifie le claim mfa),
+			// authentifiée par cookie, donc jeton CSRF exigé sur toute écriture.
+			adm := d.Admin
 			j.Group(func(ad chi.Router) {
-				ad.Use(d.Authenticator.Require, middleware.RequireRole(rs, roleAdmin))
+				ad.Use(d.Authenticator.Require, middleware.RequireRole(rs, roleAdmin), middleware.RequireCookieSession(rs))
+				ad.Get("/admin/dashboard", h(adm.Dashboard))
+				ad.Get("/admin/stats/searches", h(adm.SearchStats))
+				ad.Get("/admin/stats/shortages", h(adm.Shortages))
 				ad.Get("/admin/stations", h(st.AdminList))
+				ad.Get("/admin/stations/map", h(st.AdminMap))
 				ad.Get("/admin/stations/{id}", h(st.AdminDetail))
+				ad.Patch("/admin/stations/{id}", h(st.AdminUpdate))
 				ad.Get("/admin/stations/{id}/document", h(st.AdminDocument))
 				ad.Post("/admin/stations/{id}/approve", h(st.Approve()))
 				ad.Post("/admin/stations/{id}/reject", h(st.Reject()))
@@ -241,10 +249,23 @@ func New(cfg Config, d Deps) http.Handler {
 				ad.Get("/admin/reports", h(d.Reports.AdminList))
 				ad.Post("/admin/reports/{id}/resolve", h(d.Reports.Resolve))
 				ad.Post("/admin/reports/{id}/dismiss", h(d.Reports.Dismiss))
-				ad.Post("/admin/users/{id}/reporting-ban", h(d.Reports.Ban))
-				ad.Delete("/admin/users/{id}/reporting-ban", h(d.Reports.Unban))
 				ad.Get("/admin/alerts", h(d.Reports.Alerts))
 				ad.Post("/admin/alerts/{id}/resolve", h(d.Reports.ResolveAlert))
+				ad.Get("/admin/users", h(adm.Users))
+				ad.Get("/admin/users/{id}", h(adm.User))
+				ad.Post("/admin/users/{id}/disable", h(adm.DisableUser))
+				ad.Post("/admin/users/{id}/reactivate", h(adm.ReactivateUser))
+				ad.Post("/admin/users/{id}/resend-verification", h(adm.ResendVerification))
+				ad.Post("/admin/users/{id}/reporting-ban", h(d.Reports.Ban))
+				ad.Post("/admin/users/{id}/reporting-ban/lift", h(d.Reports.Unban))
+				ad.Get("/admin/products", h(adm.Products))
+				ad.Post("/admin/products", h(adm.CreateProduct))
+				ad.Patch("/admin/products/{id}", h(adm.UpdateProduct))
+				ad.Get("/admin/audit", h(adm.Audit))
+				ad.Get("/admin/exports", h(adm.Exports))
+				ad.Post("/admin/exports", h(adm.CreateExport))
+				ad.Get("/admin/exports/{id}", h(adm.Export))
+				ad.Get("/admin/exports/{id}/download", h(adm.DownloadExport))
 			})
 		})
 	})

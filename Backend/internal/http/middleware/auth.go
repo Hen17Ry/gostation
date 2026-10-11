@@ -135,6 +135,20 @@ func RequireRole(rs *respond.Responder, roles ...string) func(http.Handler) http
 	}
 }
 
+// RequireCookieSession réserve une route à l'admin web : authentification par cookie de session,
+// donc jeton CSRF exigé sur toute écriture. Un access token présenté en Bearer y est refusé.
+func RequireCookieSession(rs *respond.Responder) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if p, ok := httpctx.PrincipalFrom(r.Context()); !ok || !p.ViaCookie {
+				rs.Error(w, r, apperr.New(http.StatusForbidden, apperr.CodeForbidden, "Admin routes require the web session (cookie and CSRF token)."))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // EmailVerifier lit l'état de vérification de l'email en base (*auth.Service).
 type EmailVerifier interface {
 	EmailVerified(ctx context.Context, uid uuid.UUID) (bool, error)

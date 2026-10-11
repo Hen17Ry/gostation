@@ -7,7 +7,81 @@ package dbgen
 
 import (
 	"context"
+	"time"
 )
+
+const createProduct = `-- name: CreateProduct :one
+INSERT INTO products (code, kind, unit, size_kg, label_fr, is_active, sort_order)
+VALUES ($1, $2, $3, $4, $5, $6,
+        COALESCE($7::smallint, (SELECT COALESCE(max(sort_order), 0) + 10 FROM products)::smallint))
+RETURNING id
+`
+
+type CreateProductParams struct {
+	Code      string      `json:"code"`
+	Kind      ProductKind `json:"kind"`
+	Unit      ProductUnit `json:"unit"`
+	SizeKg    *float64    `json:"sizeKg"`
+	LabelFr   string      `json:"labelFr"`
+	IsActive  bool        `json:"isActive"`
+	SortOrder *int16      `json:"sortOrder"`
+}
+
+// Ordre d'affichage par défaut : après le dernier produit.
+func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (int16, error) {
+	row := q.db.QueryRow(ctx, createProduct,
+		arg.Code,
+		arg.Kind,
+		arg.Unit,
+		arg.SizeKg,
+		arg.LabelFr,
+		arg.IsActive,
+		arg.SortOrder,
+	)
+	var id int16
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getProductForAdmin = `-- name: GetProductForAdmin :one
+SELECT p.id, p.code, p.kind, p.unit, p.size_kg, p.label_fr, p.is_active, p.sort_order, p.created_at, p.updated_at,
+       (SELECT count(*) FROM station_stocks ss WHERE ss.product_id = p.id)::int AS stations
+FROM products p
+WHERE p.id = $1
+`
+
+type GetProductForAdminRow struct {
+	ID        int16       `json:"id"`
+	Code      string      `json:"code"`
+	Kind      ProductKind `json:"kind"`
+	Unit      ProductUnit `json:"unit"`
+	SizeKg    *float64    `json:"sizeKg"`
+	LabelFr   string      `json:"labelFr"`
+	IsActive  bool        `json:"isActive"`
+	SortOrder int16       `json:"sortOrder"`
+	CreatedAt time.Time   `json:"createdAt"`
+	UpdatedAt time.Time   `json:"updatedAt"`
+	Stations  int32       `json:"stations"`
+}
+
+func (q *Queries) GetProductForAdmin(ctx context.Context, id int16) (GetProductForAdminRow, error) {
+	row := q.db.QueryRow(ctx, getProductForAdmin, id)
+	var i GetProductForAdminRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Kind,
+		&i.Unit,
+		&i.SizeKg,
+		&i.LabelFr,
+		&i.IsActive,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Stations,
+	)
+	return i, err
+}
 
 const listActiveProducts = `-- name: ListActiveProducts :many
 SELECT id, code, kind, unit, size_kg, label_fr, sort_order
@@ -53,4 +127,97 @@ func (q *Queries) ListActiveProducts(ctx context.Context) ([]ListActiveProductsR
 		return nil, err
 	}
 	return items, nil
+}
+
+const listProductsForAdmin = `-- name: ListProductsForAdmin :many
+SELECT p.id, p.code, p.kind, p.unit, p.size_kg, p.label_fr, p.is_active, p.sort_order, p.created_at, p.updated_at,
+       (SELECT count(*) FROM station_stocks ss WHERE ss.product_id = p.id)::int AS stations
+FROM products p
+WHERE $1::smallint IS NULL
+   OR (p.sort_order, p.id) > ($1::smallint, $2::smallint)
+ORDER BY p.sort_order, p.id
+LIMIT $3
+`
+
+type ListProductsForAdminParams struct {
+	CursorSort *int16 `json:"cursorSort"`
+	CursorID   *int16 `json:"cursorId"`
+	PageSize   int32  `json:"pageSize"`
+}
+
+type ListProductsForAdminRow struct {
+	ID        int16       `json:"id"`
+	Code      string      `json:"code"`
+	Kind      ProductKind `json:"kind"`
+	Unit      ProductUnit `json:"unit"`
+	SizeKg    *float64    `json:"sizeKg"`
+	LabelFr   string      `json:"labelFr"`
+	IsActive  bool        `json:"isActive"`
+	SortOrder int16       `json:"sortOrder"`
+	CreatedAt time.Time   `json:"createdAt"`
+	UpdatedAt time.Time   `json:"updatedAt"`
+	Stations  int32       `json:"stations"`
+}
+
+// Catalogue complet (désactivés compris), avec le nombre de stations qui vendent chaque produit.
+// Curseur (sort_order, id) croissants.
+func (q *Queries) ListProductsForAdmin(ctx context.Context, arg ListProductsForAdminParams) ([]ListProductsForAdminRow, error) {
+	rows, err := q.db.Query(ctx, listProductsForAdmin, arg.CursorSort, arg.CursorID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProductsForAdminRow
+	for rows.Next() {
+		var i ListProductsForAdminRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.Kind,
+			&i.Unit,
+			&i.SizeKg,
+			&i.LabelFr,
+			&i.IsActive,
+			&i.SortOrder,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Stations,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateProduct = `-- name: UpdateProduct :execrows
+UPDATE products
+SET label_fr   = COALESCE($1, label_fr),
+    sort_order = COALESCE($2::smallint, sort_order),
+    is_active  = COALESCE($3::boolean, is_active)
+WHERE id = $4
+`
+
+type UpdateProductParams struct {
+	LabelFr   *string `json:"labelFr"`
+	SortOrder *int16  `json:"sortOrder"`
+	IsActive  *bool   `json:"isActive"`
+	ID        int16   `json:"id"`
+}
+
+// Seuls le libellé, l'ordre et l'activation changent : type, unité, taille et code sont figés.
+func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateProduct,
+		arg.LabelFr,
+		arg.SortOrder,
+		arg.IsActive,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

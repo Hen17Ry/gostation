@@ -13,11 +13,13 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 6. Routage uniquement via notre OSRM auto-hébergé ; tuiles uniquement OpenFreeMap. Aucune API cartographique propriétaire.
 7. **Auth** : email vérifié par code à 6 chiffres (obligatoire pour signaler, favoris, notifications) ; 2FA TOTP obligatoire pour les admins ; réponses génériques (anti-énumération) sur login, forgot et resend ; toute action sensible écrit dans `audit_logs`.
 8. Les justificatifs IFU sont chiffrés (envelope AES-256-GCM) et ne sont jamais servis publiquement : seuls les admins les lisent, via un endpoint dédié et audité.
-9. **Stocks** : « non vendu » (pas de ligne) ≠ « 0 en stock ». Fraîcheur = `GREATEST(updated_at, last_confirmed_at)` : stale au-delà de 8 h, exclu de la recherche au-delà de 24 h. Toute écriture de stock, statut, horaires, fermeture, produits vendus ou position invalide le cache de recherche.
+9. **Stocks** : « non vendu » (pas de ligne) ≠ « 0 en stock ». Fraîcheur = `GREATEST(updated_at, last_confirmed_at)` : stale au-delà de 8 h, exclu de la recherche au-delà de 24 h. Toute écriture de stock, statut, horaires, fermeture, produits vendus, position, informations de station ou catalogue invalide le cache de recherche. L'admin ne modifie jamais les stocks.
 10. **Recherche** : couverture = Bénin (OSRM), jusqu'à 30 km au-delà de la frontière (vol d'oiseau, `routingApproximate`), sinon 422 `search.out_of_coverage`. Le cache Redis ne contient que l'ensemble des stations candidates par (cellule H3 res 8, produit) ; le classement depuis la position exacte (OSRM `/table`) n'est jamais mis en cache ni journalisé. **Aucun lat/lng dans les logs** (le journal d'accès masque les valeurs de la query string hors liste blanche, `lat=***&lng=***` ; les erreurs OSRM sont expurgées de leur URL) : un test le vérifie.
 11. **Itinéraire** : l'API renvoie des étapes structurées sans texte ; le mobile les traduit en français avec `osrm-text-instructions` (langue `fr`).
 12. **Notifications** (worker asynq) : l'API ne fait que mettre en file. Les emails voyagent chiffrés dans Redis ; aucune adresse, aucun token push, aucun texte de notification dans les logs (le Pusher factice ne journalise que le type). Un appareil push est lié à sa session : révocation ou logout = token supprimé.
-13. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
+13. **Admin** : toutes les routes `/api/v1/admin/*` exigent la session web (cookie, 2FA passée, Bearer refusé), donc le jeton CSRF sur toute écriture. Validation stricte (champ JSON ou paramètre de requête inconnu → erreur), pagination par curseur partout. Les actions admin sur un compte ou une station exigent un motif (sauf l'approbation d'un dossier) ; toute action admin qui modifie une donnée passe au journal d'audit.
+14. **Stats et exports admin** : une cellule H3 n'est montrée ou exportée qu'avec au moins **5 recherches** sur l'agrégat affiché (cellule × produit ou tous produits × période), sinon elle est masquée. Les exports (worker) sont chiffrés, supprimés 24 h après leur génération, téléchargés par un lien signé valable 1 h, audités ; jamais la liste des utilisateurs, jamais d'email (auteurs des signalements pseudonymisés).
+15. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
 
 ## Règles mobile
 
@@ -35,7 +37,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 |---|---|---|
 | `user` | Mobile | Recherche, fiche station et itinéraire **sans compte** (rate limit par IP). Un compte (prénom, nom, email, mot de passe) est requis pour signaler, gérer ses favoris et recevoir des notifications. |
 | `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone (vérifié manuellement par l'admin, pas d'OTP SMS en V1), justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin (email à chaque décision). Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié. Gérant `pending` ou `suspended` : il se connecte et voit son statut via `GET /me`, rien d'autre. Gérant `rejected` : il peut corriger ses informations et renvoyer un justificatif (retour en `pending`). Un changement d'IFU ou de RCCM renvoie la station en `pending`. Position : premier épinglage libre (signalé à l'admin si à plus de 500 m de l'appareil) ; ensuite, déplacement libre sous 200 m, au-delà validé par l'admin ; jamais hors du Bénin (marge de 2 km). Horaires : 2 plages par jour au plus, 24 h/24, fermetures exceptionnelles. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture (4 par jour au plus, sourdine jusqu'à la fermeture, arrêt et alerte admin après 3 rappels ignorés). Voit les signalements de sa station, sans leurs auteurs. |
-| `admin` | Web | Compte créé uniquement par la CLI `cmd/admin`, 2FA TOTP obligatoire. Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements (traité, classé abusif, retrait du droit de signaler), alertes (gérant inactif, seuil de signalements), stats, journal d'audit, demandes RGPD/APDP. |
+| `admin` | Web | Compte créé uniquement par la CLI `cmd/admin`, 2FA TOTP obligatoire, session web (cookie + CSRF). Tableau de bord (période 24 h / 7 j / 30 j / plage, évolution sur la période précédente), validation et correction des stations (motif, ETag, email au gérant ; jamais les stocks), carte des stations, filtres (stale, exclues, gérant inactif, sans horaires, signalée), zones de pénurie (≥ 50 % de recherches sans station ouverte à 5 km, k ≥ 5), stats des recherches, comptes (désactiver, réactiver, rétablir le droit de signaler, renvoyer le code ; motif et audit), catalogue produits (création ; libellé, ordre, activation ; aucune suppression), signalements (traité, classé abusif, retrait du droit de signaler), alertes (gérant inactif, seuil de signalements), journal d'audit, exports CSV/JSON, demandes RGPD/APDP (étape 9). |
 
 ## Monorepo
 
@@ -45,7 +47,7 @@ GoStation/
 ├── Mobile/             Expo React Native — app unique user + manager
 ├── Web/                Admin React (Vite)
 ├── docs/               ARCHITECTURE.md
-├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, bench.sh (+ bench/search.js k6), _lib.sh
+├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
 ├── Makefile            make help
 └── .env.example        source de vérité des variables (infra + backend)
@@ -86,10 +88,12 @@ make worker-up      # worker seul dans Docker (une seule instance : le scheduler
 make admin-create email=… first=… last=…   # crée un admin (mot de passe saisi au clavier, jamais en argument)
 make admin-reset-2fa email=…               # réinitialise la 2FA d'un admin
 
-# Recherche
-make seed-dev       # remplace les stations fictives (5 000 au Bénin, is_demo, dev uniquement ; RESET=1 pour supprimer)
+# Recherche et stats admin
+make seed-dev       # remplace les stations fictives (5 000 au Bénin, is_demo) et 30 jours de stats de recherche (dev uniquement ; RESET=1 pour supprimer)
 make explain-search # EXPLAIN ANALYZE des requêtes de recherche, vérifie l'index GiST
 make bench          # k6 (Docker) sur /search, 5 zones : p50/p95/p99 hors cache / avec cache / OSRM, taux de cache
+make explain-stats  # EXPLAIN ANALYZE des stats admin (agrégats journaliers et tous lieux, index de search_stats)
+make bench-stats    # p50/p95/p99 du tableau de bord, des stats et des cartes sur seed-dev (échoue si un p95 > 300 ms)
 scripts/with-env.sh <cmd>   # comme « . .env » mais sans écraser les variables déjà définies (surcharges ponctuelles)
 ```
 
@@ -130,10 +134,10 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
   - `internal/platform/{postgres,redis,osrm,h3,logging}` : clients d'infrastructure ; `internal/ratelimit` : fenêtre glissante Redis.
   - `internal/app` : assemblage (`NewServices`, `NewHandler`, `NewWorker`), partagé par `cmd/api`, `cmd/worker`, `cmd/admin` et les tests d'intégration.
   - `internal/jobs` (types de tâches, files, charges utiles, client de mise en file, backoff) et `internal/worker` (handlers asynq et scheduler). Les domaines ne dépendent pas d'asynq : ils déclarent de petites interfaces (`EnqueueEmail`, `EnqueuePush`…) que `jobs.Client` implémente.
-  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche), `internal/search` (recherche, fiche publique, itinéraire), `internal/searchstats` (compteurs anonymes et vidage), `internal/push` (Pusher Expo et factice), `internal/notification` (appareils, boîte de réception, préférences, livraison des push), `internal/reminder` (rappels de stock, sourdine), `internal/report` (signalements, seuils, modération, alertes admin), `internal/favorite` (favoris, alertes « de retour en stock »), `internal/retention` (purges de conservation).
+  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP, gestion des comptes par l'admin), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation, correction, carte et filtres admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche), `internal/search` (recherche, fiche publique, itinéraire), `internal/searchstats` (compteurs anonymes et vidage), `internal/push` (Pusher Expo et factice), `internal/notification` (appareils, boîte de réception, préférences, livraison des push), `internal/reminder` (rappels de stock, sourdine), `internal/report` (signalements, seuils, modération, alertes admin), `internal/favorite` (favoris, alertes « de retour en stock »), `internal/retention` (purges de conservation), `internal/analytics` (tableau de bord, stats, pénuries, relevé de fraîcheur), `internal/catalog` (catalogue produits admin), `internal/export` (exports admin : génération, chiffrement, lien signé, purge). `internal/pagination` : taille de page et curseurs communs.
   - `internal/platform/{crypto,storage,healthprobe}` : chiffrement (enveloppe, HKDF), stockage d'objets (local, S3 plus tard), sonde `/readyz` des healthchecks Docker.
   - `cmd/admin` : CLI des comptes admin (`create`, `reset-2fa`).
-  - `cmd/seed` : stations fictives de développement (`make seed-dev`, refuse hors `APP_ENV=development`).
+  - `cmd/seed` : stations fictives et 30 jours de stats de recherche de développement (`make seed-dev`, refuse hors `APP_ENV=development`) ; `cmd/benchstats` : latence des stats admin sur ce jeu (`make bench-stats`).
   - `api/openapi.yaml` : contrat OpenAPI 3.1, **mis à jour dans le même commit que toute route** (un test compare la spec aux routes servies). Les types des clients mobile et web en sont générés.
   - `db/migrations/` (goose, `YYYYMMDDHHMMSS_desc.sql` en **UTC**, créées par `make migrate-new`, toujours avec un Down, une migration de données à part) et `db/queries/` (sqlc). Les migrations sont embarquées (`db.Migrations`) pour les tests. Après modification d'une requête : `make sqlc`.
   - Piège SQL : un `CHECK` évalué à NULL passe. Toute condition sur une colonne nullable doit donc tester `IS NOT NULL` explicitement.
@@ -176,7 +180,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 
 ## Données personnelles (Code du numérique béninois, APDP)
 - **Minimisation** : on ne collecte que les champs listés ci-dessus.
-- **Position** : utilisée en mémoire le temps de la requête, puis oubliée. Le cache est indexé par cellule H3 res 8 (≈ 0,74 km²), jamais par coordonnées. Les stats sont agrégées par cellule H3 res 7 et par heure, affichées seulement au-delà d'un seuil k ≥ 5.
+- **Position** : utilisée en mémoire le temps de la requête, puis oubliée. Le cache est indexé par cellule H3 res 8 (≈ 0,74 km²), jamais par coordonnées. Les stats sont agrégées par cellule H3 res 7 et par heure (plus des agrégats par jour et tous lieux confondus), affichées et exportées seulement au-delà de k ≥ 5 recherches sur l'agrégat affiché.
 - **Consentement** : écran explicatif avant la permission système. L'app reste utilisable sans localisation (choix d'un point sur la carte).
 - **Suppression de compte** depuis l'app (`DELETE /me`) : désactivation immédiate, purge sous 30 jours.
 - **Justificatifs IFU** chiffrés (AES-256-GCM, chiffrement par enveloppe) ; chaque consultation par un admin est auditée.

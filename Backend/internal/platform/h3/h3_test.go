@@ -69,3 +69,25 @@ func TestCircumradiusCoversTheCell(t *testing.T) {
 		t.Errorf("Cotonou–Parakou = %.0f m", d)
 	}
 }
+
+func TestBoundaryIsClosedGeoJSONRing(t *testing.T) {
+	c, err := h3.CellAt(6.3703, 2.3912, h3.ResStats) // Cotonou
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring, err := h3.Boundary(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ring) != 7 || ring[0] != ring[6] {
+		t.Fatalf("ring = %v, want 6 vertices and a closing point", ring)
+	}
+	for _, p := range ring {
+		if p[0] < 2.3 || p[0] > 2.5 || p[1] < 6.3 || p[1] > 6.45 { // [lng, lat]
+			t.Fatalf("vertex %v is not [lng, lat] around Cotonou", p)
+		}
+	}
+	if !h3.Valid(h3.FromInt64(h3.ToInt64(c)), h3.ResStats) || h3.Valid(c, h3.ResSearchCache) || h3.Valid(h3.FromInt64(42), h3.ResStats) {
+		t.Error("Valid does not check the index and its resolution")
+	}
+}

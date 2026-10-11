@@ -8,9 +8,11 @@
 //   - 5 : exclusion de la recherche (du produit, ou de toute la station pour les autres motifs),
 //     alerte admin, notification au gérant.
 //
-// Une mise à jour ou une confirmation du gérant clôt les signalements ouverts et lève leurs effets
-// (station.stockActivity). Pour une rupture ou une fermeture, l'auteur doit être à 2 km au plus :
-// sa position ne sert qu'à ce contrôle, elle n'est ni stockée ni journalisée.
+// Clôture automatique (station.closeReports) : une mise à jour ou une confirmation des stocks clôt
+// les ruptures des produits concernés et « station fermée » ; un changement de position clôt
+// « position incorrecte » ; « autre » ne se clôt que par l'admin. Les effets des causes closes sont
+// levés. Pour une rupture ou une fermeture, l'auteur doit être à 2 km au plus : sa position ne sert
+// qu'à ce contrôle, elle n'est ni stockée ni journalisée.
 package report
 
 import (

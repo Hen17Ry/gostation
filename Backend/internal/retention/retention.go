@@ -7,7 +7,10 @@
 //   - comptes inactifs : relance à 24 mois, suppression à 36 mois ;
 //   - justificatifs : 12 mois après la fin d'activité, 90 jours après un rejet ;
 //   - signalements : 12 mois après résolution ; journal d'audit : 12 mois (rôle dédié) ;
-//   - historique des stocks : agrégation au-delà de 24 mois ; demandes APDP : 3 ans après clôture.
+//   - historique des stocks : agrégation au-delà de 24 mois ; demandes APDP : 3 ans après clôture ;
+//   - stats de recherche (horaires, journalières, tous lieux) et relevés de fraîcheur : 24 mois ;
+//   - demandes d'export admin (métadonnées) : 12 mois. Les fichiers d'export, eux, sont supprimés
+//     24 h après leur génération par la tâche export:purge (étape 7), pas ici.
 package retention
 
 import (

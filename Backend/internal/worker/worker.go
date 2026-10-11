@@ -1,6 +1,6 @@
 // Package worker exécute les tâches asynq de GoStation (cmd/worker) : envoi des emails et des
 // push, lecture des reçus Expo, alertes « de retour en stock », rappels de stock, vidage des stats
-// de recherche et purges de conservation.
+// de recherche, relevé de la fraîcheur des stocks, exports admin et purges de conservation.
 //
 // Le scheduler (tâches périodiques) tourne dans le même processus : il ne doit y avoir qu'une
 // seule instance du worker tant qu'il n'est pas séparé (ARCHITECTURE §7). Les tâches périodiques
@@ -18,6 +18,8 @@ import (
 	"github.com/hibiken/asynq"
 	goredis "github.com/redis/go-redis/v9"
 
+	"gostation/backend/internal/analytics"
+	"gostation/backend/internal/export"
 	"gostation/backend/internal/favorite"
 	"gostation/backend/internal/jobs"
 	"gostation/backend/internal/mail"
@@ -52,6 +54,8 @@ type Tasks struct {
 	Reminders     *reminder.Service
 	Favorites     *favorite.Service
 	Retention     *retention.Purger
+	Analytics     *analytics.Service
+	Exports       *export.Service
 }
 
 // Worker est le serveur asynq et son scheduler.
@@ -123,6 +127,15 @@ func (w *Worker) routes() {
 	w.mux.HandleFunc(jobs.TypeRetentionPurge, func(ctx context.Context, _ *asynq.Task) error {
 		return w.t.Retention.Run(ctx)
 	})
+	w.mux.HandleFunc(jobs.TypeFreshnessSnapshot, func(ctx context.Context, _ *asynq.Task) error {
+		_, err := w.t.Analytics.SnapshotFreshness(ctx)
+		return err
+	})
+	w.mux.HandleFunc(jobs.TypeExportGenerate, w.generateExport)
+	w.mux.HandleFunc(jobs.TypeExportPurge, func(ctx context.Context, _ *asynq.Task) error {
+		_, err := w.t.Exports.Purge(ctx)
+		return err
+	})
 }
 
 // schedule enregistre les tâches périodiques (heure locale : Africa/Porto-Novo).
@@ -136,6 +149,8 @@ func (w *Worker) schedule(cfg Config) error {
 		{"*/15 * * * *", jobs.TypeReleaseAlerts, []asynq.Option{asynq.Unique(14 * time.Minute), asynq.MaxRetry(1), asynq.Timeout(5 * time.Minute)}},
 		{"@every " + cfg.StatsFlushInterval.String(), jobs.TypeStatsFlush, []asynq.Option{asynq.Unique(cfg.StatsFlushInterval), asynq.MaxRetry(3), asynq.Timeout(time.Minute)}},
 		{"0 3 * * *", jobs.TypeRetentionPurge, []asynq.Option{asynq.Unique(23 * time.Hour), asynq.MaxRetry(3), asynq.Timeout(30 * time.Minute)}},
+		{"0 * * * *", jobs.TypeFreshnessSnapshot, []asynq.Option{asynq.Unique(55 * time.Minute), asynq.MaxRetry(2), asynq.Timeout(5 * time.Minute)}},
+		{"*/15 * * * *", jobs.TypeExportPurge, []asynq.Option{asynq.Unique(14 * time.Minute), asynq.MaxRetry(1), asynq.Timeout(5 * time.Minute)}},
 	}
 	for _, e := range entries {
 		opts := append([]asynq.Option{asynq.Queue(jobs.QueueLow)}, e.opts...)
@@ -208,6 +223,27 @@ func (w *Worker) checkReceipts(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 	return w.t.Notifications.CheckReceipts(ctx, p.Tickets)
+}
+
+// generateExport produit un export admin ; au dernier essai (ou sur un échec définitif), la demande
+// est déclarée échouée pour que l'admin ne l'attende pas indéfiniment.
+func (w *Worker) generateExport(ctx context.Context, t *asynq.Task) error {
+	p, err := jobs.Decode[jobs.ExportPayload](t)
+	if err != nil {
+		return err
+	}
+	err = w.t.Exports.Generate(ctx, p.ExportID)
+	if errors.Is(err, export.ErrPermanent) {
+		return jobs.SkipRetry(err)
+	}
+	if err != nil {
+		retried, _ := asynq.GetRetryCount(ctx)
+		maxRetry, _ := asynq.GetMaxRetry(ctx)
+		if retried >= maxRetry {
+			w.t.Exports.Fail(ctx, p.ExportID, "")
+		}
+	}
+	return err
 }
 
 func (w *Worker) backInStock(ctx context.Context, t *asynq.Task) error {

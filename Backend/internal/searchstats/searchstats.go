@@ -3,7 +3,8 @@
 // 5 km (signal de pénurie). Aucun identifiant utilisateur ni position exacte n'est enregistré.
 //
 // Les compteurs vivent dans Redis (stats:search:{heure} → HASH « cellule:produit:s|e ») et sont
-// vidés dans search_stats par la tâche périodique stats:flush du worker (asynq). Le vidage renomme d'abord chaque clé (passage de
+// vidés dans search_stats (et ses agrégats journalier et tous lieux, étape 7) par la tâche
+// périodique stats:flush du worker (asynq). Le vidage renomme d'abord chaque clé (passage de
 // relais atomique : les nouvelles recherches repartent sur une clé neuve), sous un verrou Redis
 // pour qu'une seule instance vide à la fois. Une tranche dont l'écriture en base échoue reste
 // en attente (suffixe :flushing) et repart au vidage suivant, sans perte.
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	goredis "github.com/redis/go-redis/v9"
 
 	"gostation/backend/internal/store"
@@ -63,16 +65,18 @@ func (r *Recorder) Record(ctx context.Context, cellR7 int64, productID int16, em
 	return nil
 }
 
-// Flusher vide les compteurs Redis dans search_stats.
+// Flusher vide les compteurs Redis dans search_stats et dans ses agrégats (search_stats_daily par
+// jour local, search_stats_totals tous lieux confondus), dans la même transaction.
 type Flusher struct {
 	rdb   goredis.UniversalClient
 	store *store.Store
+	loc   *time.Location
 	log   *slog.Logger
 }
 
-// NewFlusher construit le vidage.
-func NewFlusher(rdb goredis.UniversalClient, st *store.Store, log *slog.Logger) *Flusher {
-	return &Flusher{rdb: rdb, store: st, log: log}
+// NewFlusher construit le vidage ; loc fixe le jour local des agrégats journaliers.
+func NewFlusher(rdb goredis.UniversalClient, st *store.Store, loc *time.Location, log *slog.Logger) *Flusher {
+	return &Flusher{rdb: rdb, store: st, loc: loc, log: log}
 }
 
 type counter struct{ searches, empty int32 }
@@ -173,11 +177,33 @@ func (f *Flusher) flushKey(ctx context.Context, key string) (int, error) {
 			c.searches += int32(n) //nolint:gosec // idem
 		}
 	}
+	local := bucket.In(f.loc)
+	day := pgtype.Date{Time: time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+	totals := map[int16]*counter{}
 	err = f.store.InTx(ctx, func(q *dbgen.Queries) error {
 		for k, c := range agg {
+			product := int16(k[1]) //nolint:gosec // id produit smallint
 			if err := q.UpsertSearchStats(ctx, dbgen.UpsertSearchStatsParams{
-				Bucket: bucket, H3R7: k[0], ProductID: int16(k[1]), //nolint:gosec // id produit smallint
-				Searches: c.searches, EmptyWithin5km: c.empty,
+				Bucket: bucket, H3R7: k[0], ProductID: product, Searches: c.searches, EmptyWithin5km: c.empty,
+			}); err != nil {
+				return err
+			}
+			if err := q.UpsertSearchStatsDaily(ctx, dbgen.UpsertSearchStatsDailyParams{
+				Day: day, H3R7: k[0], ProductID: product, Searches: c.searches, EmptyWithin5km: c.empty,
+			}); err != nil {
+				return err
+			}
+			t := totals[product]
+			if t == nil {
+				t = &counter{}
+				totals[product] = t
+			}
+			t.searches += c.searches
+			t.empty += c.empty
+		}
+		for product, t := range totals {
+			if err := q.UpsertSearchStatsTotals(ctx, dbgen.UpsertSearchStatsTotalsParams{
+				Bucket: bucket, ProductID: product, Searches: t.searches, EmptyWithin5km: t.empty,
 			}); err != nil {
 				return err
 			}

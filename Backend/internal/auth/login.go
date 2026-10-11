@@ -15,7 +15,8 @@ import (
 )
 
 // checkCredentials vérifie email + mot de passe en temps constant, que le compte existe ou
-// non. Un compte désactivé ou en suppression échoue comme un mauvais mot de passe.
+// non. Un compte en suppression échoue comme un mauvais mot de passe ; un compte désactivé par
+// l'admin reçoit un message dédié, mais seulement avec le bon mot de passe (pas d'énumération).
 func (s *Service) checkCredentials(ctx context.Context, email, password string) (dbgen.GetUserByEmailRow, string, error) {
 	email = strings.TrimSpace(email)
 	u, err := s.Store.GetUserByEmail(ctx, email)
@@ -32,6 +33,9 @@ func (s *Service) checkCredentials(ctx context.Context, email, password string) 
 	}
 	if !ok {
 		return u, "bad_password", errInvalidCredentials()
+	}
+	if u.Status == dbgen.UserStatusDisabled {
+		return u, "disabled_account", errAccountDisabled()
 	}
 	if u.Status != dbgen.UserStatusActive {
 		return u, "inactive_account", errInvalidCredentials()

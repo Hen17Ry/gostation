@@ -72,3 +72,32 @@ func Haversine(lat1, lng1, lat2, lng2 float64) float64 {
 	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLng/2)*math.Sin(dLng/2)
 	return 2 * earthRadius * math.Asin(math.Min(1, math.Sqrt(a)))
 }
+
+// FromInt64 relit une cellule stockée en bigint (h3_r8, h3_r7). La validité n'est pas vérifiée :
+// utiliser Valid avant toute conversion géométrique d'une valeur externe.
+func FromInt64(v int64) Cell {
+	return Cell(v) //nolint:gosec // inverse de ToInt64
+}
+
+// Valid indique que la cellule est un index H3 valide de la résolution attendue.
+func Valid(c Cell, res int) bool {
+	return c.IsValid() && c.Resolution() == res
+}
+
+// Boundary renvoie le contour de la cellule en anneau GeoJSON fermé : positions [lng, lat]
+// (ordre GeoJSON), sens antihoraire, premier point répété à la fin.
+func Boundary(c Cell) ([][2]float64, error) {
+	b, err := uberh3.CellToBoundary(c)
+	if err != nil {
+		return nil, fmt.Errorf("h3: cell boundary: %w", err)
+	}
+	ring := make([][2]float64, 0, len(b)+1)
+	for _, v := range b {
+		ring = append(ring, [2]float64{round6(v.Lng), round6(v.Lat)})
+	}
+	return append(ring, ring[0]), nil
+}
+
+// round6 arrondit au micro-degré (≈ 11 cm) : précision bien suffisante pour un contour, et
+// GeoJSON plus léger.
+func round6(v float64) float64 { return math.Round(v*1e6) / 1e6 }

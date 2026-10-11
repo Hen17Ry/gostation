@@ -80,3 +80,45 @@ DELETE FROM device_tokens WHERE user_id = @user_id;
 
 -- name: DeleteUserFavorites :exec
 DELETE FROM favorites WHERE user_id = @user_id;
+
+-- name: ListUsersForAdmin :many
+-- Liste admin des comptes, les plus récents d'abord (curseur created_at, id). La recherche porte
+-- sur l'email, le prénom, le nom et « prénom nom ».
+SELECT u.id, u.role, u.status, u.email, u.first_name, u.last_name, u.email_verified_at,
+       u.last_login_at, u.disabled_at, u.reporting_banned_at, u.created_at
+FROM users u
+WHERE (sqlc.narg(role)::user_role IS NULL OR u.role = sqlc.narg(role)::user_role)
+  AND (sqlc.narg(status)::user_status IS NULL OR u.status = sqlc.narg(status)::user_status)
+  AND (sqlc.narg(email_verified)::boolean IS NULL OR (u.email_verified_at IS NOT NULL) = sqlc.narg(email_verified)::boolean)
+  AND (sqlc.narg(query)::text IS NULL
+       OR u.email::text ILIKE '%' || sqlc.narg(query)::text || '%' ESCAPE '\'
+       OR u.first_name ILIKE '%' || sqlc.narg(query)::text || '%' ESCAPE '\'
+       OR u.last_name ILIKE '%' || sqlc.narg(query)::text || '%' ESCAPE '\'
+       OR (u.first_name || ' ' || u.last_name) ILIKE '%' || sqlc.narg(query)::text || '%' ESCAPE '\')
+  AND (sqlc.narg(cursor_created_at)::timestamptz IS NULL
+       OR (u.created_at, u.id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid))
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT @page_size;
+
+-- name: GetUserForAdmin :one
+SELECT u.id, u.role, u.status, u.email, u.first_name, u.last_name, u.email_verified_at,
+       u.privacy_policy_version, u.privacy_accepted_at, u.last_login_at, u.password_changed_at, u.totp_enabled_at,
+       u.disabled_at, u.disabled_reason, u.reporting_banned_at, u.reporting_ban_reason, u.deletion_requested_at,
+       u.created_at, u.updated_at,
+       (SELECT count(*) FROM reports r WHERE r.reporter_id = u.id)::int AS reports_total,
+       (SELECT count(*) FROM reports r WHERE r.reporter_id = u.id AND r.abusive)::int AS reports_abusive,
+       (SELECT count(*) FROM favorites f WHERE f.user_id = u.id)::int AS favorites,
+       (SELECT count(*) FROM device_tokens d WHERE d.user_id = u.id)::int AS devices,
+       s.id AS station_id, s.name AS station_name, s.status AS station_status
+FROM users u
+LEFT JOIN stations s ON s.manager_id = u.id
+WHERE u.id = @id;
+
+-- name: DisableUser :execrows
+-- Les comptes admin se gèrent par la CLI : jamais désactivés ici.
+UPDATE users SET status = 'disabled', disabled_at = now(), disabled_reason = @reason
+WHERE id = @id AND status = 'active' AND role <> 'admin';
+
+-- name: ReactivateUser :execrows
+UPDATE users SET status = 'active', disabled_at = NULL, disabled_reason = NULL
+WHERE id = @id AND status = 'disabled';

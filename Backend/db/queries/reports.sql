@@ -53,14 +53,30 @@ UPDATE station_report_flags SET reporters = @reporters, excluded_at = sqlc.narg(
 -- name: DeleteReportFlag :exec
 DELETE FROM station_report_flags WHERE id = @id;
 
--- name: CloseStationReports :execrows
--- Mise à jour ou confirmation du gérant : clôture automatique des signalements ouverts.
-UPDATE reports
-SET status = 'resolved', resolution_note = 'Closed by a stock update or confirmation.', resolved_at = now()
-WHERE station_id = @station_id AND status = 'open';
+-- Clôture automatique par une action du gérant (étape 7) : une saisie ou une confirmation des
+-- stocks clôt les ruptures des produits concernés (product_ids) et « station fermée » ; un
+-- changement de position clôt « position incorrecte » (reasons). « Autre » ne se clôt que par
+-- l'admin. Les trois requêtes partagent le même filtre de causes.
 
--- name: DeleteStationReportFlags :many
-DELETE FROM station_report_flags WHERE station_id = @station_id RETURNING reason, product_id;
+-- name: CloseReportsForCauses :execrows
+UPDATE reports
+SET status = 'resolved', resolution_note = @note, resolved_at = now()
+WHERE station_id = @station_id AND status = 'open'
+  AND (reason::text = ANY(@reasons::text[])
+       OR (reason = 'out_of_stock' AND product_id = ANY(@product_ids::smallint[])));
+
+-- name: DeleteReportFlagsForCauses :many
+DELETE FROM station_report_flags
+WHERE station_id = @station_id
+  AND (reason::text = ANY(@reasons::text[])
+       OR (reason = 'out_of_stock' AND product_id = ANY(@product_ids::smallint[])))
+RETURNING reason, product_id;
+
+-- name: AutoResolveReportAlerts :execrows
+UPDATE admin_alerts SET resolved_at = now(), resolution = @resolution
+WHERE station_id = @station_id AND resolved_at IS NULL AND kind = 'reports_threshold'
+  AND (reason::text = ANY(@reasons::text[])
+       OR (reason = 'out_of_stock' AND product_id = ANY(@product_ids::smallint[])));
 
 -- name: ListStationReportFlags :many
 SELECT f.reason, f.product_id, p.label_fr AS product_label, f.reporters, f.flagged_at, f.excluded_at

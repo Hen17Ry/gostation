@@ -190,6 +190,195 @@ func AllDevicePlatformValues() []DevicePlatform {
 	}
 }
 
+type ExportDataset string
+
+const (
+	ExportDatasetStations    ExportDataset = "stations"
+	ExportDatasetStocks      ExportDataset = "stocks"
+	ExportDatasetSearchStats ExportDataset = "search_stats"
+	ExportDatasetReports     ExportDataset = "reports"
+	ExportDatasetAudit       ExportDataset = "audit"
+)
+
+func (e *ExportDataset) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExportDataset(s)
+	case string:
+		*e = ExportDataset(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExportDataset: %T", src)
+	}
+	return nil
+}
+
+type NullExportDataset struct {
+	ExportDataset ExportDataset `json:"exportDataset"`
+	Valid         bool          `json:"valid"` // Valid is true if ExportDataset is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExportDataset) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExportDataset, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExportDataset.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExportDataset) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExportDataset), nil
+}
+
+func (e ExportDataset) Valid() bool {
+	switch e {
+	case ExportDatasetStations,
+		ExportDatasetStocks,
+		ExportDatasetSearchStats,
+		ExportDatasetReports,
+		ExportDatasetAudit:
+		return true
+	}
+	return false
+}
+
+func AllExportDatasetValues() []ExportDataset {
+	return []ExportDataset{
+		ExportDatasetStations,
+		ExportDatasetStocks,
+		ExportDatasetSearchStats,
+		ExportDatasetReports,
+		ExportDatasetAudit,
+	}
+}
+
+type ExportFormat string
+
+const (
+	ExportFormatCsv  ExportFormat = "csv"
+	ExportFormatJson ExportFormat = "json"
+)
+
+func (e *ExportFormat) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExportFormat(s)
+	case string:
+		*e = ExportFormat(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExportFormat: %T", src)
+	}
+	return nil
+}
+
+type NullExportFormat struct {
+	ExportFormat ExportFormat `json:"exportFormat"`
+	Valid        bool         `json:"valid"` // Valid is true if ExportFormat is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExportFormat) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExportFormat, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExportFormat.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExportFormat) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExportFormat), nil
+}
+
+func (e ExportFormat) Valid() bool {
+	switch e {
+	case ExportFormatCsv,
+		ExportFormatJson:
+		return true
+	}
+	return false
+}
+
+func AllExportFormatValues() []ExportFormat {
+	return []ExportFormat{
+		ExportFormatCsv,
+		ExportFormatJson,
+	}
+}
+
+type ExportStatus string
+
+const (
+	ExportStatusPending ExportStatus = "pending"
+	ExportStatusReady   ExportStatus = "ready"
+	ExportStatusFailed  ExportStatus = "failed"
+	ExportStatusExpired ExportStatus = "expired"
+)
+
+func (e *ExportStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExportStatus(s)
+	case string:
+		*e = ExportStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExportStatus: %T", src)
+	}
+	return nil
+}
+
+type NullExportStatus struct {
+	ExportStatus ExportStatus `json:"exportStatus"`
+	Valid        bool         `json:"valid"` // Valid is true if ExportStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExportStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExportStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExportStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExportStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExportStatus), nil
+}
+
+func (e ExportStatus) Valid() bool {
+	switch e {
+	case ExportStatusPending,
+		ExportStatusReady,
+		ExportStatusFailed,
+		ExportStatusExpired:
+		return true
+	}
+	return false
+}
+
+func AllExportStatusValues() []ExportStatus {
+	return []ExportStatus{
+		ExportStatusPending,
+		ExportStatusReady,
+		ExportStatusFailed,
+		ExportStatusExpired,
+	}
+}
+
 type LocationRequestStatus string
 
 const (

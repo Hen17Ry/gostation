@@ -104,6 +104,25 @@ func (q *Queries) DeleteUserFavorites(ctx context.Context, userID uuid.UUID) err
 	return err
 }
 
+const disableUser = `-- name: DisableUser :execrows
+UPDATE users SET status = 'disabled', disabled_at = now(), disabled_reason = $1
+WHERE id = $2 AND status = 'active' AND role <> 'admin'
+`
+
+type DisableUserParams struct {
+	Reason *string   `json:"reason"`
+	ID     uuid.UUID `json:"id"`
+}
+
+// Les comptes admin se gèrent par la CLI : jamais désactivés ici.
+func (q *Queries) DisableUser(ctx context.Context, arg DisableUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, disableUser, arg.Reason, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const disableUserTOTP = `-- name: DisableUserTOTP :exec
 UPDATE users SET totp_secret_encrypted = NULL, totp_enabled_at = NULL
 WHERE id = $1
@@ -256,6 +275,168 @@ func (q *Queries) GetUserCredentials(ctx context.Context, id uuid.UUID) (GetUser
 	return i, err
 }
 
+const getUserForAdmin = `-- name: GetUserForAdmin :one
+SELECT u.id, u.role, u.status, u.email, u.first_name, u.last_name, u.email_verified_at,
+       u.privacy_policy_version, u.privacy_accepted_at, u.last_login_at, u.password_changed_at, u.totp_enabled_at,
+       u.disabled_at, u.disabled_reason, u.reporting_banned_at, u.reporting_ban_reason, u.deletion_requested_at,
+       u.created_at, u.updated_at,
+       (SELECT count(*) FROM reports r WHERE r.reporter_id = u.id)::int AS reports_total,
+       (SELECT count(*) FROM reports r WHERE r.reporter_id = u.id AND r.abusive)::int AS reports_abusive,
+       (SELECT count(*) FROM favorites f WHERE f.user_id = u.id)::int AS favorites,
+       (SELECT count(*) FROM device_tokens d WHERE d.user_id = u.id)::int AS devices,
+       s.id AS station_id, s.name AS station_name, s.status AS station_status
+FROM users u
+LEFT JOIN stations s ON s.manager_id = u.id
+WHERE u.id = $1
+`
+
+type GetUserForAdminRow struct {
+	ID                   uuid.UUID      `json:"id"`
+	Role                 UserRole       `json:"role"`
+	Status               UserStatus     `json:"status"`
+	Email                string         `json:"email"`
+	FirstName            string         `json:"firstName"`
+	LastName             string         `json:"lastName"`
+	EmailVerifiedAt      *time.Time     `json:"emailVerifiedAt"`
+	PrivacyPolicyVersion string         `json:"privacyPolicyVersion"`
+	PrivacyAcceptedAt    time.Time      `json:"privacyAcceptedAt"`
+	LastLoginAt          *time.Time     `json:"lastLoginAt"`
+	PasswordChangedAt    *time.Time     `json:"passwordChangedAt"`
+	TotpEnabledAt        *time.Time     `json:"totpEnabledAt"`
+	DisabledAt           *time.Time     `json:"disabledAt"`
+	DisabledReason       *string        `json:"disabledReason"`
+	ReportingBannedAt    *time.Time     `json:"reportingBannedAt"`
+	ReportingBanReason   *string        `json:"reportingBanReason"`
+	DeletionRequestedAt  *time.Time     `json:"deletionRequestedAt"`
+	CreatedAt            time.Time      `json:"createdAt"`
+	UpdatedAt            time.Time      `json:"updatedAt"`
+	ReportsTotal         int32          `json:"reportsTotal"`
+	ReportsAbusive       int32          `json:"reportsAbusive"`
+	Favorites            int32          `json:"favorites"`
+	Devices              int32          `json:"devices"`
+	StationID            *uuid.UUID     `json:"stationId"`
+	StationName          *string        `json:"stationName"`
+	StationStatus        *StationStatus `json:"stationStatus"`
+}
+
+func (q *Queries) GetUserForAdmin(ctx context.Context, id uuid.UUID) (GetUserForAdminRow, error) {
+	row := q.db.QueryRow(ctx, getUserForAdmin, id)
+	var i GetUserForAdminRow
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Status,
+		&i.Email,
+		&i.FirstName,
+		&i.LastName,
+		&i.EmailVerifiedAt,
+		&i.PrivacyPolicyVersion,
+		&i.PrivacyAcceptedAt,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
+		&i.TotpEnabledAt,
+		&i.DisabledAt,
+		&i.DisabledReason,
+		&i.ReportingBannedAt,
+		&i.ReportingBanReason,
+		&i.DeletionRequestedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ReportsTotal,
+		&i.ReportsAbusive,
+		&i.Favorites,
+		&i.Devices,
+		&i.StationID,
+		&i.StationName,
+		&i.StationStatus,
+	)
+	return i, err
+}
+
+const listUsersForAdmin = `-- name: ListUsersForAdmin :many
+SELECT u.id, u.role, u.status, u.email, u.first_name, u.last_name, u.email_verified_at,
+       u.last_login_at, u.disabled_at, u.reporting_banned_at, u.created_at
+FROM users u
+WHERE ($1::user_role IS NULL OR u.role = $1::user_role)
+  AND ($2::user_status IS NULL OR u.status = $2::user_status)
+  AND ($3::boolean IS NULL OR (u.email_verified_at IS NOT NULL) = $3::boolean)
+  AND ($4::text IS NULL
+       OR u.email::text ILIKE '%' || $4::text || '%' ESCAPE '\'
+       OR u.first_name ILIKE '%' || $4::text || '%' ESCAPE '\'
+       OR u.last_name ILIKE '%' || $4::text || '%' ESCAPE '\'
+       OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $4::text || '%' ESCAPE '\')
+  AND ($5::timestamptz IS NULL
+       OR (u.created_at, u.id) < ($5::timestamptz, $6::uuid))
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT $7
+`
+
+type ListUsersForAdminParams struct {
+	Role            *UserRole   `json:"role"`
+	Status          *UserStatus `json:"status"`
+	EmailVerified   *bool       `json:"emailVerified"`
+	Query           *string     `json:"query"`
+	CursorCreatedAt *time.Time  `json:"cursorCreatedAt"`
+	CursorID        *uuid.UUID  `json:"cursorId"`
+	PageSize        int32       `json:"pageSize"`
+}
+
+type ListUsersForAdminRow struct {
+	ID                uuid.UUID  `json:"id"`
+	Role              UserRole   `json:"role"`
+	Status            UserStatus `json:"status"`
+	Email             string     `json:"email"`
+	FirstName         string     `json:"firstName"`
+	LastName          string     `json:"lastName"`
+	EmailVerifiedAt   *time.Time `json:"emailVerifiedAt"`
+	LastLoginAt       *time.Time `json:"lastLoginAt"`
+	DisabledAt        *time.Time `json:"disabledAt"`
+	ReportingBannedAt *time.Time `json:"reportingBannedAt"`
+	CreatedAt         time.Time  `json:"createdAt"`
+}
+
+// Liste admin des comptes, les plus récents d'abord (curseur created_at, id). La recherche porte
+// sur l'email, le prénom, le nom et « prénom nom ».
+func (q *Queries) ListUsersForAdmin(ctx context.Context, arg ListUsersForAdminParams) ([]ListUsersForAdminRow, error) {
+	rows, err := q.db.Query(ctx, listUsersForAdmin,
+		arg.Role,
+		arg.Status,
+		arg.EmailVerified,
+		arg.Query,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersForAdminRow
+	for rows.Next() {
+		var i ListUsersForAdminRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Status,
+			&i.Email,
+			&i.FirstName,
+			&i.LastName,
+			&i.EmailVerifiedAt,
+			&i.LastLoginAt,
+			&i.DisabledAt,
+			&i.ReportingBannedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE users SET email_verified_at = now()
 WHERE id = $1 AND email_verified_at IS NULL
@@ -264,6 +445,19 @@ WHERE id = $1 AND email_verified_at IS NULL
 func (q *Queries) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markEmailVerified, id)
 	return err
+}
+
+const reactivateUser = `-- name: ReactivateUser :execrows
+UPDATE users SET status = 'active', disabled_at = NULL, disabled_reason = NULL
+WHERE id = $1 AND status = 'disabled'
+`
+
+func (q *Queries) ReactivateUser(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, reactivateUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const rehashUserPassword = `-- name: RehashUserPassword :exec

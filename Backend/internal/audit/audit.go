@@ -57,6 +57,15 @@ const (
 	ActionReportingBanned   = "admin.reporting_banned"
 	ActionReportingUnbanned = "admin.reporting_unbanned"
 	ActionAlertResolved     = "admin.alert_resolved"
+
+	ActionStationCorrected   = "admin.station_corrected"
+	ActionProductCreated     = "admin.product_created"
+	ActionProductUpdated     = "admin.product_updated"
+	ActionUserDisabled       = "admin.user_disabled"
+	ActionUserReactivated    = "admin.user_reactivated"
+	ActionVerificationResent = "admin.verification_resent"
+	ActionExportRequested    = "admin.export_requested"
+	ActionExportDownloaded   = "admin.export_downloaded"
 )
 
 // Entry est une entrée du journal. Metadata ne contient aucune donnée personnelle superflue

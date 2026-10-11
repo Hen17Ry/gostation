@@ -132,14 +132,20 @@ WHERE s.id = @id;
 
 -- name: ListStationsForAdmin :many
 -- Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
--- Pagination par curseur (created_at, id) décroissants.
+-- Filtres (étape 7) : statut (NULL = tous), fraîcheur de la dernière saisie ou confirmation
+-- (stale : 8 à 24 h, expired : plus de 24 h ou jamais), gérant inactif (alerte ouverte), sans
+-- horaires, signalée (effet de signalement en cours). Curseur (created_at, id) décroissants.
 SELECT s.id, s.name, s.brand, s.ifu, s.city, s.status, s.version, s.created_at, s.updated_at,
-       s.location_flagged_at, s.lat, s.lng,
+       s.location_flagged_at, s.lat, s.lng, s.last_stock_update_at,
        (u.email_verified_at IS NOT NULL)::boolean AS manager_email_verified,
-       EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move
+       EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move,
+       EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id)::boolean AS has_opening_hours,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id)::boolean AS reported,
+       EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive'
+               AND a.resolved_at IS NULL)::boolean AS manager_inactive
 FROM stations s
 LEFT JOIN users u ON u.id = s.manager_id
-WHERE s.status = @status
+WHERE (sqlc.narg(status)::station_status IS NULL OR s.status = sqlc.narg(status)::station_status)
   AND (s.status <> 'pending' OR u.email_verified_at IS NOT NULL)
   AND (sqlc.narg(query)::text IS NULL
        OR s.name ILIKE '%' || sqlc.narg(query)::text || '%' ESCAPE '\'
@@ -147,16 +153,34 @@ WHERE s.status = @status
   AND (NOT @needs_review::boolean
        OR s.location_flagged_at IS NOT NULL
        OR EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending'))
+  AND (sqlc.narg(freshness)::text IS NULL
+       OR (sqlc.narg(freshness)::text = 'stale' AND s.last_stock_update_at <= @stale_since::timestamptz
+           AND s.last_stock_update_at > @expired_since::timestamptz)
+       OR (sqlc.narg(freshness)::text = 'expired'
+           AND (s.last_stock_update_at IS NULL OR s.last_stock_update_at <= @expired_since::timestamptz)))
+  AND (NOT @manager_inactive::boolean
+       OR EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive' AND a.resolved_at IS NULL))
+  AND (NOT @no_hours::boolean OR NOT EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id))
+  AND (NOT @reported::boolean OR EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id))
   AND (sqlc.narg(cursor_created_at)::timestamptz IS NULL
        OR (s.created_at, s.id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid))
 ORDER BY s.created_at DESC, s.id DESC
 LIMIT @page_size;
 
+-- name: ListStationsForMap :many
+-- Carte admin (GeoJSON léger, regroupement côté client) : stations épinglées.
+SELECT s.id, s.name, s.status, s.lat, s.lng, s.last_stock_update_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id)::boolean AS reported
+FROM stations s
+WHERE s.location IS NOT NULL
+  AND (sqlc.narg(status)::station_status IS NULL OR s.status = sqlc.narg(status)::station_status)
+ORDER BY s.id;
+
 -- name: GetStationForAdmin :one
 SELECT s.id, s.status, s.version, s.name, s.brand, s.ifu, s.rccm, s.address, s.city, s.phone,
        s.lat, s.lng, s.h3_r8, s.location_set_at, s.location_flagged_at, s.location_flag_distance_m, s.location_flag_accuracy_m,
        s.status_reason, s.reviewed_by, s.reviewed_at, s.last_stock_update_at, s.document_mime, s.created_at, s.updated_at,
-       u.id AS manager_id, u.first_name AS manager_first_name, u.last_name AS manager_last_name,
+       s.status_changed_at, u.id AS manager_id, u.first_name AS manager_first_name, u.last_name AS manager_last_name,
        u.email AS manager_email, u.email_verified_at AS manager_email_verified_at
 FROM stations s
 LEFT JOIN users u ON u.id = s.manager_id

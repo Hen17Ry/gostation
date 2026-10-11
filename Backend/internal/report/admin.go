@@ -106,13 +106,16 @@ func (s *Service) adminReport(ctx context.Context, id uuid.UUID) (dbgen.ListRepo
 	return dbgen.ListReportsForAdminRow(r), nil
 }
 
-// Resolve marque un signalement comme traité (fondé). Ses effets restent jusqu'à la prochaine
-// mise à jour ou confirmation du gérant.
+// Resolve marque un signalement comme traité (fondé). Ses effets restent tant que la cause n'est
+// pas corrigée : saisie ou confirmation des stocks (rupture, fermeture), changement de position
+// (position incorrecte). « Autre » n'a pas de correction automatique : le traiter vaut correction,
+// et son effet est recalculé sur les signalements encore ouverts, comme pour un classement.
 func (s *Service) Resolve(ctx context.Context, a Actor, id uuid.UUID, rawNote *string) (dbgen.ListReportsForAdminRow, error) {
 	n, err := note("note", rawNote, false)
 	if err != nil {
 		return dbgen.ListReportsForAdminRow{}, err
 	}
+	var changed bool
 	err = s.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		r, err := q.GetReportForUpdate(ctx, id)
 		if err != nil {
@@ -121,10 +124,23 @@ func (s *Service) Resolve(ctx context.Context, a Actor, id uuid.UUID, rawNote *s
 		if r.Status != dbgen.ReportStatusOpen {
 			return apperr.Conflict("The report has already been handled.")
 		}
-		return q.DecideReport(ctx, dbgen.DecideReportParams{ID: id, Status: dbgen.ReportStatusResolved, ResolvedBy: &a.UserID, Note: n})
+		if err := q.DecideReport(ctx, dbgen.DecideReportParams{ID: id, Status: dbgen.ReportStatusResolved, ResolvedBy: &a.UserID, Note: n}); err != nil {
+			return err
+		}
+		if string(r.Reason) != ReasonOther {
+			return nil
+		}
+		if err := q.AdvisoryLock(ctx, "report:station:"+r.StationID.String()); err != nil {
+			return err
+		}
+		changed, err = recompute(ctx, q, r)
+		return err
 	})
 	if err != nil {
 		return dbgen.ListReportsForAdminRow{}, fmt.Errorf("report: resolve: %w", err)
+	}
+	if changed {
+		s.invalidate(ctx, nil)
 	}
 	s.audit(ctx, a, audit.ActionReportResolved, "report", id.String(), nil)
 	return s.adminReport(ctx, id)
@@ -196,7 +212,8 @@ func recompute(ctx context.Context, q *dbgen.Queries, r dbgen.GetReportForUpdate
 
 // ── Droit de signaler ───────────────────────────────────────────────────────
 
-// Ban retire le droit de signaler à un utilisateur (après abus). Les admins ne sont pas concernés.
+// Ban retire le droit de signaler à un utilisateur (après abus), avec un motif. Les admins ne sont
+// pas concernés.
 func (s *Service) Ban(ctx context.Context, a Actor, userID uuid.UUID, rawReason *string) error {
 	reason, err := note("reason", rawReason, true)
 	if err != nil {
@@ -209,12 +226,16 @@ func (s *Service) Ban(ctx context.Context, a Actor, userID uuid.UUID, rawReason 
 	if n == 0 {
 		return apperr.NotFound("User not found.")
 	}
-	s.audit(ctx, a, audit.ActionReportingBanned, "user", userID.String(), nil)
+	s.audit(ctx, a, audit.ActionReportingBanned, "user", userID.String(), map[string]any{"reason": *reason})
 	return nil
 }
 
-// Unban rend le droit de signaler.
-func (s *Service) Unban(ctx context.Context, a Actor, userID uuid.UUID) error {
+// Unban rend le droit de signaler, avec un motif (étape 7).
+func (s *Service) Unban(ctx context.Context, a Actor, userID uuid.UUID, rawReason *string) error {
+	reason, err := note("reason", rawReason, true)
+	if err != nil {
+		return err
+	}
 	n, err := s.Store.ClearReportingBan(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("report: unban: %w", err)
@@ -222,7 +243,7 @@ func (s *Service) Unban(ctx context.Context, a Actor, userID uuid.UUID) error {
 	if n == 0 {
 		return apperr.NotFound("User not found.")
 	}
-	s.audit(ctx, a, audit.ActionReportingUnbanned, "user", userID.String(), nil)
+	s.audit(ctx, a, audit.ActionReportingUnbanned, "user", userID.String(), map[string]any{"reason": *reason})
 	return nil
 }
 

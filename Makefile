@@ -28,7 +28,7 @@ GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATI
 
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
 	tools run worker-run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
-	admin-create admin-reset-2fa seed-dev explain-search bench
+	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-15s\033[0m %s\n", $$1, $$2}'
@@ -136,7 +136,7 @@ admin-reset-2fa: .env ## Réinitialise la 2FA d'un admin : make admin-reset-2fa 
 
 # ── Recherche : données fictives, plans et bench ──────────────────────────────
 
-seed-dev: .env ## Remplace les stations fictives : 5 000 au Bénin (dev uniquement ; COUNT=…, RESET=1 pour supprimer)
+seed-dev: .env ## Stations fictives (5 000) + 30 jours de stats de recherche (dev uniquement ; COUNT=…, RESET=1 pour supprimer)
 	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/seed -count $(or $(COUNT),5000) $(if $(RESET),-reset,)'
 
 explain-search: .env ## EXPLAIN ANALYZE des requêtes de recherche (vérifie l'index GiST)
@@ -144,3 +144,9 @@ explain-search: .env ## EXPLAIN ANALYZE des requêtes de recherche (vérifie l'i
 
 bench: .env ## Bench k6 de /search (5 zones) : p50/p95/p99, taux de cache ; DURATION=60s RATE=100
 	@./scripts/bench.sh
+
+explain-stats: .env ## EXPLAIN ANALYZE des requêtes de stats admin (agrégats, index de search_stats)
+	@./scripts/explain-stats.sh
+
+bench-stats: .env ## p50/p95/p99 des stats admin sur le jeu seed-dev (échoue si un p95 dépasse 300 ms)
+	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/benchstats $(if $(N),-n $(N),)'
