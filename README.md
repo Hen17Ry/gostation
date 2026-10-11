@@ -6,7 +6,7 @@ Trouver la station la plus proche qui a **en stock** le produit recherché (gaz 
 |---|---|---|
 | `Backend/` | API Go (chi, pgx/sqlc, goose, Redis) : socle, migrations, authentification et rôles, spec [OpenAPI 3.1](Backend/api/openapi.yaml) | ✔ socle + auth |
 | `Mobile/` | App Expo React Native (user + gérant) | à initialiser |
-| `Web/` | Admin React (Vite, Tailwind, shadcn/ui) | à initialiser |
+| `Web/` | Admin React (Vite, Tailwind, shadcn/ui) : connexion + 2FA, coquille, tableau de bord ; [design system](Web/docs/design-system.md) | ✔ socle (étape 8A) |
 | `docs/` | [Architecture](docs/ARCHITECTURE.md) : modèle de données, endpoints, algorithme de recherche | ✔ |
 | `scripts/` | Préparation OSRM, vérification de l'infra | ✔ |
 
@@ -86,6 +86,15 @@ Endpoints : voir [ARCHITECTURE §5](docs/ARCHITECTURE.md) et la spec OpenAPI. Le
 - **2FA perdue** : `make admin-reset-2fa email=…`.
 - **API admin** : toutes les routes `/api/v1/admin/*` n'acceptent que la session web (cookies posés par `/auth/admin/2fa`) et le jeton CSRF (`X-CSRF-Token`) sur les écritures ; un Bearer y est refusé. Les exports sont générés par le worker (API et worker partagent le volume `documents`) et supprimés 24 h après leur génération.
 - **Nouvelles variables** après un `git pull` : `make env-sync` complète `.env` sans toucher aux valeurs existantes.
+
+### Admin web
+
+```bash
+cd Web && npm install
+npm run dev          # http://localhost:5173, proxy /api vers l'API (make api-up ou make run)
+```
+
+Se connecter avec un admin créé par `make admin-create` ; la première connexion fait configurer la 2FA (QR code, puis 10 codes de secours à sauvegarder). En dev, la page `/design` présente tous les tokens et composants. Tests : `npm test` (Vitest), `npm run e2e` (Playwright sur le build de production, crée son propre admin), `npm run screenshots` (captures de `Web/docs/screenshots/`). Détails et règles : [CLAUDE.md](CLAUDE.md), [ARCHITECTURE §9](docs/ARCHITECTURE.md) (D41 à D45).
 
 ### Notifications push
 
