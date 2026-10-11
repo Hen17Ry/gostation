@@ -31,6 +31,16 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 - **Boîte de réception** : le texte se compose d'après `type` + `data` (clés i18n), jamais d'après un texte serveur. Une notification `station_reported` n'identifie jamais les auteurs.
 - **Signalement** « stock épuisé » ou « station fermée » : envoyer la position courante dans le corps (`position`), uniquement pour ce contrôle.
 
+## Règles web (admin)
+
+- **Session** : cookies posés par l'API, jeton CSRF dans `X-CSRF-Token` sur toute écriture (cookie `gs_csrf` s'il est lisible, sinon la copie reçue au login ou au refresh, cf. D43). Refresh single-flight **aussi entre onglets** (Web Locks + horodatage partagé), voir `src/api/session.ts`. Session expirée → `/login?redirect=<page>&reason=expired`, la page demandée est rouverte après connexion (redirection interne uniquement).
+- **Textes** : français seulement, tous dans `src/i18n/` (`fr.ts`, `errors.ts` par code stable). Aucun texte en dur dans un composant.
+- **Design** : tokens de `src/styles/globals.css` uniquement (palette Tailwind par défaut désactivée, couleur brute refusée par ESLint), documentés dans `Web/docs/design-system.md` et présentés sur `/design` (dev seulement). Contrastes AA vérifiés par `src/styles/tokens.test.ts`. Thème : système par défaut, bascule mémorisée (D42).
+- **Graphiques** : shadcn Chart (Recharts), palette catégorielle en ordre fixe, statuts réservés, résumé + tableau pour lecteurs d'écran (D41).
+- **Performance** : JS initial < 200 Ko gzip (`npm run check:bundle`), Lighthouse desktop ≥ 95 (performance et accessibilité), animations en transform et opacité, `prefers-reduced-motion` respecté, gros modules (MapLibre, Recharts, calendrier, ⌘K, QR code) chargés à la demande, formateurs `Intl` créés au premier usage.
+- **Types d'API** : générés depuis `Backend/api/openapi.yaml` (`npm run gen:api`) après toute modification de la spec ; les schémas zod des réponses sont vérifiés contre ces types (`satisfies`).
+- **Captures** : `npm run screenshots` régénère `Web/docs/screenshots/` (connexion, 2FA, tableau de bord ; clair et sombre ; 1440 et 1024 px). Les écrans 2FA y utilisent des réponses simulées (jamais de vrai secret dans le dépôt).
+
 ## Rôles
 
 | Rôle | Client | Périmètre |
@@ -45,7 +55,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 GoStation/
 ├── Backend/            API Go (cmd/api, internal/…, db/migrations, db/queries, sqlc.yaml)
 ├── Mobile/             Expo React Native — app unique user + manager
-├── Web/                Admin React (Vite)
+├── Web/                Admin React (Vite) : src/{routes,features,components,api,i18n,lib,styles}, e2e/, docs/ (design-system.md, screenshots/)
 ├── docs/               ARCHITECTURE.md
 ├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
@@ -59,7 +69,7 @@ GoStation/
 - **Données** : PostgreSQL 18 + PostGIS 3.6 (`geography(Point,4326)`, index GiST, `uuidv7()` natif), Redis 8.10 (cache, refresh tokens, files asynq ; `maxmemory-policy noeviction`).
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
 - **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, Expo Router, Reanimated 4, FlashList 2, TanStack Query 5, Zustand 5, react-hook-form + zod 4, expo-secure-store, expo-location, expo-notifications. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
-- **Web** : Vite 8, React 19, TypeScript, Tailwind CSS 4, shadcn/ui + composants 21st.dev, TanStack Query + TanStack Router, maplibre-gl.
+- **Web** : Vite 8, React 19 (React Compiler), TypeScript strict, Tailwind CSS 4, shadcn/ui (Radix) + composants 21st.dev, TanStack Router (routes fichiers) + Query + Table, react-hook-form + zod/mini, openapi-typescript + openapi-fetch, Recharts via shadcn Chart, maplibre-gl, motion, lucide-react, polices Geist auto-hébergées. Tests : Vitest + Testing Library, Playwright.
 - **Outillage Go** (installé par `make tools`, versions figées dans le Makefile) : goose v3.28, sqlc v1.31, golangci-lint v2.14. Tests d'intégration avec testcontainers-go. Go 1.27 installé via snap (`/snap/bin/go`).
 - Les versions exactes sont figées par `go.mod` et les lockfiles. On reprend les versions fournies par les templates Expo et Vite à l'init.
 
@@ -95,9 +105,19 @@ make bench          # k6 (Docker) sur /search, 5 zones : p50/p95/p99 hors cache 
 make explain-stats  # EXPLAIN ANALYZE des stats admin (agrégats journaliers et tous lieux, index de search_stats)
 make bench-stats    # p50/p95/p99 du tableau de bord, des stats et des cartes sur seed-dev (échoue si un p95 > 300 ms)
 scripts/with-env.sh <cmd>   # comme « . .env » mais sans écraser les variables déjà définies (surcharges ponctuelles)
+
+# Admin web (dans Web/ ; l'API doit tourner : make up && make api-up, ou make run)
+npm install         # dépendances (versions figées par package-lock.json)
+npm run dev         # Vite sur 5173, proxy /api vers 127.0.0.1:8080 (VITE_API_PROXY_TARGET)
+npm run gen:api     # régénère src/api/schema.d.ts depuis Backend/api/openapi.yaml
+npm run lint        # ESLint + Prettier ;  npm run typecheck : tsc -b
+npm test            # Vitest (unitaires et composants)
+npm run build && npm run check:bundle   # build de production + budget du JS initial (< 200 Ko gzip)
+npm run e2e         # Playwright sur le build (vite preview, 4173) : crée un admin par la CLI
+npm run screenshots # captures de Web/docs/screenshots (clair/sombre, 1440 et 1024 px)
 ```
 
-Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173**. Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
+Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 

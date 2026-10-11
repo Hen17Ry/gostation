@@ -65,7 +65,7 @@ Principes :
 | Redis | Cache de recherche (H3 + produit), refresh tokens, files asynq, rate limiting, compteurs de stats | Redis 8.10, `noeviction` |
 | OSRM | Matrice de temps de trajet (`/table`) et itinéraire (`/route`) | osrm-backend v26.10, MLD |
 | Mobile | Recherche, carte, itinéraire (user) ; station, horaires, stocks (manager) | Expo SDK 57, MapLibre RN, TanStack Query, Zustand |
-| Web admin | Validation, catalogue, carte, pénuries, signalements, stats, audit, demandes APDP | Vite, React 19, Tailwind 4, shadcn/ui, 21st.dev, TanStack Router/Query, maplibre-gl |
+| Web admin | Validation, catalogue, carte, pénuries, signalements, stats, audit, demandes APDP | Vite 8, React 19 (React Compiler), Tailwind 4, shadcn/ui + 21st.dev, TanStack Router/Query/Table, openapi-fetch, zod/mini, Recharts (shadcn Chart), maplibre-gl (D41 à D45) |
 
 ## 3. Modèle de données
 
@@ -1186,7 +1186,7 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D40 : 2026-10-11)
+### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1230,6 +1230,11 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D38 | Audit | `GET /admin/audit` en lecture seule : filtres acteur, action (exacte ou préfixe `admin.*`), cible (type, identifiant), période (dates locales ou RFC 3339) ; curseur (created_at, id). Index dédiés. |
 | D39 | Exports | `POST /admin/exports` → tâche `export:generate` ; `GET /admin/exports/{id}` : statut et lien signé (HMAC) valable 1 h, à utiliser avec la session admin. Jeux : stations (IFU, RCCM), stocks actuels, stats agrégées par cellule et produit (k ≥ 5), signalements (auteur pseudonymisé par HMAC, jamais l'email), audit. CSV UTF-8 avec BOM, « ; », CRLF, décimaux à virgule, dates en heure locale, cellules de texte neutralisées contre l'injection de formules ; JSON en option. Période par défaut : 30 jours. Fichier chiffré (enveloppe), supprimé 24 h après sa génération (`export:purge`). Jamais la liste des utilisateurs. Demande et téléchargement audités. API et worker partagent le stockage (volume `documents`). |
 | D40 | Accès admin | Toutes les routes `/api/v1/admin/*` : rôle admin avec 2FA (claim `mfa`), session web par cookie uniquement (Bearer refusé), donc CSRF sur toute écriture. Validation stricte : JSON sans champ inconnu, paramètres de requête inconnus ou répétés refusés (400), pagination par curseur partout. |
+| D41 | Graphiques (admin web) | Composants **Chart de shadcn/ui** (Recharts). Palette catégorielle validée pour la vision des couleurs, en ordre fixe (la couleur suit le produit, jamais son rang) ; statuts de fraîcheur réservés, toujours avec icône et libellé ; un seul axe ; chaque graphique a un résumé textuel, un tableau pour les lecteurs d'écran et une vue tableau visible. Rendus une fois à leur taille mesurée, dans un chunk chargé à part. Détail : `Web/docs/design-system.md`. |
+| D42 | Thème (admin web) | Suit le système (`prefers-color-scheme`) par défaut ; bascule clair / sombre / système mémorisée dans le navigateur (`localStorage`, clé `gs-theme`), appliquée avant le premier rendu (pas de flash) et synchronisée entre onglets. Le mode sombre est choisi rôle par rôle (pas une inversion) ; contrastes AA des deux thèmes vérifiés par test. |
+| D43 | Domaines de production | `admin.<domaine>` (SPA statique) et `api.<domaine>` : **même site**, donc cookies `SameSite=Strict` envoyés ; domaine choisi au déploiement. Conséquences : `CORS_ALLOWED_ORIGINS=https://admin.<domaine>` (credentials), `VITE_API_BASE_URL=https://api.<domaine>`. Le cookie `gs_csrf` est posé par l'API pour son hôte et n'est pas lisible depuis `admin.` : le client garde le jeton CSRF reçu au login et au refresh (`localStorage`, partagé entre onglets ; ce n'est pas un secret face au XSS, il ne sert qu'à bloquer les requêtes d'un autre site) et lit le cookie en priorité quand il est accessible (dev, même origine via le proxy Vite). |
+| D44 | Langue (admin web) | **Français uniquement en V1**, textes centralisés (`Web/src/i18n/fr.ts`, typé `Messages` ; messages d'erreur par code stable dans `errors.ts`) : une traduction ajoutera un dictionnaire du même type sans toucher aux composants. Dates et nombres en `fr-FR`, fuseau `Africa/Porto-Novo` pour les stats. |
+| D45 | Socle de l'admin web | Vite 8 + React 19 (React Compiler), TypeScript strict, Tailwind 4 (palette par défaut désactivée : tokens seulement), shadcn/ui (Radix) + blocs 21st.dev harmonisés, TanStack Router (routes fichiers, découpage automatique) / Query / Table, react-hook-form + zod/mini, types générés depuis `openapi.yaml` (`npm run gen:api`, openapi-typescript + openapi-fetch). Session : cookies de l'API, jeton CSRF sur toute écriture, **refresh single-flight** (une promesse par onglet + verrou Web Locks entre onglets, horodatage partagé du dernier refresh : une requête partie avant un refresh abouti est rejouée sans en refaire un), session expirée → `/login?redirect=…&reason=expired`. Budget : JS initial < 200 Ko gzip (`npm run check:bundle`), Lighthouse desktop ≥ 95 (performance, accessibilité), animations en transform et opacité. Dev : Vite 5173 avec proxy `/api` (même origine) ; E2E Playwright sur le build servi par `vite preview` (4173), admin créé par la CLI (mot de passe sur stdin). |
 
 ### Questions ouvertes
 
