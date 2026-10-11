@@ -9,7 +9,7 @@ const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms))
 
 /** API factice : 401 tant qu'aucun refresh n'a réussi ; le refresh renvoie un nouveau jeton CSRF. */
 function fakeApi(opts: { refreshOk?: boolean; refreshDelay?: number } = {}) {
-  const state = { valid: false, refreshes: 0, bodies: [] as string[], csrf: [] as (string | null)[] }
+  const state = { valid: false, refreshes: 0, csrfFetches: 0, bodies: [] as string[], csrf: [] as (string | null)[] }
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(String(input), init)
     const path = new URL(req.url).pathname
@@ -21,6 +21,10 @@ function fakeApi(opts: { refreshOk?: boolean; refreshDelay?: number } = {}) {
       return Response.json({ csrfToken: `csrf-${state.refreshes + 1}`, expiresIn: 900 })
     }
     if (path === '/api/v1/auth/admin/login') return new Response(null, { status: 401 })
+    if (path === '/api/v1/auth/csrf') {
+      state.csrfFetches++
+      return Response.json({ csrfToken: `csrf-${state.refreshes + 1}` })
+    }
     if (!state.valid) return new Response(null, { status: 401 })
     state.csrf.push(req.headers.get('X-CSRF-Token'))
     if (req.method !== 'GET') state.bodies.push(await req.text())
@@ -31,7 +35,7 @@ function fakeApi(opts: { refreshOk?: boolean; refreshDelay?: number } = {}) {
 
 function newSession(api: ReturnType<typeof fakeApi>, extra: Partial<Parameters<typeof createSession>[0]> = {}) {
   const storage = memoryStorage()
-  storage.setItem('gs-csrf', 'csrf-1')
+  storage.setItem('gs-signed-in', '1') // session ouverte avant le rechargement de la page
   const onExpired = vi.fn()
   const session = createSession({
     baseUrl: BASE,
@@ -100,7 +104,7 @@ describe('refresh single-flight (règle 15)', () => {
     expect(res.map((r) => r.status)).toEqual([401, 401, 401])
     expect(api.state.refreshes).toBe(1)
     expect(onExpired).toHaveBeenCalledTimes(1)
-    expect(storage.getItem('gs-csrf')).toBeNull()
+    expect(storage.getItem('gs-signed-in')).toBeNull()
     expect(session.consumeExpired()).toBe(true)
     expect(session.consumeExpired()).toBe(false)
     // Plus de session : un nouveau 401 ne déclenche plus rien.
@@ -126,7 +130,7 @@ describe('refresh single-flight (règle 15)', () => {
   it('entre onglets : un onglet qui attend le verrou ne refait pas le refresh déjà fait par l’autre', async () => {
     const api = fakeApi({ refreshDelay: 20 })
     const storage = memoryStorage()
-    storage.setItem('gs-csrf', 'csrf-1')
+    storage.setItem('gs-signed-in', '1')
     const locks = memoryLocks()
     const tabA = createSession({ baseUrl: BASE, fetch: api.fetch, storage, locks, readCookie: () => '' })
     const tabB = createSession({ baseUrl: BASE, fetch: api.fetch, storage, locks, readCookie: () => '' })
@@ -135,9 +139,8 @@ describe('refresh single-flight (règle 15)', () => {
     expect(api.state.refreshes).toBe(1)
   })
 
-  it('jeton CSRF : le cookie gs_csrf fait foi quand il est lisible, sinon la copie partagée', () => {
+  it('jeton CSRF : cookie gs_csrf s’il est lisible, sinon la copie en mémoire, jamais le stockage', () => {
     const storage = memoryStorage()
-    storage.setItem('gs-csrf', 'from-storage')
     const withCookie = createSession({
       baseUrl: BASE,
       storage,
@@ -146,6 +149,20 @@ describe('refresh single-flight (règle 15)', () => {
     })
     expect(withCookie.getCsrfToken()).toBe('from-cookie')
     const crossOrigin = createSession({ baseUrl: BASE, storage, locks: null, readCookie: () => '' })
-    expect(crossOrigin.getCsrfToken()).toBe('from-storage')
+    crossOrigin.setCsrfToken('from-login')
+    expect(crossOrigin.getCsrfToken()).toBe('from-login')
+    expect(JSON.stringify([storage.getItem('gs-signed-in'), storage.getItem('gs-csrf')])).toBe('["1",null]')
+  })
+
+  it('après un rechargement, le jeton est relu via GET /auth/csrf, une seule fois pour des écritures concurrentes', async () => {
+    const api = fakeApi()
+    api.state.valid = true // cookies de session encore valides
+    const { session } = newSession(api)
+    const post = () => new Request(`${BASE}/api/v1/admin/products`, { method: 'POST', body: '{}' })
+    const res = await Promise.all([session.authFetch(post()), session.authFetch(post()), session.authFetch(post())])
+    expect(res.map((r) => r.status)).toEqual([200, 200, 200])
+    expect(api.state.csrfFetches).toBe(1)
+    expect(api.state.csrf).toEqual(['csrf-1', 'csrf-1', 'csrf-1'])
+    expect(api.state.refreshes).toBe(0)
   })
 })

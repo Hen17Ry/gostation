@@ -305,6 +305,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/csrf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Jeton CSRF de la session web courante (admin), par exemple après un rechargement de page
+         * @description Session identifiée par le cookie d'accès, sinon par le cookie de refresh (sans rotation).
+         *     Seules les sessions web (cookies) en ont un ; un Bearer ou une absence de session → 401.
+         */
+        get: operations["getCsrfToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -875,6 +896,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/counters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Compteurs des badges de la barre latérale (dossiers en attente, signalements et alertes ouverts, épingles à vérifier) */
+        get: operations["getAdminCounters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/dashboard": {
         parameters: {
             query?: never;
@@ -981,7 +1019,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Détail d'une station (gérant, signalement, demande de déplacement) */
+        /** Détail d'une station (gérant, signalement d'épingle, demande de déplacement, horaires et fermetures, stocks) */
         get: operations["getAdminStation"];
         put?: never;
         post?: never;
@@ -1705,6 +1743,10 @@ export interface components {
             /** @description Les 10 codes de secours, renvoyés une seule fois, à la mise en place */
             recoveryCodes?: string[];
         };
+        CsrfToken: {
+            /** @description HMAC de la session, à envoyer dans X-CSRF-Token */
+            csrfToken: string;
+        };
         AdminRefreshResponse: {
             csrfToken: string;
             expiresIn: number;
@@ -2079,11 +2121,21 @@ export interface components {
             lastStockUpdateAt: string | null;
             freshness: components["schemas"]["StationFreshness"];
             reported: boolean;
+            /** @description Seuil de 5 signalements atteint (produit ou station exclus de la recherche) */
+            excluded: boolean;
             managerInactive: boolean;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        AdminCounters: {
+            /** @description Dossiers pending (email du gérant vérifié) */
+            pendingStations: number;
+            openReports: number;
+            openAlerts: number;
+            /** @description Épingles signalées ou demandes de déplacement en attente */
+            locationReviews: number;
         };
         AdminStationPage: {
             items: components["schemas"]["AdminStationSummary"][];
@@ -2132,6 +2184,9 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            openingHours: components["schemas"]["OpeningHours"];
+            /** @description Stocks des produits vendus, avec leur fraîcheur (lecture seule pour l'admin) */
+            stocks: components["schemas"]["Stock"][];
         };
         DeviceRequest: {
             /** @example ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx] */
@@ -3393,6 +3448,28 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getCsrfToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Jeton à renvoyer dans X-CSRF-Token sur toute écriture */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CsrfToken"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     logout: {
         parameters: {
             query?: never;
@@ -4385,6 +4462,29 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getAdminCounters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Compteurs (Cache-Control no-store) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCounters"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     getAdminDashboard: {
         parameters: {
             query?: {
@@ -4498,6 +4598,8 @@ export interface operations {
                 noHours?: boolean;
                 /** @description Effet de signalement en cours (badge ou exclusion) */
                 reported?: boolean;
+                /** @description Seuil de 5 signalements atteint : produit ou station exclus de la recherche */
+                excluded?: boolean;
                 cursor?: string;
                 limit?: number;
             };
@@ -4876,6 +4978,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "open" | "resolved" | "dismissed";
+                reason?: components["schemas"]["ReportReason"];
                 stationId?: string;
                 /** @description Valeur nextCursor de la page précédente */
                 cursor?: components["parameters"]["Cursor"];

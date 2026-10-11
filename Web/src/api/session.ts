@@ -4,8 +4,14 @@
  * un seul POST /auth/refresh à la fois, y compris entre onglets (Web Locks), les requêtes en 401
  * attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token seraient
  * pris pour une réutilisation et révoqueraient la session.
+ *
+ * Jeton CSRF : cookie gs_csrf s'il est lisible (même origine), sinon copie en mémoire (reçue au
+ * login ou au refresh), sinon GET /auth/csrf (après un rechargement de page, ou quand l'API est
+ * sur un autre hôte, D43). Il n'est jamais écrit dans le stockage du navigateur ; seul un
+ * indicateur non secret « session ouverte » l'est, pour distinguer une session expirée d'une
+ * première visite.
  */
-const CSRF_STORAGE_KEY = 'gs-csrf'
+const SIGNED_IN_KEY = 'gs-signed-in'
 const REFRESHED_AT_KEY = 'gs-refreshed-at'
 const LOCK_NAME = 'gs-auth-refresh'
 const CSRF_COOKIE = 'gs_csrf'
@@ -16,6 +22,7 @@ const NO_REFRESH_PATHS = [
   '/api/v1/auth/admin/2fa',
   '/api/v1/auth/refresh',
   '/api/v1/auth/logout',
+  '/api/v1/auth/csrf',
 ]
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
@@ -42,6 +49,7 @@ export function createSession(opts: SessionOptions) {
   const readCookie = opts.readCookie ?? (() => (typeof document === 'undefined' ? '' : document.cookie))
 
   let csrfMemory: string | null = null
+  let csrfInflight: Promise<string | null> | null = null
   let lastRefreshAt = 0
   let inflight: Promise<RefreshOutcome> | null = null
   let expiredNotified = false
@@ -63,29 +71,54 @@ export function createSession(opts: SessionOptions) {
     }
   }
 
-  /**
-   * Jeton CSRF courant. Le cookie gs_csrf fait foi quand il est lisible (même origine) ; sinon
-   * (admin.<domaine> → api.<domaine>), la copie reçue au login ou au refresh, partagée entre onglets.
-   */
+  /** Jeton CSRF connu sans requête : cookie lisible (même origine), sinon copie en mémoire. */
   function getCsrfToken(): string | null {
     const m = readCookie().match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]+)`))
     if (m?.[1]) return decodeURIComponent(m[1])
-    return load(CSRF_STORAGE_KEY) ?? csrfMemory
+    return csrfMemory
   }
 
+  /** Jeton CSRF, récupéré auprès de l'API s'il n'est pas connu (une seule requête à la fois). */
+  function ensureCsrf(): Promise<string | null> {
+    const known = getCsrfToken()
+    if (known) return Promise.resolve(known)
+    csrfInflight ??= doFetch(`${opts.baseUrl}/api/v1/auth/csrf`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (res) => {
+        if (!res.ok) return null
+        const body = (await res.json().catch(() => null)) as { csrfToken?: unknown } | null
+        return typeof body?.csrfToken === 'string' ? body.csrfToken : null
+      })
+      .then((token) => {
+        if (token) csrfMemory = token
+        return token
+      })
+      .finally(() => {
+        csrfInflight = null
+      })
+    return csrfInflight
+  }
+
+  /** Session ouverte (login ou refresh réussi) : jeton en mémoire, indicateur partagé. */
   function setCsrfToken(token: string | null) {
     csrfMemory = token
-    store(CSRF_STORAGE_KEY, token)
-    if (token) expiredNotified = false
+    if (token) {
+      store(SIGNED_IN_KEY, '1')
+      expiredNotified = false
+    }
   }
 
   /** Fin de session côté client (logout, expiration) : plus de jeton, plus de refresh. */
   function clear() {
-    setCsrfToken(null)
+    csrfMemory = null
+    store(SIGNED_IN_KEY, null)
     store(REFRESHED_AT_KEY, null)
   }
 
-  const hasSession = () => getCsrfToken() !== null
+  /** Une session a été ouverte dans ce navigateur (et pas encore close). */
+  const hasSession = () => getCsrfToken() !== null || load(SIGNED_IN_KEY) === '1'
   const refreshedAt = () => Math.max(lastRefreshAt, Number(load(REFRESHED_AT_KEY)) || 0)
 
   function expire() {
@@ -100,7 +133,7 @@ export function createSession(opts: SessionOptions) {
   async function postRefresh(sentAt: number): Promise<RefreshOutcome> {
     // Un autre onglet a pu renouveler la session pendant l'attente du verrou.
     if (refreshedAt() > sentAt) return 'refreshed'
-    const csrf = getCsrfToken()
+    const csrf = await ensureCsrf()
     if (!csrf) return 'expired'
     const res = await doFetch(`${opts.baseUrl}/api/v1/auth/refresh`, {
       method: 'POST',
@@ -128,9 +161,9 @@ export function createSession(opts: SessionOptions) {
     return inflight
   }
 
-  function withCsrf(request: Request) {
+  async function withCsrf(request: Request) {
     if (SAFE_METHODS.has(request.method)) return
-    const csrf = getCsrfToken()
+    const csrf = await ensureCsrf()
     if (csrf) request.headers.set('X-CSRF-Token', csrf)
   }
 
@@ -138,17 +171,27 @@ export function createSession(opts: SessionOptions) {
   async function authFetch(request: Request): Promise<Response> {
     const sentAt = now()
     const replay = request.clone()
-    withCsrf(request)
-    const res = await doFetch(request)
-    if (res.status !== 401) return res
     const path = new URL(request.url, 'http://local').pathname
+    if (!NO_REFRESH_PATHS.includes(path)) await withCsrf(request)
+    const res = await doFetch(request)
+    if (res.status !== 401) {
+      // Jeton refusé (session changée entre-temps) : on oublie la copie, la prochaine écriture le relit.
+      if (res.status === 403 && !SAFE_METHODS.has(request.method)) {
+        const body = (await res
+          .clone()
+          .json()
+          .catch(() => null)) as { code?: unknown } | null
+        if (body?.code === 'auth.csrf_failed') csrfMemory = null
+      }
+      return res
+    }
     if (NO_REFRESH_PATHS.includes(path) || !hasSession()) return res
 
     if ((await refresh(sentAt)) === 'expired') {
       expire()
       return res
     }
-    withCsrf(replay)
+    await withCsrf(replay)
     const second = await doFetch(replay)
     if (second.status === 401) expire()
     return second
@@ -161,7 +204,7 @@ export function createSession(opts: SessionOptions) {
     return v
   }
 
-  return { authFetch, refresh, getCsrfToken, setCsrfToken, clear, hasSession, consumeExpired }
+  return { authFetch, refresh, ensureCsrf, getCsrfToken, setCsrfToken, clear, hasSession, consumeExpired }
 }
 
 function safeLocalStorage(): Storage | null {
