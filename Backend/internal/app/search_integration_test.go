@@ -448,6 +448,7 @@ func TestSearchCacheInvalidationOnStockChange(t *testing.T) {
 }
 
 func TestSearchRateLimits(t *testing.T) {
+	freezeMidWindow(t) // rafales de 30 et 300 requêtes : décompte exact, quelle que soit l'heure
 	product := newProduct(t)
 	seedStation(t, product, seed{at: calavi})
 	c := newClient(t)
