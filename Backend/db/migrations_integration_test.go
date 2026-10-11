@@ -38,9 +38,10 @@ func runTests(m *testing.M) int {
 // appTables sont les tables créées par les migrations (ARCHITECTURE §3).
 var appTables = []string{
 	"admin_alerts", "admin_recovery_codes", "audit_logs", "back_in_stock_alerts", "country_boundaries", "data_requests",
-	"device_tokens", "favorite_alerts", "favorites", "notification_opt_outs", "notifications", "products", "reports",
-	"search_stats", "station_closures", "station_location_requests", "station_opening_hours", "station_reminders",
-	"station_report_flags", "station_stocks", "stations", "stock_history", "users",
+	"device_tokens", "exports", "favorite_alerts", "favorites", "notification_opt_outs", "notifications", "products",
+	"reports", "search_stats", "search_stats_daily", "search_stats_totals", "station_closures", "station_location_requests", "station_opening_hours",
+	"station_reminders", "station_report_flags", "station_stocks", "stations", "stock_freshness_stats", "stock_history",
+	"users",
 }
 
 func TestMigrationsUpDownUp(t *testing.T) {
@@ -84,7 +85,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	if len(up) != total {
 		t.Fatalf("first up applied %d migrations, want %d", len(up), total)
 	}
-	assertState(t, "after up", len(appTables), 15, 5)
+	assertState(t, "after up", len(appTables), 18, 5)
 
 	down, err := p.DownTo(ctx, 0)
 	if err != nil {
@@ -96,7 +97,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	assertState(t, "after down", 0, 0, -1)
 	var leftovers int
 	if err := sqlDB.QueryRowContext(ctx, `SELECT
-		(SELECT count(*) FROM pg_proc WHERE proname IN ('set_updated_at', 'set_stock_updated_at', 'audit_logs_forbid_update')) +
+		(SELECT count(*) FROM pg_proc WHERE proname IN ('set_updated_at', 'set_stock_updated_at', 'set_status_changed_at', 'audit_logs_forbid_update')) +
 		(SELECT count(*) FROM pg_extension WHERE extname = 'citext')`).Scan(&leftovers); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	if _, err := p.Up(ctx); err != nil {
 		t.Fatalf("second up: %v", err)
 	}
-	assertState(t, "after second up", len(appTables), 15, 5)
+	assertState(t, "after second up", len(appTables), 18, 5)
 }
 
 // migratedPool garantit un schéma à jour (Up est idempotent) et ouvre un pool.
