@@ -56,16 +56,35 @@ type Session struct {
 	LastUsedAt time.Time
 }
 
+// RevokeHook est appelé après la révocation d'une session (suppression de son appareil push).
+// Il journalise lui-même ses échecs : une révocation n'échoue jamais à cause de lui (l'envoi des
+// push écarte de toute façon les appareils dont la session n'existe plus).
+type RevokeHook func(ctx context.Context, sid string)
+
 // SessionStore gère sessions et refresh tokens dans Redis.
 type SessionStore struct {
-	rdb    goredis.UniversalClient
-	rotate *goredis.Script
-	now    func() time.Time
+	rdb      goredis.UniversalClient
+	rotate   *goredis.Script
+	now      func() time.Time
+	onRevoke RevokeHook
+}
+
+// SessionOption configure le store.
+type SessionOption func(*SessionStore)
+
+// WithRevokeHook branche une action exécutée à chaque révocation (logout, révocation, changement
+// ou réinitialisation du mot de passe, réutilisation de refresh token, suppression du compte).
+func WithRevokeHook(h RevokeHook) SessionOption {
+	return func(s *SessionStore) { s.onRevoke = h }
 }
 
 // NewSessionStore construit le store.
-func NewSessionStore(rdb goredis.UniversalClient) *SessionStore {
-	return &SessionStore{rdb: rdb, rotate: goredis.NewScript(rotateScript), now: time.Now}
+func NewSessionStore(rdb goredis.UniversalClient, opts ...SessionOption) *SessionStore {
+	s := &SessionStore{rdb: rdb, rotate: goredis.NewScript(rotateScript), now: time.Now}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func hashToken(token string) string {
@@ -214,6 +233,29 @@ func (s *SessionStore) Exists(ctx context.Context, sid string) (bool, error) {
 	return n == 1, nil
 }
 
+// Alive indique, pour chaque sid, si la session est toujours active (un seul aller-retour).
+// Sert à écarter les appareils dont la session a expiré sans révocation explicite.
+func (s *SessionStore) Alive(ctx context.Context, sids []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(sids))
+	if len(sids) == 0 {
+		return out, nil
+	}
+	cmds := make([]*goredis.IntCmd, len(sids))
+	_, err := s.rdb.Pipelined(ctx, func(p goredis.Pipeliner) error {
+		for i, sid := range sids {
+			cmds[i] = p.Exists(ctx, sessionPrefix+sid)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("auth: check sessions: %w", err)
+	}
+	for i, sid := range sids {
+		out[sid] = cmds[i].Val() == 1
+	}
+	return out, nil
+}
+
 // List renvoie les sessions actives de l'utilisateur, la plus récemment utilisée d'abord.
 func (s *SessionStore) List(ctx context.Context, uid uuid.UUID) ([]Session, error) {
 	sids, err := s.rdb.SMembers(ctx, userSessKey(uid)).Result()
@@ -267,6 +309,9 @@ func (s *SessionStore) Revoke(ctx context.Context, sid string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("auth: revoke session: %w", err)
+	}
+	if s.onRevoke != nil {
+		s.onRevoke(ctx, sid)
 	}
 	return nil
 }

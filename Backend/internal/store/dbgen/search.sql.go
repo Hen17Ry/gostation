@@ -39,6 +39,8 @@ type CheckCoverageRow struct {
 // Pas d'arithmétique sur un paramètre nommé (« @d::date - 1 ») : sqlc la réécrit mal.
 // Fermetures du jour : « NOT IN (sous-requête) » est évalué une seule fois (hashed SubPlan, index
 // idx_station_closures_day), là où NOT EXISTS corrélé re-parcourait la table à chaque station.
+// Signalements (étape 6) : une cause à 5 auteurs ou plus exclut la station (pour le produit, ou
+// entièrement si product_id est NULL) ; à 3, la colonne reported porte le badge « signalé ».
 // Couverture d'une position : au Bénin (frontière élargie de 2 km) ? À 30 km ou moins ?
 func (q *Queries) CheckCoverage(ctx context.Context, arg CheckCoverageParams) (CheckCoverageRow, error) {
 	row := q.db.QueryRow(ctx, checkCoverage, arg.Lng, arg.Lat)
@@ -148,7 +150,9 @@ func (q *Queries) ListHoursForStations(ctx context.Context, stationIds []uuid.UU
 
 const listOpenCandidatesKNN = `-- name: ListOpenCandidatesKNN :many
 SELECT s.id, s.name, s.brand, s.lat, s.lng, ss.quantity,
-       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at
+       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id
+               AND (f.product_id IS NULL OR f.product_id = $1::smallint))::boolean AS reported
 FROM stations s
 JOIN station_stocks ss ON ss.station_id = s.id AND ss.product_id = $1::smallint
 JOIN products p ON p.id = ss.product_id AND p.is_active
@@ -156,6 +160,8 @@ WHERE s.status = 'approved'
   AND s.location IS NOT NULL
   AND ss.quantity > 0
   AND GREATEST(ss.updated_at, ss.last_confirmed_at) > $2::timestamptz
+  AND s.id NOT IN (SELECT f.station_id FROM station_report_flags f WHERE f.excluded_at IS NOT NULL
+                   AND (f.product_id IS NULL OR f.product_id = $1::smallint))
   AND s.id NOT IN (SELECT c.station_id FROM station_closures c WHERE c.closed_on = $3::date)
   AND EXISTS (
     SELECT 1 FROM station_opening_hours h
@@ -189,6 +195,7 @@ type ListOpenCandidatesKNNRow struct {
 	Lng      *float64  `json:"lng"`
 	Quantity int32     `json:"quantity"`
 	FreshAt  time.Time `json:"freshAt"`
+	Reported bool      `json:"reported"`
 }
 
 // Repli KNN illimité (aucune station ouverte à 50 km).
@@ -220,6 +227,7 @@ func (q *Queries) ListOpenCandidatesKNN(ctx context.Context, arg ListOpenCandida
 			&i.Lng,
 			&i.Quantity,
 			&i.FreshAt,
+			&i.Reported,
 		); err != nil {
 			return nil, err
 		}
@@ -233,7 +241,9 @@ func (q *Queries) ListOpenCandidatesKNN(ctx context.Context, arg ListOpenCandida
 
 const listOpenCandidatesWithin = `-- name: ListOpenCandidatesWithin :many
 SELECT s.id, s.name, s.brand, s.lat, s.lng, ss.quantity,
-       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at
+       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id
+               AND (f.product_id IS NULL OR f.product_id = $1::smallint))::boolean AS reported
 FROM stations s
 JOIN station_stocks ss ON ss.station_id = s.id AND ss.product_id = $1::smallint
 JOIN products p ON p.id = ss.product_id AND p.is_active
@@ -241,6 +251,8 @@ WHERE s.status = 'approved'
   AND s.location IS NOT NULL
   AND ss.quantity > 0
   AND GREATEST(ss.updated_at, ss.last_confirmed_at) > $2::timestamptz
+  AND s.id NOT IN (SELECT f.station_id FROM station_report_flags f WHERE f.excluded_at IS NOT NULL
+                   AND (f.product_id IS NULL OR f.product_id = $1::smallint))
   AND ST_DWithin(s.location, ST_SetSRID(ST_MakePoint($3::float8, $4::float8), 4326)::geography, $5::float8)
   AND s.id NOT IN (SELECT c.station_id FROM station_closures c WHERE c.closed_on = $6::date)
   AND EXISTS (
@@ -276,6 +288,7 @@ type ListOpenCandidatesWithinRow struct {
 	Lng      *float64  `json:"lng"`
 	Quantity int32     `json:"quantity"`
 	FreshAt  time.Time `json:"freshAt"`
+	Reported bool      `json:"reported"`
 }
 
 func (q *Queries) ListOpenCandidatesWithin(ctx context.Context, arg ListOpenCandidatesWithinParams) ([]ListOpenCandidatesWithinRow, error) {
@@ -307,6 +320,7 @@ func (q *Queries) ListOpenCandidatesWithin(ctx context.Context, arg ListOpenCand
 			&i.Lng,
 			&i.Quantity,
 			&i.FreshAt,
+			&i.Reported,
 		); err != nil {
 			return nil, err
 		}
@@ -369,7 +383,9 @@ func (q *Queries) ListPublicStocks(ctx context.Context, stationID uuid.UUID) ([]
 
 const listStockedCandidatesKNN = `-- name: ListStockedCandidatesKNN :many
 SELECT s.id, s.name, s.brand, s.lat, s.lng, ss.quantity,
-       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at
+       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id
+               AND (f.product_id IS NULL OR f.product_id = $1::smallint))::boolean AS reported
 FROM stations s
 JOIN station_stocks ss ON ss.station_id = s.id AND ss.product_id = $1::smallint
 JOIN products p ON p.id = ss.product_id AND p.is_active
@@ -377,6 +393,8 @@ WHERE s.status = 'approved'
   AND s.location IS NOT NULL
   AND ss.quantity > 0
   AND GREATEST(ss.updated_at, ss.last_confirmed_at) > $2::timestamptz
+  AND s.id NOT IN (SELECT f.station_id FROM station_report_flags f WHERE f.excluded_at IS NOT NULL
+                   AND (f.product_id IS NULL OR f.product_id = $1::smallint))
   AND EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id)
 ORDER BY s.location <-> ST_SetSRID(ST_MakePoint($3::float8, $4::float8), 4326)::geography
 LIMIT $5::int
@@ -398,6 +416,7 @@ type ListStockedCandidatesKNNRow struct {
 	Lng      *float64  `json:"lng"`
 	Quantity int32     `json:"quantity"`
 	FreshAt  time.Time `json:"freshAt"`
+	Reported bool      `json:"reported"`
 }
 
 // Stations les plus proches en stock frais, avec horaires, ouvertes ou non : le service garde
@@ -425,6 +444,7 @@ func (q *Queries) ListStockedCandidatesKNN(ctx context.Context, arg ListStockedC
 			&i.Lng,
 			&i.Quantity,
 			&i.FreshAt,
+			&i.Reported,
 		); err != nil {
 			return nil, err
 		}

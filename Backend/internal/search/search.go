@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	goredis "github.com/redis/go-redis/v9"
 
 	"gostation/backend/internal/apperr"
@@ -131,6 +130,7 @@ type Item struct {
 	IsOpen         bool
 	NextOpening    *time.Time
 	ServedAt       *time.Time // heure à laquelle on peut être servi (D19)
+	Reported       bool       // badge « signalé » : 3 signalements ou plus (étape 6)
 }
 
 // Timing mesure les étapes (en-tête Server-Timing).
@@ -161,6 +161,7 @@ type candidate struct {
 	FreshAt     time.Time  `json:"f"`
 	IsOpen      bool       `json:"o"`
 	NextOpening *time.Time `json:"no,omitempty"`
+	Reported    bool       `json:"rp,omitempty"` // badge « signalé » (3 auteurs ou plus)
 }
 
 type candidateSet struct {
@@ -278,34 +279,10 @@ func (s *Service) candidates(ctx context.Context, cell h3.Cell, productID int16)
 	return set, false, nil
 }
 
-// localClock renvoie les paramètres « ouverte maintenant » de la requête SQL.
-type localClock struct {
-	date, prevDate     pgtype.Date
-	isodow, prevISODow int16
-	clock              pgtype.Time
-}
+func (s *Service) clock() station.LocalClock { return station.ClockAt(s.now(), s.cfg.Timezone) }
 
-func (s *Service) clock() localClock {
-	now := s.now().In(s.cfg.Timezone)
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	iso := func(t time.Time) int16 {
-		if wd := t.Weekday(); wd != time.Sunday {
-			return int16(wd) //nolint:gosec // 1 à 6
-		}
-		return 7
-	}
-	minutes := int64(now.Hour()*60 + now.Minute())
-	return localClock{
-		date:       pgtype.Date{Time: day, Valid: true},
-		prevDate:   pgtype.Date{Time: day.AddDate(0, 0, -1), Valid: true},
-		isodow:     iso(now),
-		prevISODow: iso(now.AddDate(0, 0, -1)),
-		clock:      pgtype.Time{Microseconds: minutes * int64(time.Minute/time.Microsecond), Valid: true},
-	}
-}
-
-func fromRow(id uuid.UUID, name string, brand *string, lat, lng *float64, qty int32, fresh time.Time) candidate {
-	c := candidate{ID: id, Name: name, Brand: brand, Quantity: qty, FreshAt: fresh}
+func fromRow(id uuid.UUID, name string, brand *string, lat, lng *float64, qty int32, fresh time.Time, reported bool) candidate {
+	c := candidate{ID: id, Name: name, Brand: brand, Quantity: qty, FreshAt: fresh, Reported: reported}
 	if lat != nil && lng != nil {
 		c.Lat, c.Lng = *lat, *lng
 	}
@@ -329,7 +306,7 @@ func (s *Service) compute(ctx context.Context, cell h3.Cell, productID int16) (c
 	for _, r := range Radii {
 		rows, err := s.store.ListOpenCandidatesWithin(ctx, dbgen.ListOpenCandidatesWithinParams{
 			ProductID: productID, FreshSince: freshSince, Lat: centerLat, Lng: centerLng, RadiusM: float64(r) + margin,
-			LocalDate: lc.date, PrevDate: lc.prevDate, Isodow: lc.isodow, PrevIsodow: lc.prevISODow, LocalTime: lc.clock,
+			LocalDate: lc.Date, PrevDate: lc.PrevDate, Isodow: lc.ISODow, PrevIsodow: lc.PrevISODow, LocalTime: lc.Time,
 			MaxCandidates: limit,
 		})
 		if err != nil {
@@ -338,7 +315,7 @@ func (s *Service) compute(ctx context.Context, cell h3.Cell, productID int16) (c
 		if len(rows) >= s.cfg.MinResults || (r == Radii[len(Radii)-1] && len(rows) > 0) {
 			set := candidateSet{Strategy: StrategyRadius, RadiusM: &r}
 			for _, row := range rows {
-				c := fromRow(row.ID, row.Name, row.Brand, row.Lat, row.Lng, row.Quantity, row.FreshAt)
+				c := fromRow(row.ID, row.Name, row.Brand, row.Lat, row.Lng, row.Quantity, row.FreshAt, row.Reported)
 				c.IsOpen = true
 				set.Candidates = append(set.Candidates, c)
 			}
@@ -350,7 +327,7 @@ func (s *Service) compute(ctx context.Context, cell h3.Cell, productID int16) (c
 	// heure à laquelle on peut être servi.
 	open, err := s.store.ListOpenCandidatesKNN(ctx, dbgen.ListOpenCandidatesKNNParams{
 		ProductID: productID, FreshSince: freshSince, Lat: centerLat, Lng: centerLng,
-		LocalDate: lc.date, PrevDate: lc.prevDate, Isodow: lc.isodow, PrevIsodow: lc.prevISODow, LocalTime: lc.clock,
+		LocalDate: lc.Date, PrevDate: lc.PrevDate, Isodow: lc.ISODow, PrevIsodow: lc.PrevISODow, LocalTime: lc.Time,
 		MaxCandidates: maxResults,
 	})
 	if err != nil {
@@ -365,7 +342,7 @@ func (s *Service) compute(ctx context.Context, cell h3.Cell, productID int16) (c
 	seen := map[uuid.UUID]bool{}
 	var all []candidate
 	for _, row := range open {
-		c := fromRow(row.ID, row.Name, row.Brand, row.Lat, row.Lng, row.Quantity, row.FreshAt)
+		c := fromRow(row.ID, row.Name, row.Brand, row.Lat, row.Lng, row.Quantity, row.FreshAt, row.Reported)
 		c.IsOpen = true
 		seen[c.ID] = true
 		all = append(all, c)
@@ -375,7 +352,7 @@ func (s *Service) compute(ctx context.Context, cell h3.Cell, productID int16) (c
 		if seen[row.ID] {
 			continue
 		}
-		all = append(all, fromRow(row.ID, row.Name, row.Brand, row.Lat, row.Lng, row.Quantity, row.FreshAt))
+		all = append(all, fromRow(row.ID, row.Name, row.Brand, row.Lat, row.Lng, row.Quantity, row.FreshAt, row.Reported))
 		closedIDs = append(closedIDs, row.ID)
 	}
 	if len(all) == 0 {
@@ -419,7 +396,7 @@ func (s *Service) Schedules(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 		return nil, fmt.Errorf("search: hours: %w", err)
 	}
 	lc := s.clock()
-	closures, err := s.store.ListClosuresForStations(ctx, dbgen.ListClosuresForStationsParams{StationIds: ids, FromDate: lc.prevDate})
+	closures, err := s.store.ListClosuresForStations(ctx, dbgen.ListClosuresForStationsParams{StationIds: ids, FromDate: lc.PrevDate})
 	if err != nil {
 		return nil, fmt.Errorf("search: closures: %w", err)
 	}
@@ -454,7 +431,7 @@ func (s *Service) rank(ctx context.Context, q Query, set candidateSet, approxima
 		est := int(math.Round(dist * roadFactor / estimatedSpeed))
 		it := Item{
 			ID: c.ID, Name: c.Name, Brand: c.Brand, Lat: c.Lat, Lng: c.Lng, DistanceM: int(math.Round(dist)),
-			DurationS: &est, Quantity: c.Quantity, FreshAt: c.FreshAt, IsOpen: c.IsOpen, NextOpening: c.NextOpening,
+			DurationS: &est, Quantity: c.Quantity, FreshAt: c.FreshAt, IsOpen: c.IsOpen, NextOpening: c.NextOpening, Reported: c.Reported,
 			UpdatedAgoS: int(now.Sub(c.FreshAt).Seconds()), Stale: now.Sub(c.FreshAt) > s.cfg.StaleAfter,
 		}
 		items = append(items, it)

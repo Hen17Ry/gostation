@@ -41,6 +41,36 @@ type Config struct {
 	SMTP      SMTP
 	Stock     Stock
 	Search    Search
+	Jobs      Jobs
+	Push      Push
+	Reminders Reminders
+}
+
+// Jobs regroupe les réglages du worker asynq (cmd/worker).
+type Jobs struct {
+	Concurrency     int
+	ShutdownTimeout time.Duration
+	// Backoff exponentiel des retries : RetryBaseDelay × 2^n (± 25 %), plafonné à RetryMaxDelay.
+	RetryBaseDelay time.Duration
+	RetryMaxDelay  time.Duration
+	// HealthAddr : sondes /healthz et /readyz du worker (healthcheck Docker).
+	HealthAddr string
+}
+
+// Push regroupe les réglages des notifications push (Expo Push API).
+type Push struct {
+	// ExpoAccessToken est facultatif : vide, les push passent par le Pusher factice (journal).
+	ExpoAccessToken string
+	ExpoURL         string
+	Timeout         time.Duration
+	// ReceiptsDelay : délai avant la lecture des reçus Expo (DeviceNotRegistered).
+	ReceiptsDelay time.Duration
+}
+
+// Reminders regroupe les réglages des rappels de mise à jour des stocks.
+type Reminders struct {
+	// Interval : délai depuis la dernière mise à jour (ou le dernier rappel) avant un rappel.
+	Interval time.Duration
 }
 
 // Search regroupe les réglages de la recherche (ARCHITECTURE §4).
@@ -237,6 +267,24 @@ func Load(getenv func(string) string) (Config, error) {
 		RateLimitClient:    l.integer("SEARCH_RATE_LIMIT_CLIENT", 30, 1, 10_000_000),
 		StatsFlushInterval: l.duration("STATS_FLUSH_INTERVAL", 5*time.Minute),
 	}
+	c.Jobs = Jobs{
+		Concurrency:     l.integer("WORKER_CONCURRENCY", 10, 1, 500),
+		ShutdownTimeout: l.duration("WORKER_SHUTDOWN_TIMEOUT", 25*time.Second),
+		RetryBaseDelay:  l.duration("JOBS_RETRY_BASE_DELAY", 10*time.Second),
+		RetryMaxDelay:   l.duration("JOBS_RETRY_MAX_DELAY", time.Hour),
+		HealthAddr:      l.addr("WORKER_HEALTH_ADDR", ":8081"),
+	}
+	if c.Jobs.RetryMaxDelay < c.Jobs.RetryBaseDelay {
+		l.fail("JOBS_RETRY_MAX_DELAY", "must not be lower than JOBS_RETRY_BASE_DELAY (%s)", c.Jobs.RetryBaseDelay)
+	}
+	c.Push = Push{
+		ExpoAccessToken: l.raw("EXPO_ACCESS_TOKEN"),
+		ExpoURL:         l.optionalURL("EXPO_PUSH_URL", "https://exp.host", "http", "https"),
+		Timeout:         l.duration("EXPO_PUSH_TIMEOUT", 15*time.Second),
+		ReceiptsDelay:   l.duration("PUSH_RECEIPTS_DELAY", 15*time.Minute),
+	}
+	c.Reminders = Reminders{Interval: l.duration("STOCK_REMINDER_INTERVAL", 4*time.Hour)}
+
 	if c.Search.MinResults > c.Search.MaxCandidates {
 		l.fail("SEARCH_MIN_RESULTS", "must not exceed SEARCH_MAX_CANDIDATES (%d)", c.Search.MaxCandidates)
 	}
@@ -272,6 +320,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("signing_keys", len(c.Auth.SigningKeys)),
 		slog.String("smtp", fmt.Sprintf("%s:%d (%s)", c.SMTP.Host, c.SMTP.Port, c.SMTP.TLSMode)),
 		slog.Bool("cookie_secure", c.Auth.CookieSecure),
+		slog.Bool("expo_push", c.Push.ExpoAccessToken != ""),
+		slog.Int("worker_concurrency", c.Jobs.Concurrency),
 	)
 }
 
@@ -455,6 +505,14 @@ func (l *loader) url(key string, schemes ...string) string {
 	}
 	l.fail(key, "scheme %q is not one of %s", u.Scheme, strings.Join(schemes, ", "))
 	return ""
+}
+
+// optionalURL valide une URL facultative (valeur par défaut sinon).
+func (l *loader) optionalURL(key, def string, schemes ...string) string {
+	if l.raw(key) == "" {
+		return def
+	}
+	return l.url(key, schemes...)
 }
 
 func (l *loader) list(key string) []string {

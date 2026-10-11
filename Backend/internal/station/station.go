@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,6 +56,11 @@ type CacheInvalidator interface {
 	All(ctx context.Context) error
 }
 
+// RestockNotifier déclenche les alertes « de retour en stock » des favoris (*jobs.Client).
+type RestockNotifier interface {
+	EnqueueBackInStock(ctx context.Context, stationID uuid.UUID, productIDs []int16) error
+}
+
 // Deps regroupe les dépendances injectées.
 type Deps struct {
 	Store     *store.Store
@@ -63,6 +69,7 @@ type Deps struct {
 	Cache     CacheInvalidator
 	Mailer    mail.Mailer
 	Templates *mail.Renderer
+	Restock   RestockNotifier
 	Log       *slog.Logger
 }
 
@@ -80,6 +87,10 @@ func NewService(cfg Config, d Deps) *Service {
 
 // Timezone renvoie le nom du fuseau des horaires (Africa/Porto-Novo).
 func (s *Service) Timezone() string { return s.cfg.Timezone.String() }
+
+// ETag renvoie l'ETag d'une version de station ("v{version}") : en-tête des lectures, If-Match
+// des écritures, et donnée des rappels (action « Rien n'a changé » sans ouvrir l'app).
+func ETag(version int32) string { return `"v` + strconv.Itoa(int(version)) + `"` }
 
 // Actor identifie l'utilisateur à l'origine d'une écriture (gérant ou admin).
 type Actor struct {

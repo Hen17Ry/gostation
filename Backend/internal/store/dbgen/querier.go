@@ -6,18 +6,23 @@ package dbgen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type Querier interface {
 	AcceptPrivacyPolicy(ctx context.Context, arg AcceptPrivacyPolicyParams) error
+	AddNotificationOptOut(ctx context.Context, arg AddNotificationOptOutParams) error
 	// Nouveau produit vendu : stock initial 0 (rupture jusqu'à la première saisie).
 	AddStationProduct(ctx context.Context, arg AddStationProductParams) error
+	// Verrou transactionnel nommé (limites par auteur, seuils par station).
+	AdvisoryLock(ctx context.Context, key string) error
 	// Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
 	AnonymizeUser(ctx context.Context, arg AnonymizeUserParams) error
 	// Applique une demande en attente à la station (nouvelle position, nouvelle cellule H3).
 	ApplyLocationRequest(ctx context.Context, requestID uuid.UUID) (int64, error)
+	AutoResolveAdminAlerts(ctx context.Context, arg AutoResolveAdminAlertsParams) (int64, error)
 	// Verrouillage optimiste : réussit seulement si la version attendue est la version courante.
 	// Pose aussi le verrou de ligne pour le reste de la transaction.
 	BumpStationVersion(ctx context.Context, arg BumpStationVersionParams) (int32, error)
@@ -28,30 +33,82 @@ type Querier interface {
 	// Pas d'arithmétique sur un paramètre nommé (« @d::date - 1 ») : sqlc la réécrit mal.
 	// Fermetures du jour : « NOT IN (sous-requête) » est évalué une seule fois (hashed SubPlan, index
 	// idx_station_closures_day), là où NOT EXISTS corrélé re-parcourait la table à chaque station.
+	// Signalements (étape 6) : une cause à 5 auteurs ou plus exclut la station (pour le produit, ou
+	// entièrement si product_id est NULL) ; à 3, la colonne reported porte le badge « signalé ».
 	// Couverture d'une position : au Bénin (frontière élargie de 2 km) ? À 30 km ou moins ?
 	CheckCoverage(ctx context.Context, arg CheckCoverageParams) (CheckCoverageRow, error)
 	// Contrôle d'une épingle : dans le Bénin (marge de 2 km) ? À quelle distance de la position active
 	// (-1 si la station n'est pas encore épinglée) ?
 	CheckStationPin(ctx context.Context, arg CheckStationPinParams) (CheckStationPinRow, error)
+	ClearReportingBan(ctx context.Context, id uuid.UUID) (int64, error)
 	ClearStationLocationFlag(ctx context.Context, id uuid.UUID) error
+	// Mise à jour ou confirmation du gérant : clôture automatique des signalements ouverts.
+	CloseStationReports(ctx context.Context, stationID uuid.UUID) (int64, error)
 	// « Rien n'a changé » : remet le délai de fraîcheur à zéro sans toucher aux quantités.
 	ConfirmStationStocks(ctx context.Context, arg ConfirmStationStocksParams) (int64, error)
+	// Alertes envoyées pour un couple (station, produit) depuis since (limite des 6 h).
+	CountBackInStockSentSince(ctx context.Context, arg CountBackInStockSentSinceParams) (int64, error)
+	CountFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
+	// Recalcul d'un effet après un classement : auteurs distincts des signalements encore ouverts.
+	CountOpenReportersForCause(ctx context.Context, arg CountOpenReportersForCauseParams) (int32, error)
+	CountRecentReportsForCause(ctx context.Context, arg CountRecentReportsForCauseParams) (int64, error)
+	// Auteurs distincts des signalements ouverts d'une cause créés après since.
+	CountReportersForCause(ctx context.Context, arg CountReportersForCauseParams) (int32, error)
+	CountReportsSince(ctx context.Context, arg CountReportsSinceParams) (int64, error)
+	CountUnreadNotifications(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, userID uuid.UUID) (int64, error)
+	// Alertes envoyées à l'utilisateur depuis since (limite de 5 par jour).
+	CountUserBackInStockSentSince(ctx context.Context, arg CountUserBackInStockSentSinceParams) (int64, error)
 	CreateClosure(ctx context.Context, arg CreateClosureParams) (CreateClosureRow, error)
 	CreateLocationRequest(ctx context.Context, arg CreateLocationRequestParams) (CreateLocationRequestRow, error)
 	CreateStation(ctx context.Context, arg CreateStationParams) (CreateStationRow, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DecideReport(ctx context.Context, arg DecideReportParams) error
+	// Conservation : 30 jours (les limites ne regardent que les dernières 24 h).
+	DeleteBackInStockAlertsBefore(ctx context.Context, before time.Time) (int64, error)
 	DeleteClosure(ctx context.Context, arg DeleteClosureParams) (int64, error)
+	DeleteDevice(ctx context.Context, arg DeleteDeviceParams) (int64, error)
+	// DeviceNotRegistered : on ne supprime la ligne que si elle porte encore le token signalé
+	// (empreinte SHA-256), l'installation ayant pu se réenregistrer entre-temps.
+	DeleteDeviceIfToken(ctx context.Context, arg DeleteDeviceIfTokenParams) (int64, error)
+	// Notifications (étape 6) : appareils, boîte de réception, préférences.
+	// Un token Expo n'appartient qu'à une installation : il quitte l'ancienne s'il change de main.
+	DeleteDeviceTokenElsewhere(ctx context.Context, arg DeleteDeviceTokenElsewhereParams) error
+	DeleteDevicesByID(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// Révocation d'une session (logout, révocation, changement de mot de passe…).
+	DeleteDevicesBySession(ctx context.Context, sessionID string) (int64, error)
+	DeleteFavorite(ctx context.Context, arg DeleteFavoriteParams) (int64, error)
+	DeleteFavoriteAlerts(ctx context.Context, arg DeleteFavoriteAlertsParams) error
+	// Conservation (ARCHITECTURE §8) : 90 jours sans réenregistrement.
+	DeleteInactiveDevices(ctx context.Context, before time.Time) (int64, error)
+	// Conservation : 30 jours.
+	DeleteNotificationsBefore(ctx context.Context, before time.Time) (int64, error)
 	DeleteOpeningHours(ctx context.Context, stationID uuid.UUID) error
 	DeleteRecoveryCodes(ctx context.Context, userID uuid.UUID) error
+	DeleteReportFlag(ctx context.Context, id uuid.UUID) error
+	DeleteStationReportFlags(ctx context.Context, stationID uuid.UUID) ([]DeleteStationReportFlagsRow, error)
+	DeleteUserBackInStockAlerts(ctx context.Context, userID uuid.UUID) error
 	DeleteUserDeviceTokens(ctx context.Context, userID uuid.UUID) error
 	DeleteUserFavorites(ctx context.Context, userID uuid.UUID) error
+	DeleteUserNotificationOptOuts(ctx context.Context, userID uuid.UUID) error
+	DeleteUserNotifications(ctx context.Context, userID uuid.UUID) error
 	DisableUserTOTP(ctx context.Context, id uuid.UUID) error
 	EnableUserTOTP(ctx context.Context, arg EnableUserTOTPParams) error
 	FlagStationLocation(ctx context.Context, arg FlagStationLocationParams) error
+	GetAdminAlert(ctx context.Context, id uuid.UUID) (GetAdminAlertRow, error)
+	// Station et produit d'une alerte, avec le stock courant (0 si le produit n'est plus vendu).
+	GetBackInStockContext(ctx context.Context, arg GetBackInStockContextParams) (GetBackInStockContextRow, error)
 	GetPendingLocationRequest(ctx context.Context, stationID uuid.UUID) (GetPendingLocationRequestRow, error)
 	// Fiche publique : stations approuvées uniquement (404 sinon).
 	GetPublicStation(ctx context.Context, id uuid.UUID) (GetPublicStationRow, error)
+	GetReminderState(ctx context.Context, stationID uuid.UUID) (GetReminderStateRow, error)
+	GetReportFlag(ctx context.Context, arg GetReportFlagParams) (GetReportFlagRow, error)
+	GetReportForAdmin(ctx context.Context, id uuid.UUID) (GetReportForAdminRow, error)
+	GetReportForUpdate(ctx context.Context, id uuid.UUID) (GetReportForUpdateRow, error)
+	// Signalements, effets des seuils et alertes admin (étape 6). Une « cause » est le couple
+	// (motif, produit) d'une station ; product_id est NULL sauf pour out_of_stock.
+	GetReportTarget(ctx context.Context, id uuid.UUID) (GetReportTargetRow, error)
+	GetReportingBan(ctx context.Context, id uuid.UUID) (*time.Time, error)
 	// lat/lng sont les colonnes générées depuis location (NULL tant que la station n'est pas
 	// épinglée) : le type geography et les champs du justificatif ne sortent jamais de la base.
 	GetStationByID(ctx context.Context, id uuid.UUID) (GetStationByIDRow, error)
@@ -67,25 +124,55 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
 	GetUserCredentials(ctx context.Context, id uuid.UUID) (GetUserCredentialsRow, error)
+	HasPendingBackInStock(ctx context.Context, arg HasPendingBackInStockParams) (bool, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
+	InsertBackInStockAlert(ctx context.Context, arg InsertBackInStockAlertParams) error
+	InsertFavorite(ctx context.Context, arg InsertFavoriteParams) (int64, error)
+	InsertFavoriteAlerts(ctx context.Context, arg InsertFavoriteAlertsParams) error
+	// Rien n'est créé si l'utilisateur a désactivé ce type (opt-out) ou si son compte n'est plus actif.
+	InsertNotification(ctx context.Context, arg InsertNotificationParams) (uuid.UUID, error)
 	InsertOpeningHours(ctx context.Context, arg []InsertOpeningHoursParams) (int64, error)
 	InsertRecoveryCodes(ctx context.Context, arg []InsertRecoveryCodesParams) (int64, error)
+	InsertReport(ctx context.Context, arg InsertReportParams) (InsertReportRow, error)
+	InsertReportFlag(ctx context.Context, arg InsertReportFlagParams) error
 	InsertStockHistory(ctx context.Context, arg []InsertStockHistoryParams) (int64, error)
 	// Catalogue visible par les clients, dans l'ordre d'affichage.
 	ListActiveProducts(ctx context.Context) ([]ListActiveProductsRow, error)
+	ListAdminAlerts(ctx context.Context, arg ListAdminAlertsParams) ([]ListAdminAlertsRow, error)
 	// Lecture pour les tests et, plus tard, l'écran d'audit admin.
 	ListAuditLogsByEntity(ctx context.Context, arg ListAuditLogsByEntityParams) ([]AuditLog, error)
+	// Abonnés actifs et vérifiés, sans opt-out du type back_in_stock.
+	ListBackInStockSubscribers(ctx context.Context, arg ListBackInStockSubscribersParams) ([]uuid.UUID, error)
 	// Fermetures à partir d'une date (le jour même compris).
 	ListClosures(ctx context.Context, arg ListClosuresParams) ([]ListClosuresRow, error)
 	ListClosuresForStations(ctx context.Context, arg ListClosuresForStationsParams) ([]ListClosuresForStationsRow, error)
+	ListDevicesForUsers(ctx context.Context, userIds []uuid.UUID) ([]ListDevicesForUsersRow, error)
+	// Favoris et alertes « de retour en stock » (étape 6).
+	ListFavorites(ctx context.Context, userID uuid.UUID) ([]ListFavoritesRow, error)
 	ListHoursForStations(ctx context.Context, stationIds []uuid.UUID) ([]StationOpeningHour, error)
+	ListNotificationOptOuts(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
+	// Boîte de réception, du plus récent au plus ancien (id UUIDv7), pagination par curseur.
+	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]ListNotificationsRow, error)
+	ListNotificationsToPush(ctx context.Context, ids []uuid.UUID) ([]ListNotificationsToPushRow, error)
 	// Repli KNN illimité (aucune station ouverte à 50 km).
 	ListOpenCandidatesKNN(ctx context.Context, arg ListOpenCandidatesKNNParams) ([]ListOpenCandidatesKNNRow, error)
 	ListOpenCandidatesWithin(ctx context.Context, arg ListOpenCandidatesWithinParams) ([]ListOpenCandidatesWithinRow, error)
 	ListOpeningHours(ctx context.Context, stationID uuid.UUID) ([]ListOpeningHoursRow, error)
+	ListPendingBackInStock(ctx context.Context) ([]ListPendingBackInStockRow, error)
 	ListPublicStocks(ctx context.Context, stationID uuid.UUID) ([]ListPublicStocksRow, error)
+	// Rappels de mise à jour des stocks (étape 6). « Ouverte maintenant » reprend le filtre de la
+	// recherche (search.sql) : jour ISO, heure et dates locales calculés en Go, fuseau Africa/Porto-Novo.
+	// Stations approuvées qui vendent au moins un produit, sans mise à jour ni confirmation depuis
+	// stale_before, sans rappel depuis stale_before, ni en sourdine ni en opt-out. Deux cas :
+	//   * streak ≥ max_ignored : rappels ignorés de suite, à escalader (ouverte ou non) ;
+	//   * sinon : ouverte maintenant, sous le plafond du jour, rappels non arrêtés aujourd'hui.
+	ListReminderCandidates(ctx context.Context, arg ListReminderCandidatesParams) ([]ListReminderCandidatesRow, error)
+	ListReportsForAdmin(ctx context.Context, arg ListReportsForAdminParams) ([]ListReportsForAdminRow, error)
 	// Catalogue actif, avec ce que la station vend (ligne présente) et son stock.
 	ListStationProducts(ctx context.Context, stationID uuid.UUID) ([]ListStationProductsRow, error)
+	ListStationReportFlags(ctx context.Context, stationID uuid.UUID) ([]ListStationReportFlagsRow, error)
+	// Vue gérant : jamais l'auteur ni son commentaire.
+	ListStationReports(ctx context.Context, arg ListStationReportsParams) ([]ListStationReportsRow, error)
 	// Stocks vendus, verrouillés pour la mise à jour groupée.
 	ListStationStocksForUpdate(ctx context.Context, stationID uuid.UUID) ([]ListStationStocksForUpdateRow, error)
 	// Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
@@ -96,24 +183,46 @@ type Querier interface {
 	// les fermées (repli D19, triées par heure à laquelle on peut être servi).
 	ListStockedCandidatesKNN(ctx context.Context, arg ListStockedCandidatesKNNParams) ([]ListStockedCandidatesKNNRow, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	MarkNotificationsPushed(ctx context.Context, ids []uuid.UUID) error
+	MarkNotificationsRead(ctx context.Context, arg MarkNotificationsReadParams) (int64, error)
+	MuteReminders(ctx context.Context, arg MuteRemindersParams) (*time.Time, error)
+	// Une seule alerte ouverte par cause : rien n'est créé si elle existe déjà.
+	OpenAdminAlert(ctx context.Context, arg OpenAdminAlertParams) (uuid.UUID, error)
+	// Compteurs du jour remis à zéro au changement de journée locale ; streak (rappels depuis la
+	// dernière mise à jour) n'est remis à zéro que par une mise à jour ou une escalade.
+	RecordReminderSent(ctx context.Context, arg RecordReminderSentParams) error
 	// Mise à niveau des paramètres argon2 au login : ne touche pas password_changed_at.
 	RehashUserPassword(ctx context.Context, arg RehashUserPasswordParams) error
+	RemoveNotificationOptOut(ctx context.Context, arg RemoveNotificationOptOutParams) error
 	// Produits qui ne sont plus vendus (l'historique reste dans stock_history).
 	RemoveStationProductsNotIn(ctx context.Context, arg RemoveStationProductsNotInParams) ([]int16, error)
 	ReplaceStationDocument(ctx context.Context, arg ReplaceStationDocumentParams) error
+	// Mise à jour ou confirmation du gérant : le rappel en cours n'est plus « ignoré ».
+	ResetReminderStreak(ctx context.Context, stationID uuid.UUID) error
+	ResolveAdminAlert(ctx context.Context, arg ResolveAdminAlertParams) (int64, error)
 	ResolveLocationRequest(ctx context.Context, arg ResolveLocationRequestParams) (int64, error)
+	SetBackInStockStatus(ctx context.Context, arg SetBackInStockStatusParams) error
+	SetReportingBan(ctx context.Context, arg SetReportingBanParams) (int64, error)
 	SetStationLocation(ctx context.Context, arg SetStationLocationParams) error
 	// Changement de statut. reviewed_by/at ne sont renseignés que pour une décision admin.
 	SetStationStatus(ctx context.Context, arg SetStationStatusParams) error
 	// Une saisie vaut aussi confirmation : last_confirmed_at avance même si la quantité ne change pas.
 	SetStockQuantity(ctx context.Context, arg SetStockQuantityParams) error
+	StationSellsProduct(ctx context.Context, arg StationSellsProductParams) (bool, error)
+	// Escalade après les rappels ignorés : arrêt pour la journée du dernier rappel (day), reprise le
+	// lendemain (RecordReminderSent remet stopped à false au changement de jour).
+	StopReminders(ctx context.Context, arg StopRemindersParams) error
 	SupersedeLocationRequests(ctx context.Context, stationID uuid.UUID) error
 	SuspendManagerStation(ctx context.Context, arg SuspendManagerStationParams) error
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
 	TouchStationStockActivity(ctx context.Context, id uuid.UUID) error
+	UpdateReportFlag(ctx context.Context, arg UpdateReportFlagParams) error
 	UpdateStationProfile(ctx context.Context, arg UpdateStationProfileParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
+	// Une installation = une ligne. La réenregistrer (lancement de l'app, nouveau token, autre compte,
+	// nouvelle session) la met à jour et repousse last_seen_at.
+	UpsertDevice(ctx context.Context, arg UpsertDeviceParams) (UpsertDeviceRow, error)
 	// Agrégation des compteurs anonymes (cellule H3 res 7, produit, heure) vidés depuis Redis.
 	UpsertSearchStats(ctx context.Context, arg UpsertSearchStatsParams) error
 	// Consomme un code de secours (usage unique).

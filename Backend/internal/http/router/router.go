@@ -47,6 +47,10 @@ type Deps struct {
 	Me            *handler.Me
 	Stations      *handler.Stations
 	Search        *handler.Search
+	Notifications *handler.Notifications
+	Favorites     *handler.Favorites
+	Reports       *handler.Reports
+	Reminders     *handler.Reminders
 	EmailVerifier middleware.EmailVerifier
 	StationStatus middleware.StationStatusReader
 }
@@ -176,6 +180,22 @@ func New(cfg Config, d Deps) http.Handler {
 				me.Post("/me/accept-privacy-policy", h(d.Me.AcceptPrivacyPolicy))
 				me.Get("/me/sessions", h(d.Me.Sessions))
 				me.Delete("/me/sessions/{id}", h(d.Me.RevokeSession))
+				// Désenregistrer un appareil reste possible sans email vérifié.
+				me.Delete("/me/devices/{id}", h(d.Notifications.UnregisterDevice))
+			})
+
+			// Notifications, favoris et signalements : email vérifié obligatoire (D5).
+			j.Group(func(v chi.Router) {
+				v.Use(d.Authenticator.Require, middleware.RequireVerifiedEmail(rs, d.EmailVerifier))
+				v.Post("/me/devices", h(d.Notifications.RegisterDevice))
+				v.Get("/me/notifications", h(d.Notifications.Inbox))
+				v.Post("/me/notifications/read", h(d.Notifications.MarkRead))
+				v.Get("/me/notification-settings", h(d.Notifications.Settings))
+				v.Put("/me/notification-settings", h(d.Notifications.UpdateSettings))
+				v.Get("/me/favorites", h(d.Favorites.List))
+				v.Post("/me/favorites/{stationId}", h(d.Favorites.Add))
+				v.Delete("/me/favorites/{stationId}", h(d.Favorites.Remove))
+				v.Post("/stations/{id}/reports", h(d.Reports.Create))
 			})
 
 			// Gérant : rien d'autre que /me tant que la station n'est pas approuvée, sauf l'exception
@@ -200,6 +220,8 @@ func New(cfg Config, d Deps) http.Handler {
 					ok.Get("/manager/station/stocks", h(st.Stocks))
 					ok.Put("/manager/station/stocks", h(st.UpdateStocks))
 					ok.Post("/manager/station/stocks/confirm", h(st.ConfirmStocks))
+					ok.Get("/manager/reports", h(d.Reports.ManagerList))
+					ok.Post("/manager/reminders/mute", h(d.Reminders.Mute))
 				})
 			})
 
@@ -216,6 +238,13 @@ func New(cfg Config, d Deps) http.Handler {
 				ad.Post("/admin/stations/{id}/location-requests/{requestId}/approve", h(st.ApproveMove()))
 				ad.Post("/admin/stations/{id}/location-requests/{requestId}/reject", h(st.RejectMove()))
 				ad.Post("/admin/stations/{id}/location-flag/dismiss", h(st.DismissLocationFlag))
+				ad.Get("/admin/reports", h(d.Reports.AdminList))
+				ad.Post("/admin/reports/{id}/resolve", h(d.Reports.Resolve))
+				ad.Post("/admin/reports/{id}/dismiss", h(d.Reports.Dismiss))
+				ad.Post("/admin/users/{id}/reporting-ban", h(d.Reports.Ban))
+				ad.Delete("/admin/users/{id}/reporting-ban", h(d.Reports.Unban))
+				ad.Get("/admin/alerts", h(d.Reports.Alerts))
+				ad.Post("/admin/alerts/{id}/resolve", h(d.Reports.ResolveAlert))
 			})
 		})
 	})

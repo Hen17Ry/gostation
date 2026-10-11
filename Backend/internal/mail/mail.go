@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -20,7 +19,6 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -191,58 +189,4 @@ func build(from, to *mail.Address, m Message, now time.Time) ([]byte, error) {
 		return nil, fmt.Errorf("mail: close multipart: %w", err)
 	}
 	return buf.Bytes(), nil
-}
-
-// Async envoie en arrière-plan : la réponse HTTP n'attend pas le serveur SMTP, et son temps
-// ne trahit donc pas l'existence d'un compte (anti-énumération). File bornée ; en cas de
-// saturation, le message est abandonné et journalisé. Remplacé par asynq plus tard.
-type Async struct {
-	next  Mailer
-	queue chan Message
-	log   *slog.Logger
-	wg    sync.WaitGroup
-	once  sync.Once
-}
-
-// NewAsync démarre workers goroutines d'envoi.
-func NewAsync(next Mailer, log *slog.Logger, workers, queueSize int) *Async {
-	a := &Async{next: next, queue: make(chan Message, queueSize), log: log}
-	for range workers {
-		a.wg.Go(a.work)
-	}
-	return a
-}
-
-func (a *Async) work() {
-	for m := range a.queue {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := a.next.Send(ctx, m); err != nil {
-			a.log.ErrorContext(ctx, "send email", slog.String("subject", m.Subject), slog.Any("err", err))
-		}
-		cancel()
-	}
-}
-
-// Send met le message en file sans bloquer.
-func (a *Async) Send(ctx context.Context, m Message) error {
-	select {
-	case a.queue <- m:
-		return nil
-	default:
-		a.log.ErrorContext(ctx, "email queue full, message dropped", slog.String("subject", m.Subject))
-		return errors.New("mail: queue full")
-	}
-}
-
-// Close arrête la file et attend la fin des envois en cours, dans la limite de ctx.
-func (a *Async) Close(ctx context.Context) error {
-	a.once.Do(func() { close(a.queue) })
-	done := make(chan struct{})
-	go func() { a.wg.Wait(); close(done) }()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("mail: pending emails not sent: %w", ctx.Err())
-	}
 }

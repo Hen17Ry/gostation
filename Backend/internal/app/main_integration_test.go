@@ -34,7 +34,9 @@ import (
 )
 
 // Environnement partagé par les tests du paquet : PostGIS migré, Redis et Mailpit réels,
-// application assemblée exactement comme cmd/api (SMTP synchrone pour des tests déterministes).
+// application assemblée exactement comme cmd/api, et worker asynq dans le même processus (emails,
+// push vers un faux Expo, alertes), sans scheduler : les tâches périodiques sont appelées
+// directement par les tests.
 var it struct {
 	handler http.Handler
 	svc     *app.Services
@@ -43,6 +45,9 @@ var it struct {
 	mailpit *testutil.Mailpit
 	cfg     config.Config
 	osrm    *fakeOSRM
+	expo    *fakeExpo
+	clock   *testClock
+	mailer  *flakyMailer
 	logs    *logBuffer
 }
 
@@ -81,11 +86,16 @@ func runTests(m *testing.M) (code int) {
 	fake := &fakeOSRM{delay: 2 * time.Second}
 	osrmSrv := httptest.NewServer(fake)
 	defer osrmSrv.Close()
+	expo := newFakeExpo()
+	expoSrv := httptest.NewServer(expo)
+	defer expoSrv.Close()
 
 	env := map[string]string{
 		"DATABASE_URL": dsn, "REDIS_URL": redisURL, "OSRM_URL": osrmSrv.URL, "OSRM_TIMEOUT": "300ms",
 		"JWT_SIGNING_KEYS": "it-key:" + randomHex(32), "APP_SECRET": randomHex(32),
 		"DOCUMENTS_ENCRYPTION_KEY": randomHex(32), "SMTP_HOST": mp.SMTPHost, "SMTP_PORT": fmt.Sprint(mp.SMTPPort),
+		"EXPO_ACCESS_TOKEN": "it-expo-token", "EXPO_PUSH_URL": expoSrv.URL, "PUSH_RECEIPTS_DELAY": "300ms",
+		"JOBS_RETRY_BASE_DELAY": "100ms", "JOBS_RETRY_MAX_DELAY": "400ms",
 	}
 	cfg, err := config.Load(func(k string) string { return env[k] })
 	if err != nil {
@@ -122,14 +132,27 @@ func runTests(m *testing.M) (code int) {
 	if err != nil {
 		return fail(err)
 	}
-	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs, OSRM: osrmClient}, log)
+	clock := &testClock{}
+	mailer := &flakyMailer{next: smtp, failures: map[string]int{}, attempts: map[string]int{}}
+	infra := app.Infra{Pool: pool, Redis: rdb, Mailer: mailer, Storage: docs, OSRM: osrmClient, Clock: clock.Now}
+	svc, err := app.NewServices(cfg, infra, log)
 	if err != nil {
 		return fail(err)
 	}
 	handler, _ := app.NewHandler(cfg, svc, rdb, log)
+	w, err := app.NewWorker(cfg, svc, infra, log, app.WorkerOptions{
+		DisableScheduler: true, PollInterval: 20 * time.Millisecond, DelayedCheckInterval: 50 * time.Millisecond,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	if err := w.Start(); err != nil {
+		return fail(err)
+	}
+	defer w.Shutdown()
 
 	it.handler, it.svc, it.pool, it.rdb, it.mailpit, it.cfg = handler, svc, pool, rdb, mp, cfg
-	it.osrm, it.logs = fake, logs
+	it.osrm, it.expo, it.clock, it.mailer, it.logs = fake, expo, clock, mailer, logs
 	return m.Run()
 }
 
