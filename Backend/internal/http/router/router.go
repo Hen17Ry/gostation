@@ -165,6 +165,7 @@ func New(cfg Config, d Deps) http.Handler {
 			j.Post("/auth/resend-verification", h(a.ResendVerification))
 			j.Post("/auth/login", h(a.Login))
 			j.Post("/auth/refresh", h(a.Refresh))
+			j.With(d.Authenticator.Optional).Get("/auth/csrf", h(a.CSRF))
 			j.With(d.Authenticator.Optional).Post("/auth/logout", h(a.Logout))
 			j.With(d.Authenticator.Require).Post("/auth/logout-all", h(a.LogoutAll))
 			j.Post("/auth/password/forgot", h(a.ForgotPassword))

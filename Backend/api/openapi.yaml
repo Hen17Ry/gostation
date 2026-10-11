@@ -407,6 +407,24 @@ paths:
                   - $ref: "#/components/schemas/AdminRefreshResponse"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/auth/csrf:
+    get:
+      tags: [admin-auth]
+      operationId: getCsrfToken
+      summary: Jeton CSRF de la session web courante (admin), par exemple après un rechargement de page
+      description: |
+        Session identifiée par le cookie d'accès, sinon par le cookie de refresh (sans rotation).
+        Seules les sessions web (cookies) en ont un ; un Bearer ou une absence de session → 401.
+      security: [{ cookieAuth: [] }, {}]
+      responses:
+        "200":
+          description: Jeton à renvoyer dans X-CSRF-Token sur toute écriture
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CsrfToken" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /api/v1/auth/logout:
     post:
       tags: [auth, admin-auth]
@@ -2367,6 +2385,11 @@ components:
           type: array
           items: { type: string }
           description: Les 10 codes de secours, renvoyés une seule fois, à la mise en place
+    CsrfToken:
+      type: object
+      required: [csrfToken]
+      properties:
+        csrfToken: { type: string, description: "HMAC de la session, à envoyer dans X-CSRF-Token" }
     AdminRefreshResponse:
       type: object
       required: [csrfToken, expiresIn]
