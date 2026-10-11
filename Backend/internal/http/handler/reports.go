@@ -207,12 +207,15 @@ type adminReportPage struct {
 
 // AdminList liste les signalements (GET /admin/reports?status&stationId&cursor&limit).
 func (h *Reports) AdminList(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
+	q, err := strictQuery(r, "status", "reason", "stationId", "cursor", "limit")
+	if err != nil {
+		return err
+	}
 	limit, err := queryLimit(r)
 	if err != nil {
 		return err
 	}
-	f := report.AdminFilter{Status: q.Get("status"), Cursor: q.Get("cursor"), Limit: limit}
+	f := report.AdminFilter{Status: q.Get("status"), Reason: q.Get("reason"), Cursor: q.Get("cursor"), Limit: limit}
 	if v := strings.TrimSpace(q.Get("stationId")); v != "" {
 		id, err := uuid.Parse(v)
 		if err != nil {
@@ -351,7 +354,10 @@ type alertPage struct {
 
 // Alerts liste les alertes admin (GET /admin/alerts?status=open|resolved|all&kind&cursor&limit).
 func (h *Reports) Alerts(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
+	q, err := strictQuery(r, "status", "kind", "cursor", "limit")
+	if err != nil {
+		return err
+	}
 	limit, err := queryLimit(r)
 	if err != nil {
 		return err

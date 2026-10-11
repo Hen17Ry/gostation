@@ -158,6 +158,29 @@ type dashboardDTO struct {
 	} `json:"series"`
 }
 
+type countersDTO struct {
+	PendingStations int `json:"pendingStations"`
+	OpenReports     int `json:"openReports"`
+	OpenAlerts      int `json:"openAlerts"`
+	LocationReviews int `json:"locationReviews"`
+}
+
+// Counters renvoie les compteurs des badges de la barre latérale (GET /admin/counters).
+func (h *Admin) Counters(w http.ResponseWriter, r *http.Request) error {
+	if _, err := strictQuery(r); err != nil {
+		return err
+	}
+	c, err := h.analytics.Counters(r.Context())
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	h.rs.JSON(w, r, http.StatusOK, countersDTO{
+		PendingStations: c.PendingStations, OpenReports: c.OpenReports, OpenAlerts: c.OpenAlerts, LocationReviews: c.LocationReviews,
+	})
+	return nil
+}
+
 // Dashboard renvoie les indicateurs du tableau de bord (GET /admin/dashboard?period&from&to).
 func (h *Admin) Dashboard(w http.ResponseWriter, r *http.Request) error {
 	q, err := strictQuery(r, "period", "from", "to")

@@ -76,11 +76,16 @@ func (s *Service) LoadSchedule(ctx context.Context, q *dbgen.Queries, stationID 
 }
 
 func (s *Service) hoursView(ctx context.Context, q *dbgen.Queries, st dbgen.GetStationByManagerRow) (HoursView, error) {
-	sched, closures, err := s.LoadSchedule(ctx, q, st.ID)
+	return s.hoursFor(ctx, q, st.ID, st.Version)
+}
+
+// hoursFor calcule la vue des horaires d'une station (gérant et détail admin).
+func (s *Service) hoursFor(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID, version int32) (HoursView, error) {
+	sched, closures, err := s.LoadSchedule(ctx, q, stationID)
 	if err != nil {
 		return HoursView{}, err
 	}
-	v := HoursView{Version: st.Version, Ranges: sched.Ranges, Closures: closures, IsOpenNow: sched.IsOpen(s.now())}
+	v := HoursView{Version: version, Ranges: sched.Ranges, Closures: closures, IsOpenNow: sched.IsOpen(s.now())}
 	if next, ok := sched.NextOpening(s.now()); ok {
 		v.NextOpening = &next
 	}

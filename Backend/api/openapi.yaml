@@ -1132,6 +1132,21 @@ paths:
               schema: { $ref: "#/components/schemas/MuteResponse" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v1/admin/counters:
+    get:
+      tags: [admin]
+      operationId: getAdminCounters
+      summary: Compteurs des badges de la barre latérale (dossiers en attente, signalements et alertes ouverts, épingles à vérifier)
+      security: [{ cookieAuth: [] }]
+      responses:
+        "200":
+          description: Compteurs (Cache-Control no-store)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminCounters" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v1/admin/dashboard:
     get:
       tags: [admin, admin-stats]
@@ -1219,6 +1234,7 @@ paths:
         - { name: managerInactive, in: query, description: "Alerte « gérant inactif » ouverte", schema: { type: boolean } }
         - { name: noHours, in: query, description: Aucun horaire renseigné, schema: { type: boolean } }
         - { name: reported, in: query, description: Effet de signalement en cours (badge ou exclusion), schema: { type: boolean } }
+        - { name: excluded, in: query, description: "Seuil de 5 signalements atteint : produit ou station exclus de la recherche", schema: { type: boolean } }
         - { name: cursor, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
       responses:
@@ -1253,7 +1269,7 @@ paths:
     get:
       tags: [admin]
       operationId: getAdminStation
-      summary: Détail d'une station (gérant, signalement, demande de déplacement)
+      summary: Détail d'une station (gérant, signalement d'épingle, demande de déplacement, horaires et fermetures, stocks)
       security: [{ cookieAuth: [] }]
       parameters: [{ $ref: "#/components/parameters/StationId" }]
       responses:
@@ -1478,6 +1494,7 @@ paths:
       security: [{ cookieAuth: [] }]
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [open, resolved, dismissed] } }
+        - { name: reason, in: query, schema: { $ref: "#/components/schemas/ReportReason" } }
         - { name: stationId, in: query, schema: { type: string, format: uuid } }
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -2745,7 +2762,7 @@ components:
     AdminStationSummary:
       type: object
       required: [id, name, brand, ifu, city, status, version, location, managerEmailVerified, locationFlagged, hasPendingMove,
-        hasOpeningHours, lastStockUpdateAt, freshness, reported, managerInactive, createdAt, updatedAt]
+        hasOpeningHours, lastStockUpdateAt, freshness, reported, excluded, managerInactive, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -2765,9 +2782,18 @@ components:
         lastStockUpdateAt: { type: [string, "null"], format: date-time }
         freshness: { $ref: "#/components/schemas/StationFreshness" }
         reported: { type: boolean }
+        excluded: { type: boolean, description: Seuil de 5 signalements atteint (produit ou station exclus de la recherche) }
         managerInactive: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    AdminCounters:
+      type: object
+      required: [pendingStations, openReports, openAlerts, locationReviews]
+      properties:
+        pendingStations: { type: integer, description: "Dossiers pending (email du gérant vérifié)" }
+        openReports: { type: integer }
+        openAlerts: { type: integer }
+        locationReviews: { type: integer, description: Épingles signalées ou demandes de déplacement en attente }
     AdminStationPage:
       type: object
       required: [items, nextCursor]
@@ -2787,7 +2813,7 @@ components:
         emailVerified: { type: boolean }
     AdminStation:
       type: object
-      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, statusChangedAt, createdAt, updatedAt]
+      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, statusChangedAt, createdAt, updatedAt, openingHours, stocks]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending, approved, rejected, suspended] }
@@ -2823,6 +2849,11 @@ components:
         statusChangedAt: { type: string, format: date-time, description: Dernier changement de statut }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        openingHours: { $ref: "#/components/schemas/OpeningHours" }
+        stocks:
+          type: array
+          description: Stocks des produits vendus, avec leur fraîcheur (lecture seule pour l'admin)
+          items: { $ref: "#/components/schemas/Stock" }
     DeviceRequest:
       type: object
       required: [token, platform, installId]

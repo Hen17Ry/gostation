@@ -28,6 +28,7 @@ type AdminFilter struct {
 	ManagerInactive bool   // alerte « gérant inactif » ouverte
 	NoHours         bool   // aucun horaire
 	Reported        bool   // effet de signalement en cours (badge ou exclusion)
+	Excluded        bool   // seuil de 5 signalements atteint (produit ou station exclus de la recherche)
 	Cursor          string
 	Limit           int
 }
@@ -67,7 +68,7 @@ var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 func (s *Service) AdminList(ctx context.Context, f AdminFilter) (AdminPage, error) {
 	var fe fieldErrors
 	p := dbgen.ListStationsForAdminParams{
-		NeedsReview: f.NeedsReview, ManagerInactive: f.ManagerInactive, NoHours: f.NoHours, Reported: f.Reported,
+		NeedsReview: f.NeedsReview, ManagerInactive: f.ManagerInactive, NoHours: f.NoHours, Reported: f.Reported, Excluded: f.Excluded,
 	}
 	switch f.Status {
 	case "all":
@@ -174,6 +175,9 @@ func ensureStation(ctx context.Context, q *dbgen.Queries, id uuid.UUID) error {
 type AdminStation struct {
 	dbgen.GetStationForAdminRow
 	PendingMove *LocationRequest
+	// Horaires (fermetures à venir comprises) et stocks des produits vendus : fiche admin complète.
+	Hours  HoursView
+	Stocks []StockItem
 }
 
 // AdminDetail renvoie le détail d'une station.
@@ -186,7 +190,15 @@ func (s *Service) AdminDetail(ctx context.Context, stationID uuid.UUID) (AdminSt
 	if err != nil {
 		return AdminStation{}, err
 	}
-	return AdminStation{GetStationForAdminRow: row, PendingMove: move}, nil
+	hours, err := s.hoursFor(ctx, s.Store.Queries, stationID, row.Version)
+	if err != nil {
+		return AdminStation{}, err
+	}
+	stocks, err := s.stockItems(ctx, stationID)
+	if err != nil {
+		return AdminStation{}, err
+	}
+	return AdminStation{GetStationForAdminRow: row, PendingMove: move, Hours: hours, Stocks: stocks}, nil
 }
 
 // transition décrit une décision admin sur le statut.

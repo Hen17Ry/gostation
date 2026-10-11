@@ -508,15 +508,20 @@ type stocksResponse struct {
 	Items          []stockDTO `json:"items"`
 }
 
-func (h *Stations) writeStocks(w http.ResponseWriter, r *http.Request, v station.StocksView) {
-	resp := stocksResponse{LastActivityAt: v.LastActivityAt, Items: make([]stockDTO, 0, len(v.Items))}
-	for _, it := range v.Items {
-		resp.Items = append(resp.Items, stockDTO{
+func toStockDTOs(items []station.StockItem) []stockDTO {
+	out := make([]stockDTO, 0, len(items))
+	for _, it := range items {
+		out = append(out, stockDTO{
 			ProductID: it.ProductID, Code: it.Code, Label: it.Label, Unit: it.Unit,
 			SizeKg: it.SizeKg, Quantity: it.Quantity, MaxQuantity: it.MaxQuantity, UpdatedAt: it.UpdatedAt,
 			LastConfirmedAt: it.LastConfirmedAt, FreshAt: it.FreshAt, Freshness: it.Freshness,
 		})
 	}
+	return out
+}
+
+func (h *Stations) writeStocks(w http.ResponseWriter, r *http.Request, v station.StocksView) {
+	resp := stocksResponse{LastActivityAt: v.LastActivityAt, Items: toStockDTOs(v.Items)}
 	setETag(w, v.Version)
 	h.rs.JSON(w, r, http.StatusOK, resp)
 }
@@ -594,6 +599,7 @@ type adminStationSummaryDTO struct {
 	LastStockUpdateAt    *time.Time `json:"lastStockUpdateAt"`
 	Freshness            string     `json:"freshness"` // fresh | stale | expired | none (jamais saisi)
 	Reported             bool       `json:"reported"`
+	Excluded             bool       `json:"excluded"`
 	ManagerInactive      bool       `json:"managerInactive"`
 	CreatedAt            time.Time  `json:"createdAt"`
 	UpdatedAt            time.Time  `json:"updatedAt"`
@@ -605,9 +611,9 @@ type adminStationPage struct {
 }
 
 // AdminList liste les stations (GET /admin/stations?status&q&needsReview&freshness&managerInactive&
-// noHours&reported&cursor&limit). Statut par défaut : pending ; « all » = tous.
+// noHours&reported&excluded&cursor&limit). Statut par défaut : pending ; « all » = tous.
 func (h *Stations) AdminList(w http.ResponseWriter, r *http.Request) error {
-	q, err := strictQuery(r, "status", "q", "needsReview", "freshness", "managerInactive", "noHours", "reported", "cursor", "limit")
+	q, err := strictQuery(r, "status", "q", "needsReview", "freshness", "managerInactive", "noHours", "reported", "excluded", "cursor", "limit")
 	if err != nil {
 		return err
 	}
@@ -616,7 +622,7 @@ func (h *Stations) AdminList(w http.ResponseWriter, r *http.Request) error {
 		f.Status = station.StatusPending
 	}
 	for name, dst := range map[string]*bool{
-		"needsReview": &f.NeedsReview, "managerInactive": &f.ManagerInactive, "noHours": &f.NoHours, "reported": &f.Reported,
+		"needsReview": &f.NeedsReview, "managerInactive": &f.ManagerInactive, "noHours": &f.NoHours, "reported": &f.Reported, "excluded": &f.Excluded,
 	} {
 		b, err := queryBool(q, name)
 		if err != nil {
@@ -640,7 +646,7 @@ func (h *Stations) AdminList(w http.ResponseWriter, r *http.Request) error {
 			Version: s.Version, Location: latLng(s.Lat, s.Lng), ManagerEmailVerified: s.ManagerEmailVerified,
 			LocationFlagged: s.LocationFlaggedAt != nil, HasPendingMove: s.HasPendingMove, HasOpeningHours: s.HasOpeningHours,
 			LastStockUpdateAt: s.LastStockUpdateAt, Freshness: h.svc.StationFreshness(s.LastStockUpdateAt),
-			Reported: s.Reported, ManagerInactive: s.ManagerInactive, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+			Reported: s.Reported, Excluded: s.Excluded, ManagerInactive: s.ManagerInactive, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 		})
 	}
 	if page.NextCursor != "" {
@@ -762,6 +768,8 @@ type adminStationDTO struct {
 	StatusChangedAt   time.Time        `json:"statusChangedAt"`
 	CreatedAt         time.Time        `json:"createdAt"`
 	UpdatedAt         time.Time        `json:"updatedAt"`
+	OpeningHours      hoursResponse    `json:"openingHours"`
+	Stocks            []stockDTO       `json:"stocks"`
 }
 
 func (h *Stations) writeAdminStation(w http.ResponseWriter, r *http.Request, st station.AdminStation) {
@@ -772,6 +780,7 @@ func (h *Stations) writeAdminStation(w http.ResponseWriter, r *http.Request, st 
 		LocationFlag: locationFlag(st.LocationFlaggedAt, st.LocationFlagDistanceM, st.LocationFlagAccuracyM),
 		PendingMove:  moveRequest(st.PendingMove), DocumentMime: st.DocumentMime,
 		LastStockUpdateAt: st.LastStockUpdateAt, StatusChangedAt: st.StatusChangedAt, CreatedAt: st.CreatedAt, UpdatedAt: st.UpdatedAt,
+		OpeningHours: toHours(st.Hours, h.svc.Timezone()), Stocks: toStockDTOs(st.Stocks),
 	}
 	if st.ManagerID != nil && st.ManagerEmail != nil {
 		d.Manager = &adminManagerDTO{
