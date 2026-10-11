@@ -150,6 +150,15 @@ func (s *Service) DeleteAccount(ctx context.Context, a Actor, password string) e
 		if err := q.DeleteUserFavorites(ctx, a.UserID); err != nil {
 			return err
 		}
+		if err := q.DeleteUserNotifications(ctx, a.UserID); err != nil {
+			return err
+		}
+		if err := q.DeleteUserNotificationOptOuts(ctx, a.UserID); err != nil {
+			return err
+		}
+		if err := q.DeleteUserBackInStockAlerts(ctx, a.UserID); err != nil {
+			return err
+		}
 		if a.Role == string(dbgen.UserRoleManager) {
 			return q.SuspendManagerStation(ctx, dbgen.SuspendManagerStationParams{
 				ManagerID: &a.UserID, Reason: ptr("Manager account deleted."),

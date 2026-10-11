@@ -13,6 +13,183 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AdminAlertKind string
+
+const (
+	AdminAlertKindManagerInactive  AdminAlertKind = "manager_inactive"
+	AdminAlertKindReportsThreshold AdminAlertKind = "reports_threshold"
+)
+
+func (e *AdminAlertKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AdminAlertKind(s)
+	case string:
+		*e = AdminAlertKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AdminAlertKind: %T", src)
+	}
+	return nil
+}
+
+type NullAdminAlertKind struct {
+	AdminAlertKind AdminAlertKind `json:"adminAlertKind"`
+	Valid          bool           `json:"valid"` // Valid is true if AdminAlertKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAdminAlertKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.AdminAlertKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AdminAlertKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAdminAlertKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AdminAlertKind), nil
+}
+
+func (e AdminAlertKind) Valid() bool {
+	switch e {
+	case AdminAlertKindManagerInactive,
+		AdminAlertKindReportsThreshold:
+		return true
+	}
+	return false
+}
+
+func AllAdminAlertKindValues() []AdminAlertKind {
+	return []AdminAlertKind{
+		AdminAlertKindManagerInactive,
+		AdminAlertKindReportsThreshold,
+	}
+}
+
+type BackInStockStatus string
+
+const (
+	BackInStockStatusPending BackInStockStatus = "pending"
+	BackInStockStatusSent    BackInStockStatus = "sent"
+	BackInStockStatusDropped BackInStockStatus = "dropped"
+)
+
+func (e *BackInStockStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BackInStockStatus(s)
+	case string:
+		*e = BackInStockStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BackInStockStatus: %T", src)
+	}
+	return nil
+}
+
+type NullBackInStockStatus struct {
+	BackInStockStatus BackInStockStatus `json:"backInStockStatus"`
+	Valid             bool              `json:"valid"` // Valid is true if BackInStockStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBackInStockStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.BackInStockStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BackInStockStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBackInStockStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BackInStockStatus), nil
+}
+
+func (e BackInStockStatus) Valid() bool {
+	switch e {
+	case BackInStockStatusPending,
+		BackInStockStatusSent,
+		BackInStockStatusDropped:
+		return true
+	}
+	return false
+}
+
+func AllBackInStockStatusValues() []BackInStockStatus {
+	return []BackInStockStatus{
+		BackInStockStatusPending,
+		BackInStockStatusSent,
+		BackInStockStatusDropped,
+	}
+}
+
+type DevicePlatform string
+
+const (
+	DevicePlatformIos     DevicePlatform = "ios"
+	DevicePlatformAndroid DevicePlatform = "android"
+)
+
+func (e *DevicePlatform) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DevicePlatform(s)
+	case string:
+		*e = DevicePlatform(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DevicePlatform: %T", src)
+	}
+	return nil
+}
+
+type NullDevicePlatform struct {
+	DevicePlatform DevicePlatform `json:"devicePlatform"`
+	Valid          bool           `json:"valid"` // Valid is true if DevicePlatform is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDevicePlatform) Scan(value interface{}) error {
+	if value == nil {
+		ns.DevicePlatform, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DevicePlatform.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDevicePlatform) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DevicePlatform), nil
+}
+
+func (e DevicePlatform) Valid() bool {
+	switch e {
+	case DevicePlatformIos,
+		DevicePlatformAndroid:
+		return true
+	}
+	return false
+}
+
+func AllDevicePlatformValues() []DevicePlatform {
+	return []DevicePlatform{
+		DevicePlatformIos,
+		DevicePlatformAndroid,
+	}
+}
+
 type LocationRequestStatus string
 
 const (
@@ -74,6 +251,67 @@ func AllLocationRequestStatusValues() []LocationRequestStatus {
 		LocationRequestStatusApproved,
 		LocationRequestStatusRejected,
 		LocationRequestStatusSuperseded,
+	}
+}
+
+type NotificationType string
+
+const (
+	NotificationTypeStockReminder   NotificationType = "stock_reminder"
+	NotificationTypeStationReported NotificationType = "station_reported"
+	NotificationTypeBackInStock     NotificationType = "back_in_stock"
+)
+
+func (e *NotificationType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NotificationType(s)
+	case string:
+		*e = NotificationType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NotificationType: %T", src)
+	}
+	return nil
+}
+
+type NullNotificationType struct {
+	NotificationType NotificationType `json:"notificationType"`
+	Valid            bool             `json:"valid"` // Valid is true if NotificationType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNotificationType) Scan(value interface{}) error {
+	if value == nil {
+		ns.NotificationType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NotificationType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNotificationType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NotificationType), nil
+}
+
+func (e NotificationType) Valid() bool {
+	switch e {
+	case NotificationTypeStockReminder,
+		NotificationTypeStationReported,
+		NotificationTypeBackInStock:
+		return true
+	}
+	return false
+}
+
+func AllNotificationTypeValues() []NotificationType {
+	return []NotificationType{
+		NotificationTypeStockReminder,
+		NotificationTypeStationReported,
+		NotificationTypeBackInStock,
 	}
 }
 
@@ -193,6 +431,131 @@ func AllProductUnitValues() []ProductUnit {
 	return []ProductUnit{
 		ProductUnitCylinder,
 		ProductUnitLiter,
+	}
+}
+
+type ReportReason string
+
+const (
+	ReportReasonOutOfStock    ReportReason = "out_of_stock"
+	ReportReasonStationClosed ReportReason = "station_closed"
+	ReportReasonWrongLocation ReportReason = "wrong_location"
+	ReportReasonOther         ReportReason = "other"
+)
+
+func (e *ReportReason) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ReportReason(s)
+	case string:
+		*e = ReportReason(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ReportReason: %T", src)
+	}
+	return nil
+}
+
+type NullReportReason struct {
+	ReportReason ReportReason `json:"reportReason"`
+	Valid        bool         `json:"valid"` // Valid is true if ReportReason is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullReportReason) Scan(value interface{}) error {
+	if value == nil {
+		ns.ReportReason, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ReportReason.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullReportReason) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ReportReason), nil
+}
+
+func (e ReportReason) Valid() bool {
+	switch e {
+	case ReportReasonOutOfStock,
+		ReportReasonStationClosed,
+		ReportReasonWrongLocation,
+		ReportReasonOther:
+		return true
+	}
+	return false
+}
+
+func AllReportReasonValues() []ReportReason {
+	return []ReportReason{
+		ReportReasonOutOfStock,
+		ReportReasonStationClosed,
+		ReportReasonWrongLocation,
+		ReportReasonOther,
+	}
+}
+
+type ReportStatus string
+
+const (
+	ReportStatusOpen      ReportStatus = "open"
+	ReportStatusResolved  ReportStatus = "resolved"
+	ReportStatusDismissed ReportStatus = "dismissed"
+)
+
+func (e *ReportStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ReportStatus(s)
+	case string:
+		*e = ReportStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ReportStatus: %T", src)
+	}
+	return nil
+}
+
+type NullReportStatus struct {
+	ReportStatus ReportStatus `json:"reportStatus"`
+	Valid        bool         `json:"valid"` // Valid is true if ReportStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullReportStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ReportStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ReportStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullReportStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ReportStatus), nil
+}
+
+func (e ReportStatus) Valid() bool {
+	switch e {
+	case ReportStatusOpen,
+		ReportStatusResolved,
+		ReportStatusDismissed:
+		return true
+	}
+	return false
+}
+
+func AllReportStatusValues() []ReportStatus {
+	return []ReportStatus{
+		ReportStatusOpen,
+		ReportStatusResolved,
+		ReportStatusDismissed,
 	}
 }
 

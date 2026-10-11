@@ -125,6 +125,8 @@ const (
 	// Accusés de réception : la station repasse en pending à l'initiative du gérant.
 	StationResubmitted     StationStatusChange = "resubmitted"
 	StationIdentityChanged StationStatusChange = "identity_changed"
+	// Rappels de stock ignorés de suite : arrêt pour la journée (étape 6).
+	StationRemindersPaused StationStatusChange = "reminders_paused"
 )
 
 // StationStatus notifie le gérant d'une décision de l'admin sur sa station. Le statut est porté
@@ -169,6 +171,11 @@ func (r *Renderer) StationStatus(to, firstName, stationName string, change Stati
 		subject, d.Title, d.Badge, d.Tone = "Modification en cours de vérification – GoStation", "Modification à vérifier", "En attente de validation", "info"
 		d.Lead = "Vous avez modifié l'IFU ou le RCCM de « " + stationName + " ». La station est retirée de la recherche le temps que l'équipe GoStation vérifie ces informations."
 		d.Next = "Vous recevrez un email dès que la vérification sera terminée."
+	case StationRemindersPaused:
+		d.Reason = ""
+		subject, d.Title, d.Badge, d.Tone = "Rappels suspendus pour aujourd'hui – GoStation", "Rappels suspendus", "Stocks à mettre à jour", "info"
+		d.Lead = "Les stocks de « " + stationName + " » n'ont pas été mis à jour malgré plusieurs rappels. Nous suspendons les rappels jusqu'à demain et l'équipe GoStation a été prévenue."
+		d.Next = "Mettez à jour vos stocks, ou confirmez-les d'un geste depuis l'application : au-delà de 24 h sans mise à jour, votre station disparaît de la recherche."
 	default:
 		return Message{}, fmt.Errorf("mail: unknown station status change %q", change)
 	}

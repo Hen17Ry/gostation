@@ -72,6 +72,7 @@ type PublicStock struct {
 	Quantity  *int32 // nil si le stock est expiré (> 24 h) : quantité inconnue
 	FreshAt   time.Time
 	Freshness string
+	Reported  bool // rupture signalée par 3 utilisateurs ou plus
 }
 
 // PublicStation est la fiche publique d'une station approuvée.
@@ -87,6 +88,8 @@ type PublicStation struct {
 	IsOpenNow   bool
 	NextOpening *time.Time
 	Stocks      []PublicStock
+	// Reported : station signalée (fermée, position incorrecte, autre) par 3 utilisateurs ou plus.
+	Reported bool
 }
 
 // PublicStation renvoie la fiche publique (GET /api/v1/stations/{id}) : 404 si la station n'est pas
@@ -104,6 +107,11 @@ func (s *Service) PublicStation(ctx context.Context, id uuid.UUID) (PublicStatio
 	if err != nil {
 		return PublicStation{}, fmt.Errorf("search: load stocks: %w", err)
 	}
+	flags, err := s.store.ListStationReportFlags(ctx, id)
+	if err != nil {
+		return PublicStation{}, fmt.Errorf("search: load report flags: %w", err)
+	}
+	reportedProducts := map[int16]bool{}
 	now := s.now()
 	sched := schedules[id]
 	out := PublicStation{
@@ -122,11 +130,18 @@ func (s *Service) PublicStation(ctx context.Context, id uuid.UUID) (PublicStatio
 		}
 	}
 	slices.Sort(out.Closures)
+	for _, f := range flags {
+		if f.ProductID == nil {
+			out.Reported = true
+		} else {
+			reportedProducts[*f.ProductID] = true
+		}
+	}
 	for _, p := range stocks {
 		age := now.Sub(p.FreshAt)
 		ps := PublicStock{
 			ProductID: p.ID, Code: p.Code, Label: p.LabelFr, Unit: string(p.Unit), SizeKg: p.SizeKg,
-			FreshAt: p.FreshAt, Freshness: station.FreshnessFresh,
+			FreshAt: p.FreshAt, Freshness: station.FreshnessFresh, Reported: reportedProducts[p.ID],
 		}
 		switch {
 		case age > s.cfg.ExpiredAfter:

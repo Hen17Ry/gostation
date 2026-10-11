@@ -5,6 +5,8 @@
 -- Pas d'arithmétique sur un paramètre nommé (« @d::date - 1 ») : sqlc la réécrit mal.
 -- Fermetures du jour : « NOT IN (sous-requête) » est évalué une seule fois (hashed SubPlan, index
 -- idx_station_closures_day), là où NOT EXISTS corrélé re-parcourait la table à chaque station.
+-- Signalements (étape 6) : une cause à 5 auteurs ou plus exclut la station (pour le produit, ou
+-- entièrement si product_id est NULL) ; à 3, la colonne reported porte le badge « signalé ».
 
 -- name: CheckCoverage :one
 -- Couverture d'une position : au Bénin (frontière élargie de 2 km) ? À 30 km ou moins ?
@@ -16,7 +18,9 @@ WHERE code = 'BEN';
 
 -- name: ListOpenCandidatesWithin :many
 SELECT s.id, s.name, s.brand, s.lat, s.lng, ss.quantity,
-       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at
+       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id
+               AND (f.product_id IS NULL OR f.product_id = @product_id::smallint))::boolean AS reported
 FROM stations s
 JOIN station_stocks ss ON ss.station_id = s.id AND ss.product_id = @product_id::smallint
 JOIN products p ON p.id = ss.product_id AND p.is_active
@@ -24,6 +28,8 @@ WHERE s.status = 'approved'
   AND s.location IS NOT NULL
   AND ss.quantity > 0
   AND GREATEST(ss.updated_at, ss.last_confirmed_at) > @fresh_since::timestamptz
+  AND s.id NOT IN (SELECT f.station_id FROM station_report_flags f WHERE f.excluded_at IS NOT NULL
+                   AND (f.product_id IS NULL OR f.product_id = @product_id::smallint))
   AND ST_DWithin(s.location, ST_SetSRID(ST_MakePoint(@lng::float8, @lat::float8), 4326)::geography, @radius_m::float8)
   AND s.id NOT IN (SELECT c.station_id FROM station_closures c WHERE c.closed_on = @local_date::date)
   AND EXISTS (
@@ -39,7 +45,9 @@ LIMIT @max_candidates::int;
 -- name: ListOpenCandidatesKNN :many
 -- Repli KNN illimité (aucune station ouverte à 50 km).
 SELECT s.id, s.name, s.brand, s.lat, s.lng, ss.quantity,
-       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at
+       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id
+               AND (f.product_id IS NULL OR f.product_id = @product_id::smallint))::boolean AS reported
 FROM stations s
 JOIN station_stocks ss ON ss.station_id = s.id AND ss.product_id = @product_id::smallint
 JOIN products p ON p.id = ss.product_id AND p.is_active
@@ -47,6 +55,8 @@ WHERE s.status = 'approved'
   AND s.location IS NOT NULL
   AND ss.quantity > 0
   AND GREATEST(ss.updated_at, ss.last_confirmed_at) > @fresh_since::timestamptz
+  AND s.id NOT IN (SELECT f.station_id FROM station_report_flags f WHERE f.excluded_at IS NOT NULL
+                   AND (f.product_id IS NULL OR f.product_id = @product_id::smallint))
   AND s.id NOT IN (SELECT c.station_id FROM station_closures c WHERE c.closed_on = @local_date::date)
   AND EXISTS (
     SELECT 1 FROM station_opening_hours h
@@ -62,7 +72,9 @@ LIMIT @max_candidates::int;
 -- Stations les plus proches en stock frais, avec horaires, ouvertes ou non : le service garde
 -- les fermées (repli D19, triées par heure à laquelle on peut être servi).
 SELECT s.id, s.name, s.brand, s.lat, s.lng, ss.quantity,
-       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at
+       GREATEST(ss.updated_at, ss.last_confirmed_at)::timestamptz AS fresh_at,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id
+               AND (f.product_id IS NULL OR f.product_id = @product_id::smallint))::boolean AS reported
 FROM stations s
 JOIN station_stocks ss ON ss.station_id = s.id AND ss.product_id = @product_id::smallint
 JOIN products p ON p.id = ss.product_id AND p.is_active
@@ -70,6 +82,8 @@ WHERE s.status = 'approved'
   AND s.location IS NOT NULL
   AND ss.quantity > 0
   AND GREATEST(ss.updated_at, ss.last_confirmed_at) > @fresh_since::timestamptz
+  AND s.id NOT IN (SELECT f.station_id FROM station_report_flags f WHERE f.excluded_at IS NOT NULL
+                   AND (f.product_id IS NULL OR f.product_id = @product_id::smallint))
   AND EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id)
 ORDER BY s.location <-> ST_SetSRID(ST_MakePoint(@lng::float8, @lat::float8), 4326)::geography
 LIMIT @max_candidates::int;

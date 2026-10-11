@@ -200,3 +200,49 @@ func TestParseClosureDate(t *testing.T) {
 		}
 	}
 }
+
+func TestDayEnd(t *testing.T) {
+	split := mustParse(t, HoursInput{Days: []DayInput{
+		{Weekday: 1, Ranges: []RangeInput{{"06:00", "12:00"}, {"14:00", "22:00"}}}, // lundi, deux plages
+		{Weekday: 5, Ranges: []RangeInput{{"18:00", "02:00"}}},                     // vendredi soir → samedi 2 h
+	}})
+	allDay := mustParse(t, HoursInput{AllWeek24h: true})
+	cases := []struct {
+		name     string
+		ranges   []Range
+		closures map[string]bool
+		now      time.Time
+		want     time.Time
+	}{
+		{"between two ranges: last closing of the day", split, nil, at(12, 13, 0), at(12, 22, 0)},
+		{"during the first range", split, nil, at(12, 7, 0), at(12, 22, 0)},
+		{"after the last closing: midnight", split, nil, at(12, 23, 0), at(13, 0, 0)},
+		{"overnight range ends the next morning", split, nil, at(16, 19, 0), at(17, 2, 0)},
+		{"tail of last night's range", split, nil, at(17, 1, 0), at(17, 2, 0)},
+		{"day without hours: midnight", split, nil, at(14, 10, 0), at(15, 0, 0)},
+		{"24/7: midnight", allDay, nil, at(14, 10, 0), at(15, 0, 0)},
+		{"closed today: midnight", split, map[string]bool{"2026-10-12": true}, at(12, 13, 0), at(13, 0, 0)},
+	}
+	for _, c := range cases {
+		closures := c.closures
+		if closures == nil {
+			closures = map[string]bool{}
+		}
+		s := Schedule{Ranges: c.ranges, Loc: benin, Closures: closures}
+		if got := s.DayEnd(c.now); !got.Equal(c.want) {
+			t.Errorf("%s: DayEnd(%s) = %s, want %s", c.name, c.now, got, c.want)
+		}
+	}
+}
+
+func TestClockAt(t *testing.T) {
+	// Dimanche 18 octobre 2026, 00:30 à Porto-Novo (UTC+1) = samedi 23:30 UTC.
+	c := ClockAt(time.Date(2026, 10, 17, 23, 30, 0, 0, time.UTC), benin)
+	if c.ISODow != 7 || c.PrevISODow != 6 || c.Date.Time.Format(time.DateOnly) != "2026-10-18" ||
+		c.PrevDate.Time.Format(time.DateOnly) != "2026-10-17" || c.Time.Microseconds != 30*60*1_000_000 {
+		t.Fatalf("ClockAt = %+v", c)
+	}
+	if got := DayStart(time.Date(2026, 10, 17, 23, 30, 0, 0, time.UTC), benin); !got.Equal(at(18, 0, 0)) {
+		t.Fatalf("DayStart = %s", got)
+	}
+}

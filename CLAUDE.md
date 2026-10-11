@@ -6,7 +6,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 ## Règles non négociables
 
 1. La recherche n'affiche que des stations `approved`, **ouvertes**, avec `stock > 0` mis à jour il y a **≤ 24 h**. Au-delà de 8 h, le résultat porte le flag `stale` (badge). Chaque résultat affiche « mis à jour il y a X min ».
-2. La position de l'utilisateur n'est **jamais** persistée : ni en base, ni dans les logs, ni comme clé de cache. Les stats se font uniquement par cellule H3 anonyme.
+2. La position de l'utilisateur n'est **jamais** persistée : ni en base, ni dans les logs, ni comme clé de cache, ni dans une tâche asynq. Cela vaut pour la recherche, l'itinéraire et les signalements (contrôle des 2 km fait en mémoire). Les stats se font uniquement par cellule H3 anonyme.
 3. Toute UI (mobile et web) se conçoit avec le skill **`ui-ux-pro-max`**. Composants web via le **MCP 21st.dev** ; le mobile s'en inspire.
 4. Pas d'ORM ni de Drizzle : SQL écrit à la main, compilé par **sqlc** ; migrations **goose**.
 5. Les secrets vivent dans `.env` uniquement : jamais commités, jamais dans un bundle mobile ou web.
@@ -14,17 +14,28 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 7. **Auth** : email vérifié par code à 6 chiffres (obligatoire pour signaler, favoris, notifications) ; 2FA TOTP obligatoire pour les admins ; réponses génériques (anti-énumération) sur login, forgot et resend ; toute action sensible écrit dans `audit_logs`.
 8. Les justificatifs IFU sont chiffrés (envelope AES-256-GCM) et ne sont jamais servis publiquement : seuls les admins les lisent, via un endpoint dédié et audité.
 9. **Stocks** : « non vendu » (pas de ligne) ≠ « 0 en stock ». Fraîcheur = `GREATEST(updated_at, last_confirmed_at)` : stale au-delà de 8 h, exclu de la recherche au-delà de 24 h. Toute écriture de stock, statut, horaires, fermeture, produits vendus ou position invalide le cache de recherche.
-10. **Recherche** : couverture = Bénin (OSRM), jusqu'à 30 km au-delà de la frontière (vol d'oiseau, `routingApproximate`), sinon 422 `search.out_of_coverage`. Le cache Redis ne contient que l'ensemble des stations candidates par (cellule H3 res 8, produit) ; le classement depuis la position exacte (OSRM `/table`) n'est jamais mis en cache ni journalisé. **Aucun lat/lng dans les logs** (le journal d'accès n'écrit jamais la query string, les erreurs OSRM sont expurgées de leur URL) : un test le vérifie.
+10. **Recherche** : couverture = Bénin (OSRM), jusqu'à 30 km au-delà de la frontière (vol d'oiseau, `routingApproximate`), sinon 422 `search.out_of_coverage`. Le cache Redis ne contient que l'ensemble des stations candidates par (cellule H3 res 8, produit) ; le classement depuis la position exacte (OSRM `/table`) n'est jamais mis en cache ni journalisé. **Aucun lat/lng dans les logs** (le journal d'accès masque les valeurs de la query string hors liste blanche, `lat=***&lng=***` ; les erreurs OSRM sont expurgées de leur URL) : un test le vérifie.
 11. **Itinéraire** : l'API renvoie des étapes structurées sans texte ; le mobile les traduit en français avec `osrm-text-instructions` (langue `fr`).
-12. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
+12. **Notifications** (worker asynq) : l'API ne fait que mettre en file. Les emails voyagent chiffrés dans Redis ; aucune adresse, aucun token push, aucun texte de notification dans les logs (le Pusher factice ne journalise que le type). Un appareil push est lié à sa session : révocation ou logout = token supprimé.
+13. **Clients (mobile et web)** : le refresh des tokens est **single-flight obligatoire**. Un seul appel à `/auth/refresh` à la fois ; les requêtes en échec 401 attendent son résultat puis sont rejouées. Deux refresh concurrents avec le même token sont pris pour une réutilisation et révoquent la session.
+
+## Règles mobile
+
+- **Station fermée** : afficher clairement « Fermée · rouvre à HH:MM » (heure locale de `nextOpening`, jour en plus s'il ne s'agit pas d'aujourd'hui : « rouvre demain à 06:00 »).
+- **Itinéraire indisponible** (`/routes` → 503 `routing.unavailable`) : tracer une ligne droite vers la station et proposer « Ouvrir dans une autre app » (Android : intent `geo:lat,lng?q=lat,lng(Nom)` ; iOS : Apple Plans). Les 422 (`routing.no_route`, `search.out_of_coverage`) ont leur propre message.
+- **Étapes d'itinéraire** traduites en français avec `osrm-text-instructions` (règle 11).
+- **Push** : après connexion d'un compte vérifié, `POST /me/devices` à **chaque lancement** (token Expo, `installId` = le même UUID que `X-Install-Id`, langue). Le logout supprime le token côté serveur.
+- **Catégorie `stock_reminder`** (gérants) déclarée au démarrage avec deux actions : `update` « Mettre à jour » (ouvre l'app) et `confirm` « Rien n'a changé » (`opensAppToForeground: false`) qui appelle `POST /api/v1/manager/station/stocks/confirm` avec `If-Match` = `data.etag` du push, en tâche de fond ; un 412 veut dire que les stocks ont déjà bougé (ne rien faire).
+- **Boîte de réception** : le texte se compose d'après `type` + `data` (clés i18n), jamais d'après un texte serveur. Une notification `station_reported` n'identifie jamais les auteurs.
+- **Signalement** « stock épuisé » ou « station fermée » : envoyer la position courante dans le corps (`position`), uniquement pour ce contrôle.
 
 ## Rôles
 
 | Rôle | Client | Périmètre |
 |---|---|---|
 | `user` | Mobile | Recherche, fiche station et itinéraire **sans compte** (rate limit par IP). Un compte (prénom, nom, email, mot de passe) est requis pour signaler, gérer ses favoris et recevoir des notifications. |
-| `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone (vérifié manuellement par l'admin, pas d'OTP SMS en V1), justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin (email à chaque décision). Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié. Gérant `pending` ou `suspended` : il se connecte et voit son statut via `GET /me`, rien d'autre. Gérant `rejected` : il peut corriger ses informations et renvoyer un justificatif (retour en `pending`). Un changement d'IFU ou de RCCM renvoie la station en `pending`. Position : premier épinglage libre (signalé à l'admin si à plus de 500 m de l'appareil) ; ensuite, déplacement libre sous 200 m, au-delà validé par l'admin ; jamais hors du Bénin (marge de 2 km). Horaires : 2 plages par jour au plus, 24 h/24, fermetures exceptionnelles. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture. |
-| `admin` | Web | Compte créé uniquement par la CLI `cmd/admin`, 2FA TOTP obligatoire. Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements, stats, journal d'audit, demandes RGPD/APDP. |
+| `manager` (gérant) | Mobile | Inscription avec infos station : nom, IFU (13 chiffres), RCCM, marque, adresse, téléphone (vérifié manuellement par l'admin, pas d'OTP SMS en V1), justificatif. Statut station `pending → approved / rejected / suspended`, décidé par l'admin (email à chaque décision). Le dossier n'apparaît chez l'admin qu'une fois l'email vérifié. Gérant `pending` ou `suspended` : il se connecte et voit son statut via `GET /me`, rien d'autre. Gérant `rejected` : il peut corriger ses informations et renvoyer un justificatif (retour en `pending`). Un changement d'IFU ou de RCCM renvoie la station en `pending`. Position : premier épinglage libre (signalé à l'admin si à plus de 500 m de l'appareil) ; ensuite, déplacement libre sous 200 m, au-delà validé par l'admin ; jamais hors du Bénin (marge de 2 km). Horaires : 2 plages par jour au plus, 24 h/24, fermetures exceptionnelles. Une fois approuvé : épingle la position **de la station** (avertissement explicite dans l'UI : « placez l'épingle sur la station, pas sur votre position »), saisit les horaires d'ouverture et les stocks (gaz : nombre de bouteilles par taille ; essence/gasoil : litres). Rappel push toutes les 4 h pendant les horaires d'ouverture (4 par jour au plus, sourdine jusqu'à la fermeture, arrêt et alerte admin après 3 rappels ignorés). Voit les signalements de sa station, sans leurs auteurs. |
+| `admin` | Web | Compte créé uniquement par la CLI `cmd/admin`, 2FA TOTP obligatoire. Validation des gérants, catalogue produits (tailles de gaz configurables), carte des stations, zones de pénurie, données périmées, signalements (traité, classé abusif, retrait du droit de signaler), alertes (gérant inactif, seuil de signalements), stats, journal d'audit, demandes RGPD/APDP. |
 
 ## Monorepo
 
@@ -35,14 +46,14 @@ GoStation/
 ├── Web/                Admin React (Vite)
 ├── docs/               ARCHITECTURE.md
 ├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, bench.sh (+ bench/search.js k6), _lib.sh
-├── docker-compose.yml  PostGIS, Redis, OSRM (+ osrm-tools, profil « tools »)
+├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
 ├── Makefile            make help
 └── .env.example        source de vérité des variables (infra + backend)
 ```
 
 ## Stack (dernières versions stables, vérifiées le 2026-10-10)
 
-- **Backend** : Go 1.27, chi v5, pgx v5 (pgxpool), sqlc, goose v3, go-redis v9, golang-jwt v5 (access 15 min signé en **EdDSA/Ed25519** avec `kid`), refresh tokens opaques rotatifs dans Redis, argon2id aux paramètres OWASP (`golang.org/x/crypto/argon2`), TOTP RFC 6238, SMTP via `net/smtp` (Mailpit en dev), asynq (jobs et rappels), uber/h3-go v4, `log/slog`.
+- **Backend** : Go 1.27, chi v5, pgx v5 (pgxpool), sqlc, goose v3, go-redis v9, golang-jwt v5 (access 15 min signé en **EdDSA/Ed25519** avec `kid`), refresh tokens opaques rotatifs dans Redis, argon2id aux paramètres OWASP (`golang.org/x/crypto/argon2`), TOTP RFC 6238, SMTP via `net/smtp` (Mailpit en dev), asynq v0.26 (worker : emails, push Expo, rappels, stats, purges ; asynqmon 0.7 en dev), uber/h3-go v4, `log/slog`.
 - **Données** : PostgreSQL 18 + PostGIS 3.6 (`geography(Point,4326)`, index GiST, `uuidv7()` natif), Redis 8.10 (cache, refresh tokens, files asynq ; `maxmemory-policy noeviction`).
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
 - **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, Expo Router, Reanimated 4, FlashList 2, TanStack Query 5, Zustand 5, react-hook-form + zod 4, expo-secure-store, expo-location, expo-notifications. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
@@ -64,12 +75,14 @@ make ps | logs s=osrm | db-shell | redis-cli | down
 # Backend (Go)
 make tools          # installe goose, sqlc et golangci-lint (versions figées)
 make run            # lance l'API sur l'hôte avec les variables de .env
-make build          # compile Backend/bin/api
+make worker-run     # lance le worker asynq sur l'hôte (emails, push, rappels… : à lancer à côté de make run)
+make build          # compile Backend/bin/api et Backend/bin/worker
 make test           # tests unitaires + intégration (testcontainers, Docker requis), avec -race
 make lint           # golangci-lint (formatage gci + gofumpt vérifié)
 make sqlc           # régénère internal/store/dbgen depuis db/queries
 make migrate-up | migrate-down | migrate-status | migrate-new name=add_x
-make api-up         # API dans Docker (profil compose « api »), healthcheck sur /readyz
+make api-up         # API + worker dans Docker (profil compose « api »), healthchecks sur /readyz
+make worker-up      # worker seul dans Docker (une seule instance : le scheduler est intégré)
 make admin-create email=… first=… last=…   # crée un admin (mot de passe saisi au clavier, jamais en argument)
 make admin-reset-2fa email=…               # réinitialise la 2FA d'un admin
 
@@ -80,14 +93,14 @@ make bench          # k6 (Docker) sur /search, 5 zones : p50/p95/p99 hors cache 
 scripts/with-env.sh <cmd>   # comme « . .env » mais sans écraser les variables déjà définies (surcharges ponctuelles)
 ```
 
-Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), Vite **5173**. Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
+Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173**. Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 
 1. **Cache** Redis devant la base : ensemble des candidats par cellule H3 res 8 + produit (+ générations), TTL 60 s, rayon élargi du rayon de la cellule. Toute écriture de stock, statut, horaires, fermeture, produits vendus ou position invalide le cache.
 2. **Rayons progressifs** avec `ST_DWithin` : 500 m, 1, 2, 5, 10, 25, 50 km, sur les stations `approved`, **ouvertes**, avec `stock > 0` frais (≤ 24 h). On s'arrête au premier rayon qui donne `SEARCH_MIN_RESULTS` candidats.
 3. **Repli** s'il n'y a aucune station ouverte à 50 km : ouvertes au-delà (KNN illimité) et fermées, triées par heure à laquelle on peut être servi = `max(maintenant + trajet, prochaine ouverture)`, puis par trajet. Il y a donc toujours un résultat dès qu'une station du pays a un stock frais et des horaires.
-4. Stations sans horaires, non vendues, à 0, expirées (> 24 h) ou non approuvées : exclues.
+4. Stations sans horaires, non vendues, à 0, expirées (> 24 h), non approuvées ou exclues par 5 signalements (le produit, ou toute la station) : exclues. À 3 signalements : badge `reported`.
 5. **Classement par requête** depuis la position exacte : OSRM `/table` (1 source → 10 meilleurs candidats), jamais mis en cache. Hors du Bénin (≤ 30 km) ou OSRM en panne / hors délai : vol d'oiseau, durées estimées, `routingApproximate: true`.
 6. Chaque résultat porte `stockUpdatedAt`, `updatedAgoS` (« mis à jour il y a ») et `stale` (8 h à 24 h), `isOpen`, `nextOpening`, `servedAt`.
 7. **Stats anonymes** : cellule H3 res 7, produit, heure, recherches, recherches sans station ouverte à 5 km ou moins. Compteurs Redis vidés dans `search_stats`.
@@ -109,14 +122,16 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 - **Go** : packages courts, minuscules, au singulier (`station`, `search`, `auth`) ; fichiers `snake_case.go` ; `NewXxx` pour les constructeurs ; erreurs sentinelles `ErrXxx` ; `ctx context.Context` en premier paramètre ; interfaces déclarées côté consommateur.
 - **Arborescence Backend** (module `gostation/backend`) :
   - `cmd/api` : point d'entrée. `run()` assemble les dépendances ; la sous-commande `api healthcheck` sert au healthcheck Docker.
+  - `cmd/worker` : worker asynq (tâches + scheduler, **une seule instance**), sondes `/healthz` et `/readyz` ; `worker healthcheck` pour Docker.
   - `internal/config` : config depuis l'environnement, validée, échec explicite.
   - `internal/apperr` : erreurs typées et codes stables.
   - `internal/http/{router,middleware,handler,respond,httpctx}` : routeur chi, middlewares, handlers qui renvoient `error`, rendu JSON et problem+json, valeurs de contexte (request ID, IP client).
   - `internal/store` : transactions (`InTx`) et traduction des erreurs pgx ; `internal/store/dbgen` contient le code **généré** par sqlc, à ne jamais éditer.
   - `internal/platform/{postgres,redis,osrm,h3,logging}` : clients d'infrastructure ; `internal/ratelimit` : fenêtre glissante Redis.
-  - `internal/app` : assemblage (`NewServices`, `NewHandler`), partagé par `cmd/api`, `cmd/admin` et les tests d'intégration.
-  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche), `internal/search` (recherche, fiche publique, itinéraire), `internal/searchstats` (compteurs anonymes et vidage).
-  - `internal/platform/{crypto,storage}` : chiffrement (enveloppe, HKDF) et stockage d'objets (local, S3 plus tard).
+  - `internal/app` : assemblage (`NewServices`, `NewHandler`, `NewWorker`), partagé par `cmd/api`, `cmd/worker`, `cmd/admin` et les tests d'intégration.
+  - `internal/jobs` (types de tâches, files, charges utiles, client de mise en file, backoff) et `internal/worker` (handlers asynq et scheduler). Les domaines ne dépendent pas d'asynq : ils déclarent de petites interfaces (`EnqueueEmail`, `EnqueuePush`…) que `jobs.Client` implémente.
+  - Domaines : `internal/auth` (comptes, sessions, codes, TOTP), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche), `internal/search` (recherche, fiche publique, itinéraire), `internal/searchstats` (compteurs anonymes et vidage), `internal/push` (Pusher Expo et factice), `internal/notification` (appareils, boîte de réception, préférences, livraison des push), `internal/reminder` (rappels de stock, sourdine), `internal/report` (signalements, seuils, modération, alertes admin), `internal/favorite` (favoris, alertes « de retour en stock »), `internal/retention` (purges de conservation).
+  - `internal/platform/{crypto,storage,healthprobe}` : chiffrement (enveloppe, HKDF), stockage d'objets (local, S3 plus tard), sonde `/readyz` des healthchecks Docker.
   - `cmd/admin` : CLI des comptes admin (`create`, `reset-2fa`).
   - `cmd/seed` : stations fictives de développement (`make seed-dev`, refuse hors `APP_ENV=development`).
   - `api/openapi.yaml` : contrat OpenAPI 3.1, **mis à jour dans le même commit que toute route** (un test compare la spec aux routes servies). Les types des clients mobile et web en sont générés.
@@ -135,13 +150,13 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 - Les erreurs métier sont typées dans `internal/apperr` (`Code`, `Status`, `Message`, `Fields`). Le store convertit `pgx.ErrNoRows` → `NotFound` et `23505` → `Conflict`.
 - Un seul point de rendu HTTP : les handlers renvoient une `error`, le middleware répond en **RFC 9457** `application/problem+json` `{ type, title, status, detail, code, requestId, errors?[{ field, message }] }`. Le `code` est stable (`station.not_approved`), le client le traduit en message français.
 - Une 5xx renvoie un message générique au client et un log complet via slog (`request_id`, `user_id`, `route`). Jamais de mot de passe, de token, de coordonnées ni de document dans les logs. Middleware `recover` pour les panics.
-- Les appels externes (OSRM, Expo Push) passent par `context` avec timeout et basculent en mode dégradé plutôt qu'en échec.
+- Les appels externes (OSRM, Expo Push, SMTP) passent par `context` avec timeout et basculent en mode dégradé plutôt qu'en échec : repli vol d'oiseau pour OSRM, retry avec backoff (tâches asynq) pour Expo et SMTP.
 - JSON entrant : `DisallowUnknownFields`, taille de corps bornée, validation au handler.
 - **Clients** : réponses API validées par zod ; erreurs typées `ApiError` (issues de problem+json) ; retry TanStack Query seulement sur erreur réseau ou 5xx ; error boundary par écran ; jamais de message technique brut affiché.
 
 ### Tests
 - **Go** : `go test -race ./...`. Tests unitaires en table pour la logique métier (classement de la recherche, horaires d'ouverture, rappels, clés H3, rotation des tokens).
-- Tests d'intégration sous build tag `integration`, contre un vrai PostGIS et un vrai Redis via testcontainers-go, avec les **mêmes images que le compose** (`POSTGIS_IMAGE`, `REDIS_IMAGE`). Pas de mock SQL. Handlers testés avec `httptest`, client OSRM avec un serveur `httptest`. `make test` lance unitaires + intégration.
+- Tests d'intégration sous build tag `integration`, contre un vrai PostGIS et un vrai Redis via testcontainers-go, avec les **mêmes images que le compose** (`POSTGIS_IMAGE`, `REDIS_IMAGE`). Pas de mock SQL. Handlers testés avec `httptest`, clients OSRM et Expo avec un serveur `httptest`. Le worker asynq tourne dans le processus de test (sans scheduler : les tâches périodiques sont appelées directement, avec une horloge réglable). `make test` lance unitaires + intégration.
 - Objectif ≥ 80 % de couverture sur `internal/search` et `internal/auth`.
 - **Mobile** : jest-expo + React Native Testing Library ; E2E Maestro (recherche → itinéraire, mise à jour de stock par le gérant).
 - **Web** : Vitest + Testing Library ; E2E Playwright (validation d'un gérant).

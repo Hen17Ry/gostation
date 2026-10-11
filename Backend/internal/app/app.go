@@ -19,30 +19,44 @@ import (
 	"gostation/backend/internal/auth"
 	"gostation/backend/internal/config"
 	"gostation/backend/internal/document"
+	"gostation/backend/internal/favorite"
 	"gostation/backend/internal/http/handler"
 	"gostation/backend/internal/http/middleware"
 	"gostation/backend/internal/http/respond"
 	"gostation/backend/internal/http/router"
+	"gostation/backend/internal/jobs"
 	"gostation/backend/internal/mail"
+	"gostation/backend/internal/notification"
 	"gostation/backend/internal/platform/crypto"
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/storage"
+	"gostation/backend/internal/push"
 	"gostation/backend/internal/ratelimit"
+	"gostation/backend/internal/reminder"
+	"gostation/backend/internal/report"
+	"gostation/backend/internal/retention"
 	"gostation/backend/internal/search"
 	"gostation/backend/internal/searchcache"
 	"gostation/backend/internal/searchstats"
 	"gostation/backend/internal/station"
 	"gostation/backend/internal/store"
+	"gostation/backend/internal/worker"
 )
 
 // Infra regroupe les clients d'infrastructure, ouverts par l'appelant.
 type Infra struct {
-	Pool    *pgxpool.Pool
-	Redis   *goredis.Client
+	Pool  *pgxpool.Pool
+	Redis *goredis.Client
+	// Mailer envoie réellement (SMTP) : seul le worker s'en sert. Les services ne font que mettre
+	// les emails en file (mail.Queue, tâche email:send) ; l'API peut donc le laisser à nil.
 	Mailer  mail.Mailer
 	Storage storage.Storage
 	// OSRM est une dépendance douce : en panne, la recherche se replie sur le vol d'oiseau.
 	OSRM *osrm.Client
+	// Pusher remplace celui de la configuration (Expo si EXPO_ACCESS_TOKEN, factice sinon).
+	Pusher push.Pusher
+	// Clock remplace l'horloge des rappels et des alertes favoris (tests d'intégration).
+	Clock func() time.Time
 }
 
 // Services regroupe les services métier.
@@ -56,6 +70,15 @@ type Services struct {
 	Limiter  *ratelimit.Limiter
 	Sessions *auth.SessionStore
 	Tokens   *auth.TokenManager
+	// Étape 6 : tâches asynq, notifications, rappels, signalements, favoris, purges.
+	Jobs          *jobs.Client
+	Emails        *mail.Queue
+	Pusher        push.Pusher
+	Notifications *notification.Service
+	Reminders     *reminder.Service
+	Reports       *report.Service
+	Favorites     *favorite.Service
+	Retention     *retention.Purger
 	// Clés dérivées d'APP_SECRET (une par usage).
 	CSRFKey  []byte
 	EmailKey []byte
@@ -72,6 +95,11 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	emailKey, _ := derive("email-fingerprint")
 	totpKey, _ := derive("totp-encryption")
 	totpSealer, err := crypto.NewSealer(totpKey)
+	if err != nil {
+		return nil, err
+	}
+	queueKey, _ := derive("email-queue")
+	queueSealer, err := crypto.NewSealer(queueKey)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +120,14 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 
 	st := store.New(infra.Pool)
 	limiter := ratelimit.New(infra.Redis)
-	sessions := auth.NewSessionStore(infra.Redis)
+	jobsClient := jobs.NewClient(infra.Redis, cfg.Push.ReceiptsDelay)
+	emails := mail.NewQueue(jobsClient, queueSealer)
+	// La révocation d'une session supprime son appareil push (notifSvc est construit plus bas :
+	// il a lui-même besoin des sessions pour écarter les appareils de sessions expirées).
+	var notifSvc *notification.Service
+	sessions := auth.NewSessionStore(infra.Redis, auth.WithRevokeHook(func(ctx context.Context, sid string) {
+		notifSvc.SessionRevoked(ctx, sid)
+	}))
 	auditLog := audit.New(st, log)
 	docs := document.NewService(infra.Storage, envelope, cfg.Documents.MaxBytes)
 
@@ -108,7 +143,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		Tokens:     tokens,
 		Hasher:     auth.NewPasswordHasher(max(2, runtime.NumCPU())),
 		Policy:     auth.NewPasswordPolicy(),
-		Mailer:     infra.Mailer,
+		Mailer:     emails,
 		Templates:  renderer,
 		Documents:  docs,
 		Audit:      auditLog,
@@ -122,7 +157,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 	}, station.Deps{
 		Store: st, Documents: docs, Audit: auditLog, Cache: cache,
-		Mailer: infra.Mailer, Templates: renderer, Log: log,
+		Mailer: emails, Templates: renderer, Restock: jobsClient, Log: log,
 	})
 	osrmClient := infra.OSRM
 	if osrmClient == nil {
@@ -134,11 +169,68 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		Timezone: cfg.Timezone, CacheTTL: cfg.Search.CacheTTL, MinResults: cfg.Search.MinResults,
 		MaxCandidates: cfg.Search.MaxCandidates, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 	}, st, infra.Redis, cache, osrmClient, searchstats.NewRecorder(infra.Redis), log)
+
+	pusher := infra.Pusher
+	if pusher == nil {
+		if pusher, err = newPusher(cfg, log); err != nil {
+			return nil, err
+		}
+	}
+	notifSvc = notification.NewService(notification.Deps{
+		Store: st, Queue: jobsClient, Pusher: pusher, Sessions: sessions, Log: log,
+	})
 	return &Services{
 		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient,
 		Stats: searchstats.NewFlusher(infra.Redis, st, log), Limiter: limiter,
 		Sessions: sessions, Tokens: tokens, CSRFKey: csrfKey, EmailKey: emailKey,
+		Jobs: jobsClient, Emails: emails, Pusher: pusher, Notifications: notifSvc,
+		Reminders: reminder.NewService(reminder.Config{Timezone: cfg.Timezone, Interval: cfg.Reminders.Interval}, reminder.Deps{
+			Store: st, Notifier: notifSvc, Schedules: stationSvc, Mailer: emails, Templates: renderer, Log: log, Clock: infra.Clock,
+		}),
+		Reports: report.NewService(report.Config{Timezone: cfg.Timezone}, report.Deps{
+			Store: st, Notifier: notifSvc, Cache: cache, Audit: auditLog, Log: log,
+		}),
+		Favorites: favorite.NewService(favorite.Config{Timezone: cfg.Timezone}, favorite.Deps{
+			Store: st, Notifier: notifSvc, Log: log, Clock: infra.Clock,
+		}),
+		Retention: retention.New(st, log),
 	}, nil
+}
+
+// newPusher choisit Expo si EXPO_ACCESS_TOKEN est défini, le Pusher factice sinon (journal du
+// seul type de notification, sans donnée personnelle).
+func newPusher(cfg config.Config, log *slog.Logger) (push.Pusher, error) {
+	if cfg.Push.ExpoAccessToken == "" {
+		if cfg.Env == config.EnvProduction {
+			log.Warn("EXPO_ACCESS_TOKEN is empty: push notifications are only logged")
+		}
+		return push.NewFake(log), nil
+	}
+	return push.NewExpo(cfg.Push.ExpoURL, cfg.Push.ExpoAccessToken, cfg.Push.Timeout)
+}
+
+// WorkerOptions ajuste le worker (tests : scheduler coupé, scrutation rapide des files).
+type WorkerOptions struct {
+	DisableScheduler     bool
+	PollInterval         time.Duration
+	DelayedCheckInterval time.Duration
+}
+
+// NewWorker construit le worker asynq (cmd/worker et tests d'intégration). infra.Mailer est le
+// serveur SMTP réel.
+func NewWorker(cfg config.Config, svc *Services, infra Infra, log *slog.Logger, opts WorkerOptions) (*worker.Worker, error) {
+	if infra.Mailer == nil {
+		return nil, fmt.Errorf("app: the worker needs an SMTP mailer")
+	}
+	return worker.New(worker.Config{
+		Concurrency: cfg.Jobs.Concurrency, ShutdownTimeout: cfg.Jobs.ShutdownTimeout,
+		RetryBaseDelay: cfg.Jobs.RetryBaseDelay, RetryMaxDelay: cfg.Jobs.RetryMaxDelay,
+		Timezone: cfg.Timezone, StatsFlushInterval: cfg.Search.StatsFlushInterval,
+		Scheduler: !opts.DisableScheduler, PollInterval: opts.PollInterval, DelayedCheckInterval: opts.DelayedCheckInterval,
+	}, infra.Redis, worker.Tasks{
+		SMTP: infra.Mailer, Emails: svc.Emails, Stats: svc.Stats, Notifications: svc.Notifications,
+		Reminders: svc.Reminders, Favorites: svc.Favorites, Retention: svc.Retention,
+	}, log)
 }
 
 // readinessTimeout borne la vérification de chaque dépendance par /readyz.
@@ -176,6 +268,10 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog
 		Me:            handler.NewMe(rs, svc.Auth, authHandler),
 		Stations:      handler.NewStations(rs, svc.Station),
 		Search:        handler.NewSearch(rs, svc.Search),
+		Notifications: handler.NewNotifications(rs, svc.Notifications),
+		Favorites:     handler.NewFavorites(rs, svc.Favorites),
+		Reports:       handler.NewReports(rs, svc.Reports),
+		Reminders:     handler.NewReminders(rs, svc.Reminders),
 		EmailVerifier: svc.Auth,
 		StationStatus: svc.Station,
 	})

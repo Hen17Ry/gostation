@@ -6,13 +6,14 @@ import (
 	"strings"
 
 	"gostation/backend/internal/apperr"
+	"gostation/backend/internal/station"
 )
 
 // Verrouillage optimiste (CLAUDE.md, conventions API) : les lectures renvoient ETag "v{version}",
 // les écritures exigent If-Match avec cette valeur. Absent → 428, périmé → 412 (côté service).
 
 func setETag(w http.ResponseWriter, version int32) {
-	w.Header().Set("ETag", `"v`+strconv.Itoa(int(version))+`"`)
+	w.Header().Set("ETag", station.ETag(version))
 }
 
 // expectedVersion lit If-Match (comparaison forte, une seule valeur).

@@ -63,6 +63,14 @@ func TestLoadDefaults(t *testing.T) {
 		{"Documents.MaxBytes", cfg.Documents.MaxBytes, int64(5 << 20)},
 		{"SMTP.Port", cfg.SMTP.Port, 1025},
 		{"SMTP.TLSMode", cfg.SMTP.TLSMode, "none"},
+		{"Jobs.Concurrency", cfg.Jobs.Concurrency, 10},
+		{"Jobs.RetryBaseDelay", cfg.Jobs.RetryBaseDelay, 10 * time.Second},
+		{"Jobs.RetryMaxDelay", cfg.Jobs.RetryMaxDelay, time.Hour},
+		{"Jobs.HealthAddr", cfg.Jobs.HealthAddr, ":8081"},
+		{"Push.ExpoAccessToken", cfg.Push.ExpoAccessToken, ""},
+		{"Push.ExpoURL", cfg.Push.ExpoURL, "https://exp.host"},
+		{"Push.ReceiptsDelay", cfg.Push.ReceiptsDelay, 15 * time.Minute},
+		{"Reminders.Interval", cfg.Reminders.Interval, 4 * time.Hour},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -134,6 +142,12 @@ func TestLoadInvalid(t *testing.T) {
 		{"SMTP_TLS", "ssl"},
 		{"SMTP_PORT", "0"},
 		{"DOCUMENTS_MAX_BYTES", "10"},
+		{"WORKER_CONCURRENCY", "0"},
+		{"WORKER_HEALTH_ADDR", "8081"},
+		{"JOBS_RETRY_MAX_DELAY", "1s"},
+		{"EXPO_PUSH_URL", "ftp://exp.host"},
+		{"PUSH_RECEIPTS_DELAY", "soon"},
+		{"STOCK_REMINDER_INTERVAL", "0s"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
@@ -190,14 +204,14 @@ func TestSecretsNeverLeak(t *testing.T) {
 		t.Fatalf("error leaks key material: %v", err)
 	}
 
-	cfg, err := config.Load(env(nil))
+	cfg, err := config.Load(env(map[string]string{"EXPO_ACCESS_TOKEN": "expo-s3cret-token"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("cfg", slog.Any("config", cfg))
 	if out := buf.String(); strings.Contains(out, "s3cret") || strings.Contains(out, strings.Repeat("ef", 32)) ||
-		!strings.Contains(out, `"http_addr":":8080"`) {
+		!strings.Contains(out, `"http_addr":":8080"`) || !strings.Contains(out, `"expo_push":true`) {
 		t.Fatalf("LogValue must hide secrets and keep safe fields, got %s", out)
 	}
 }

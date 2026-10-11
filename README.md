@@ -58,10 +58,13 @@ make tools                                             # goose, sqlc, golangci-l
 ```bash
 make up && make migrate-up   # infra + schéma
 make run                     # API sur http://127.0.0.1:8080 (variables de .env)
-# ou, dans Docker (image distroless non-root, healthcheck sur /readyz) :
-make api-up
+make worker-run              # dans un autre terminal : worker asynq (emails, push, rappels, stats)
+# ou, dans Docker (image distroless non-root, healthchecks sur /readyz) :
+make api-up                  # API + worker
 curl -s localhost:8080/readyz   # {"status":"ready","checks":{"osrm":"ok","postgres":"ok","redis":"ok"}}
 ```
+
+Sans worker, l'API fonctionne mais les emails, les push et les alertes restent en file dans Redis : ils partent dès que le worker démarre. Le worker tourne en **une seule instance** (son scheduler lance les tâches périodiques). Les files se supervisent dans asynqmon : <http://127.0.0.1:8090>.
 
 | Commande | Effet |
 |---|---|
@@ -71,7 +74,8 @@ curl -s localhost:8080/readyz   # {"status":"ready","checks":{"osrm":"ok","postg
 | `make sqlc` | Régénère le code d'accès aux données après modification de `db/queries` |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Migrations sur la base de `.env` |
 | `make migrate-new name=add_x` | Nouvelle migration horodatée (UTC) dans `Backend/db/migrations` |
-| `make build` | Binaire `Backend/bin/api` |
+| `make build` | Binaires `Backend/bin/api` et `Backend/bin/worker` |
+| `make worker-run` / `make worker-up` | Worker asynq sur l'hôte / dans Docker |
 
 Endpoints : voir [ARCHITECTURE §5](docs/ARCHITECTURE.md) et la spec OpenAPI. Les erreurs sont en `application/problem+json` (RFC 9457), avec des codes stables.
 
@@ -81,6 +85,10 @@ Endpoints : voir [ARCHITECTURE §5](docs/ARCHITECTURE.md) et la spec OpenAPI. Le
 - **Créer un admin** (aucune route publique ne le permet) : `make admin-create email=ada@gostation.bj first=Ada last=Admin`. Le mot de passe est saisi au clavier, deux fois. La 2FA TOTP est configurée au premier login (`POST /api/v1/auth/admin/login` puis `/auth/admin/2fa`).
 - **2FA perdue** : `make admin-reset-2fa email=…`.
 - **Nouvelles variables** après un `git pull` : `make env-sync` complète `.env` sans toucher aux valeurs existantes.
+
+### Notifications push
+
+`EXPO_ACCESS_TOKEN` est facultatif : vide, les push passent par un Pusher factice qui journalise seulement le type de notification (`push: fake delivery`). Pour de vrais push, renseigner le token d'accès Expo (sécurité renforcée des push activée sur le projet EAS). Les reçus Expo sont lus 15 min après l'envoi ; un appareil désinstallé (`DeviceNotRegistered`) est supprimé.
 
 ### Recherche : données fictives et bench
 
@@ -104,6 +112,8 @@ Exposés uniquement sur `127.0.0.1` ; ports modifiables dans `.env`.
 | Redis | `redis:8.10.2-alpine` | 6390 | `make redis-cli` (mot de passe requis) |
 | OSRM (car, MLD) | `ghcr.io/project-osrm/osrm-backend:v26.10.0-debian` | 5000 | `curl "http://127.0.0.1:5000/route/v1/driving/2.3844,6.3573;2.4300,6.3730"` |
 | API (profil `api`) | `gostation-api` (build `Backend/Dockerfile`) | 8080 | `make api-up`, puis `curl localhost:8080/readyz` |
+| Worker (profil `api`) | `gostation-api`, entrypoint `/app/worker` | — | `make worker-up` ; une seule instance |
+| asynqmon (profil `dev`) | `hibiken/asynqmon:0.7.2` | 8090 | <http://127.0.0.1:8090> |
 | Mailpit (profil `dev`) | `axllent/mailpit:v1.31.4` | 1025 (SMTP), 8025 (web) | <http://127.0.0.1:8025> |
 
 ## Commandes

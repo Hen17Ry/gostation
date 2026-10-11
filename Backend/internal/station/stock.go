@@ -197,8 +197,9 @@ type StockInput struct {
 // Chaque quantité modifiée écrit stock_history ; toute la saisie vaut confirmation (last_confirmed_at).
 func (s *Service) UpdateStocks(ctx context.Context, a Actor, expected int32, items []StockInput) (StocksView, error) {
 	var stationID uuid.UUID
-	var sold []int16
+	var sold, replenished []int16
 	changed := 0
+	cleared := false
 	err := s.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		st, err := s.managerStation(ctx, q, a.UserID)
 		if err != nil {
@@ -257,6 +258,9 @@ func (s *Service) UpdateStocks(ctx context.Context, a Actor, expected int32, ite
 			}); err != nil {
 				return fmt.Errorf("station: set stock: %w", err)
 			}
+			if c.Quantity == 0 && qty > 0 {
+				replenished = append(replenished, it.ProductID)
+			}
 			if qty != c.Quantity {
 				changed++
 				prev := c.Quantity
@@ -271,13 +275,16 @@ func (s *Service) UpdateStocks(ctx context.Context, a Actor, expected int32, ite
 				return fmt.Errorf("station: stock history: %w", err)
 			}
 		}
-		return q.TouchStationStockActivity(ctx, st.ID)
+		cleared, err = stockActivity(ctx, q, st.ID)
+		return err
 	})
 	if err != nil {
 		return StocksView{}, err
 	}
-	// Toute la saisie vaut confirmation : la fraîcheur de chaque produit vendu change.
-	s.invalidate(ctx, false, sold...)
+	// Toute la saisie vaut confirmation : la fraîcheur de chaque produit vendu change. Des effets
+	// de signalement levés (badge, exclusion) peuvent concerner toute la station.
+	s.invalidate(ctx, cleared, sold...)
+	s.restocked(ctx, stationID, replenished)
 	s.Log.DebugContext(ctx, "station: stocks updated", slog.String("station_id", stationID.String()), slog.Int("changed", changed))
 	return s.Stocks(ctx, a.UserID)
 }
@@ -286,6 +293,7 @@ func (s *Service) UpdateStocks(ctx context.Context, a Actor, expected int32, ite
 // fraîcheur à zéro sans modifier les quantités ni updated_at.
 func (s *Service) ConfirmStocks(ctx context.Context, a Actor, expected int32) (StocksView, error) {
 	var sold []int16
+	cleared := false
 	err := s.Store.InTx(ctx, func(q *dbgen.Queries) error {
 		st, err := s.managerStation(ctx, q, a.UserID)
 		if err != nil {
@@ -307,12 +315,55 @@ func (s *Service) ConfirmStocks(ctx context.Context, a Actor, expected int32) (S
 		if _, err := q.ConfirmStationStocks(ctx, dbgen.ConfirmStationStocksParams{StationID: st.ID, UpdatedBy: &a.UserID}); err != nil {
 			return fmt.Errorf("station: confirm stocks: %w", err)
 		}
-		return q.TouchStationStockActivity(ctx, st.ID)
+		cleared, err = stockActivity(ctx, q, st.ID)
+		return err
 	})
 	if err != nil {
 		return StocksView{}, err
 	}
 	slices.Sort(sold)
-	s.invalidate(ctx, false, sold...)
+	s.invalidate(ctx, cleared, sold...)
 	return s.Stocks(ctx, a.UserID)
+}
+
+// Résolution enregistrée sur les alertes admin levées par l'activité du gérant.
+const resolvedByActivity = "Resolved by a stock update or confirmation."
+
+// stockActivity enregistre une mise à jour ou une confirmation du gérant, dans sa transaction :
+// fraîcheur de la station, fin des rappels « ignorés », clôture des signalements ouverts et de
+// leurs effets (badge, exclusion), résolution des alertes admin devenues sans objet (gérant
+// inactif, seuil de signalements). Renvoie true si des effets de signalement ont été levés.
+func stockActivity(ctx context.Context, q *dbgen.Queries, stationID uuid.UUID) (bool, error) {
+	if err := q.TouchStationStockActivity(ctx, stationID); err != nil {
+		return false, fmt.Errorf("station: touch stock activity: %w", err)
+	}
+	if err := q.ResetReminderStreak(ctx, stationID); err != nil {
+		return false, fmt.Errorf("station: reset reminder streak: %w", err)
+	}
+	if _, err := q.CloseStationReports(ctx, stationID); err != nil {
+		return false, fmt.Errorf("station: close reports: %w", err)
+	}
+	flags, err := q.DeleteStationReportFlags(ctx, stationID)
+	if err != nil {
+		return false, fmt.Errorf("station: clear report flags: %w", err)
+	}
+	resolution := resolvedByActivity
+	if _, err := q.AutoResolveAdminAlerts(ctx, dbgen.AutoResolveAdminAlertsParams{
+		StationID: stationID, Resolution: &resolution,
+		Kinds: []string{string(dbgen.AdminAlertKindManagerInactive), string(dbgen.AdminAlertKindReportsThreshold)},
+	}); err != nil {
+		return false, fmt.Errorf("station: resolve admin alerts: %w", err)
+	}
+	return len(flags) > 0, nil
+}
+
+// restocked déclenche les alertes « de retour en stock » (produits passés de 0 à plus de 0),
+// après le commit ; un échec est journalisé, la saisie reste enregistrée.
+func (s *Service) restocked(ctx context.Context, stationID uuid.UUID, productIDs []int16) {
+	if len(productIDs) == 0 || s.Restock == nil {
+		return
+	}
+	if err := s.Restock.EnqueueBackInStock(ctx, stationID, productIDs); err != nil {
+		s.Log.ErrorContext(ctx, "station: back-in-stock alerts not queued", slog.Any("err", err))
+	}
 }

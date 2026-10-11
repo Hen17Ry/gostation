@@ -51,6 +51,12 @@ const (
 	ActionLocationRequestApproved = "admin.location_request_approved"
 	ActionLocationRequestRejected = "admin.location_request_rejected"
 	ActionLocationFlagDismissed   = "admin.location_flag_dismissed"
+
+	ActionReportResolved    = "admin.report_resolved"
+	ActionReportDismissed   = "admin.report_dismissed"
+	ActionReportingBanned   = "admin.reporting_banned"
+	ActionReportingUnbanned = "admin.reporting_unbanned"
+	ActionAlertResolved     = "admin.alert_resolved"
 )
 
 // Entry est une entrée du journal. Metadata ne contient aucune donnée personnelle superflue

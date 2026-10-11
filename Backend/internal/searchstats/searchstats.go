@@ -3,7 +3,7 @@
 // 5 km (signal de pénurie). Aucun identifiant utilisateur ni position exacte n'est enregistré.
 //
 // Les compteurs vivent dans Redis (stats:search:{heure} → HASH « cellule:produit:s|e ») et sont
-// vidés périodiquement dans search_stats. Le vidage renomme d'abord chaque clé (passage de
+// vidés dans search_stats par la tâche périodique stats:flush du worker (asynq). Le vidage renomme d'abord chaque clé (passage de
 // relais atomique : les nouvelles recherches repartent sur une clé neuve), sous un verrou Redis
 // pour qu'une seule instance vide à la fois. Une tranche dont l'écriture en base échoue reste
 // en attente (suffixe :flushing) et repart au vidage suivant, sans perte.
@@ -191,24 +191,4 @@ func (f *Flusher) flushKey(ctx context.Context, key string) (int, error) {
 		return 0, err
 	}
 	return len(agg), nil
-}
-
-// Run vide toutes les interval jusqu'à l'annulation de ctx, puis une dernière fois.
-func (f *Flusher) Run(ctx context.Context, interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			final := context.WithoutCancel(ctx)
-			if _, err := f.Flush(final); err != nil {
-				f.log.WarnContext(final, "searchstats: final flush failed", slog.Any("err", err))
-			}
-			return
-		case <-t.C:
-			if _, err := f.Flush(ctx); err != nil {
-				f.log.WarnContext(ctx, "searchstats: flush failed", slog.Any("err", err))
-			}
-		}
-	}
 }

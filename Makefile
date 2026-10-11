@@ -27,7 +27,7 @@ WITH_ENV_IF_ANY := if [ -f .env ]; then set -a && . ./.env && set +a; fi &&
 GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATION_DIR=$(MIGRATIONS)
 
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
-	tools run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up \
+	tools run worker-run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
 	admin-create admin-reset-2fa seed-dev explain-search bench
 
 help: ## Affiche cette aide
@@ -42,7 +42,7 @@ env: .env ## Crée .env depuis .env.example avec des secrets aléatoires (n'écr
 env-sync: .env ## Ajoute à .env les variables apparues dans .env.example (secrets générés)
 	@./scripts/env.sh sync
 
-up: .env ## Démarre PostGIS, Redis, OSRM et Mailpit, attend qu'ils soient healthy
+up: .env ## Démarre PostGIS, Redis, OSRM, Mailpit et asynqmon, attend qu'ils soient healthy
 	@$(COMPOSE) --profile dev up -d --wait --wait-timeout 180 || { \
 	  echo "✖ Démarrage incomplet (voir l'erreur ci-dessus et 'make ps')."; \
 	  echo "  OSRM en échec ? Prépare d'abord les données : make osrm-prepare"; \
@@ -76,11 +76,15 @@ tools: ## Installe goose, sqlc et golangci-lint (versions figées)
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
-run: .env ## Lance l'API sur l'hôte avec les variables de .env
+run: .env ## Lance l'API sur l'hôte avec les variables de .env (emails et push : make worker-run)
 	@$(WITH_ENV) cd $(BACKEND) && go run -ldflags "-X main.version=$(VERSION)" ./cmd/api
 
-build: ## Compile Backend/bin/api
+worker-run: .env ## Lance le worker asynq sur l'hôte (tâches + scheduler, une seule instance)
+	@$(WITH_ENV) cd $(BACKEND) && go run -ldflags "-X main.version=$(VERSION)" ./cmd/worker
+
+build: ## Compile Backend/bin/api et Backend/bin/worker
 	cd $(BACKEND) && CGO_ENABLED=1 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/api ./cmd/api
+	cd $(BACKEND) && CGO_ENABLED=1 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/worker ./cmd/worker
 
 test: ## Tests unitaires + intégration (testcontainers, Docker requis), avec -race
 	@$(WITH_ENV_IF_ANY) cd $(BACKEND) && go test -race -count=1 -tags integration ./...
@@ -110,11 +114,17 @@ migrate-new: ## Crée une migration SQL horodatée : make migrate-new name=add_x
 	@[[ "$(name)" =~ ^[a-z0-9_]+$$ ]] || { echo "usage : make migrate-new name=add_x (minuscules, chiffres, _)"; exit 1; }
 	@$(GOOSE) -dir $(MIGRATIONS) create $(name) sql
 
-api-up: .env ## Lance l'API dans Docker (profil api) après les migrations, attend /readyz
+api-up: .env ## Lance l'API et le worker dans Docker (profil api) après les migrations, attend /readyz
 	@$(COMPOSE) --profile dev up -d --wait --wait-timeout 180
 	@$(MAKE) --no-print-directory migrate-up
-	@API_VERSION=$(VERSION) $(COMPOSE) --profile dev --profile api up -d --build --wait --wait-timeout 180 api
-	@$(COMPOSE) --profile api ps api
+	@API_VERSION=$(VERSION) $(COMPOSE) --profile dev --profile api up -d --build --wait --wait-timeout 180 api worker
+	@$(COMPOSE) --profile api ps api worker
+
+worker-up: .env ## Lance le worker seul dans Docker (profil api) après les migrations
+	@$(COMPOSE) --profile dev up -d --wait --wait-timeout 180
+	@$(MAKE) --no-print-directory migrate-up
+	@API_VERSION=$(VERSION) $(COMPOSE) --profile dev --profile api up -d --build --wait --wait-timeout 180 worker
+	@$(COMPOSE) --profile api ps worker
 
 admin-create: .env ## Crée un admin : make admin-create email=… first=… last=… (mot de passe demandé)
 	@[[ -n "$(email)" && -n "$(first)" && -n "$(last)" ]] || { echo "usage : make admin-create email=… first=… last=…"; exit 1; }

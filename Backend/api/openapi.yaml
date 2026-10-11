@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: GoStation API
-  version: 0.5.0
+  version: 0.6.0
   summary: Trouver la station la plus proche qui a le produit recherché en stock (Bénin).
   description: |
     API REST de GoStation. Source des types générés pour les clients mobile (Expo) et web (admin).
@@ -17,7 +17,9 @@ info:
     - Chaque réponse porte `X-Request-ID` ; les routes `/api/v1` portent `RateLimit-*`.
     - L'app mobile envoie `X-Install-Id` (UUID généré au premier lancement) sur la recherche et
       l'itinéraire : il sert uniquement aux quotas.
-    - Confidentialité : les positions reçues (`lat`, `lng`) ne sont jamais stockées ni journalisées.
+    - Confidentialité : les positions reçues (`lat`, `lng`, et la `position` d'un signalement) ne
+      sont jamais stockées ni journalisées.
+    - Notifications, favoris et signalements exigent un email vérifié (403 `auth.email_not_verified`).
 
     Cette spec est vérifiée par un test : elle liste exactement les routes servies par l'API.
 servers:
@@ -36,6 +38,12 @@ tags:
     description: Connexion admin en deux étapes (mot de passe puis TOTP), cookies de session
   - name: me
     description: Compte de l'utilisateur authentifié
+  - name: notifications
+    description: Appareils push, boîte de réception et préférences (email vérifié)
+  - name: favorites
+    description: Stations favorites et alertes « de retour en stock » (email vérifié)
+  - name: reports
+    description: Signalements des utilisateurs, vue gérant et modération admin
   - name: manager
     description: Espace gérant (station approuvée uniquement)
   - name: admin
@@ -163,6 +171,64 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /api/v1/stations/{id}/reports:
+    post:
+      tags: [reports]
+      operationId: createReport
+      summary: Signaler une station (email vérifié)
+      description: |
+        Motifs : `out_of_stock` (avec `productId`, produit vendu par la station), `station_closed`,
+        `wrong_location`, `other` (commentaire obligatoire, 300 caractères au plus).
+
+        Pour `out_of_stock` et `station_closed`, `position` est obligatoire : le signalement n'est
+        accepté qu'à 2 km de la station au plus (422 `report.too_far`). Elle ne sert qu'à ce contrôle :
+        jamais stockée ni journalisée.
+
+        Limites : 1 signalement par station et par motif (produit compris) toutes les 2 h (409
+        `report.duplicate`) ; 10 par jour et par utilisateur (429 `report.daily_limit`) ; droit
+        retiré par l'admin après abus (403 `report.reporting_suspended`).
+
+        Effets (auteurs distincts sur 2 h, même motif et même produit) : 3 → badge `reported` dans la
+        recherche et la fiche, notification au gérant ; 5 → exclusion de la recherche (du produit, ou de
+        toute la station pour les autres motifs) jusqu'à la prochaine mise à jour ou confirmation du
+        gérant, alerte admin.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/StationId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportRequest" }
+      responses:
+        "201":
+          description: Signalement enregistré
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: "Email non vérifié (`auth.email_not_verified`) ou droit de signaler retiré (`report.reporting_suspended`)"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: "Même motif signalé il y a moins de 2 h (`report.duplicate`)"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: "Saisie invalide (`request.validation_failed`) ou auteur à plus de 2 km (`report.too_far`)"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "429":
+          description: "10 signalements aujourd'hui (`report.daily_limit`) ou quota global"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
   /api/v1/routes:
     get:
@@ -539,6 +605,184 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/me/devices:
+    post:
+      tags: [notifications]
+      operationId: registerDevice
+      summary: Enregistre le token push Expo de l'installation (à rappeler à chaque lancement)
+      description: |
+        Une installation (`installId`) = un appareil : le réenregistrer met à jour son token, sa
+        langue et sa session, et repousse `lastSeenAt` (purge après 90 jours sans réenregistrement).
+        L'appareil est lié à la session courante : logout, révocation de la session, changement ou
+        réinitialisation du mot de passe suppriment son token. `language` choisit la langue des push
+        (rendus par le serveur, affichés par le système).
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceRequest" }
+      responses:
+        "200":
+          description: Appareil enregistré
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/devices/{id}:
+    delete:
+      tags: [notifications]
+      operationId: unregisterDevice
+      summary: Désenregistre un appareil du compte (email vérifié non exigé)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/DeviceId" }]
+      responses:
+        "204": { description: Appareil supprimé }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/me/notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: Boîte de réception, la plus récente d'abord (conservée 30 jours)
+      description: L'app compose le texte d'après `type` et `data` (les push, eux, sont rendus par le serveur).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de notifications
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/notifications/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationsRead
+      summary: Marque des notifications comme lues (`ids`, 100 au plus, ou `all`)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarkReadRequest" }
+      responses:
+        "200":
+          description: Nombre de notifications encore non lues
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UnreadCount" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/notification-settings:
+    get:
+      tags: [notifications]
+      operationId: getNotificationSettings
+      summary: Préférences par type (tous activés par défaut)
+      description: "Types proposés : `back_in_stock` (tous) ; `stock_reminder` et `station_reported` (gérants)."
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Préférences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationSettingList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [notifications]
+      operationId: updateNotificationSettings
+      summary: Active ou désactive des types (opt-out) ; les types absents sont inchangés
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateNotificationSettingsRequest" }
+      responses:
+        "200":
+          description: Préférences à jour
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationSettingList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/favorites:
+    get:
+      tags: [favorites]
+      operationId: listFavorites
+      summary: Stations favorites, la plus récente d'abord
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Favoris
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FavoriteList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/me/favorites/{stationId}:
+    post:
+      tags: [favorites]
+      operationId: addFavorite
+      summary: Ajoute une station approuvée aux favoris (20 au plus), ou met à jour ses alertes
+      description: |
+        Idempotent : 201 à la création, 200 si la station y était déjà. `alertProductIds` remplace la
+        liste des produits suivis pour l'alerte « de retour en stock » (absent : inchangée).
+
+        Alerte : au passage d'une quantité de 0 à plus de 0 ; 1 par station et par produit toutes les
+        6 h, 5 par jour ; entre 21 h et 7 h (heure de Porto-Novo), elle part à 7 h si le stock est
+        toujours positif. Pas d'alerte de réouverture.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/FavoriteStationId" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddFavoriteRequest" }
+      responses:
+        "200":
+          description: Favori existant (alertes éventuellement mises à jour)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Favorite" }
+        "201":
+          description: Favori ajouté
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Favorite" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: "20 favoris déjà (`favorite.limit_reached`)"
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [favorites]
+      operationId: removeFavorite
+      summary: Retire une station des favoris (idempotent)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/FavoriteStationId" }]
+      responses:
+        "204": { description: Favori retiré (ou absent) }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/v1/manager/station:
     get:
       tags: [manager]
@@ -817,6 +1061,45 @@ paths:
         "422": { $ref: "#/components/responses/ValidationFailed" }
         "428": { $ref: "#/components/responses/PreconditionRequired" }
 
+  /api/v1/manager/reports:
+    get:
+      tags: [manager, reports]
+      operationId: listManagerReports
+      summary: Signalements de la station et effets en cours (sans l'identité ni le commentaire des auteurs)
+      description: Une mise à jour ou une confirmation des stocks clôt les signalements ouverts et lève leurs effets.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, all], default: open } }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Effets et signalements
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManagerReportPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/manager/reminders/mute:
+    post:
+      tags: [manager]
+      operationId: muteReminders
+      summary: Met les rappels de stock en sourdine jusqu'à la fermeture du jour
+      description: |
+        Rappel push (catégorie Expo `stock_reminder`) toutes les 4 h quand la station est ouverte et que
+        sa dernière mise à jour ou confirmation date de plus de 4 h ; 4 par jour au plus ; après 3 rappels
+        ignorés de suite, arrêt pour la journée, email au gérant et alerte admin. La sourdine dure jusqu'à
+        la fin de la dernière plage d'ouverture du jour (minuit à défaut).
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Sourdine posée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MuteResponse" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/v1/admin/stations:
     get:
       tags: [admin]
@@ -1031,6 +1314,148 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/admin/reports:
+    get:
+      tags: [admin, reports]
+      operationId: listAdminReports
+      summary: Signalements, les plus récents d'abord, avec auteur et commentaire (modération)
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, resolved, dismissed] } }
+        - { name: stationId, in: query, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de signalements
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminReportPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/reports/{id}/resolve:
+    post:
+      tags: [admin, reports]
+      operationId: resolveReport
+      summary: Marque un signalement ouvert comme traité (ses effets restent jusqu'à la mise à jour du gérant)
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ReportId" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteRequest" }
+      responses:
+        "200":
+          description: Signalement traité
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/reports/{id}/dismiss:
+    post:
+      tags: [admin, reports]
+      operationId: dismissReport
+      summary: Classe un signalement ouvert sans suite, éventuellement comme abusif
+      description: L'effet de sa cause (badge, exclusion) est recalculé sur les signalements encore ouverts.
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ReportId" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DismissReportRequest" }
+      responses:
+        "200":
+          description: Signalement classé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/users/{id}/reporting-ban:
+    post:
+      tags: [admin, reports]
+      operationId: banReporter
+      summary: Retire le droit de signaler à un utilisateur (après abus)
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/UserId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReportingBanRequest" }
+      responses:
+        "204": { description: Droit retiré }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [admin, reports]
+      operationId: unbanReporter
+      summary: Rend le droit de signaler
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/UserId" }]
+      responses:
+        "204": { description: Droit rendu }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/alerts:
+    get:
+      tags: [admin]
+      operationId: listAdminAlerts
+      summary: Alertes admin (gérant inactif, seuil de 5 signalements), les plus récentes d'abord
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, resolved, all], default: open } }
+        - { name: kind, in: query, schema: { type: string, enum: [manager_inactive, reports_threshold] } }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page d'alertes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAlertPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/alerts/{id}/resolve:
+    post:
+      tags: [admin]
+      operationId: resolveAdminAlert
+      summary: Clôt une alerte (elles se résolvent aussi seules à la mise à jour des stocks du gérant)
+      security: [{ cookieAuth: [], csrfToken: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/AlertId" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteRequest" }
+      responses:
+        "200":
+          description: Alerte close
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAlert" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1082,6 +1507,40 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    FavoriteStationId:
+      name: stationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DeviceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ReportId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AlertId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      description: Valeur nextCursor de la page précédente
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
 
   headers:
     ETag:
@@ -1482,7 +1941,7 @@ components:
         generatedAt: { type: string, format: date-time }
     SearchResult:
       type: object
-      required: [station, distanceM, routeDistanceM, durationS, quantity, stale, stockUpdatedAt, updatedAgoS, isOpen, nextOpening, servedAt]
+      required: [station, distanceM, routeDistanceM, durationS, quantity, stale, stockUpdatedAt, updatedAgoS, isOpen, nextOpening, servedAt, reported]
       properties:
         station:
           type: object
@@ -1502,15 +1961,17 @@ components:
         isOpen: { type: boolean }
         nextOpening: { type: [string, "null"], format: date-time, description: Prochaine ouverture (stations fermées) }
         servedAt: { type: [string, "null"], format: date-time, description: "Heure à laquelle on peut être servi : max(maintenant + trajet, prochaine ouverture)" }
+        reported: { type: boolean, description: "Badge « signalé » : 3 utilisateurs ou plus signalent une rupture du produit ou un problème de station (2 h)" }
     PublicStation:
       type: object
-      required: [id, name, brand, address, city, location, openingHours, stocks]
+      required: [id, name, brand, address, city, location, openingHours, stocks, reported]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         brand: { type: [string, "null"] }
         address: { type: string }
         city: { type: [string, "null"] }
+        reported: { type: boolean, description: "Station signalée (fermée, position incorrecte, autre) par 3 utilisateurs ou plus" }
         location:
           oneOf:
             - $ref: "#/components/schemas/LatLng"
@@ -1533,7 +1994,7 @@ components:
           type: array
           items:
             type: object
-            required: [productId, code, label, unit, sizeKg, quantity, updatedAt, freshness]
+            required: [productId, code, label, unit, sizeKg, quantity, updatedAt, freshness, reported]
             properties:
               productId: { type: integer }
               code: { type: string }
@@ -1543,6 +2004,7 @@ components:
               quantity: { type: [integer, "null"], description: "null si le stock est expiré (plus de 24 h)" }
               updatedAt: { type: string, format: date-time }
               freshness: { type: string, enum: [fresh, stale, expired] }
+              reported: { type: boolean, description: Rupture signalée par 3 utilisateurs ou plus }
     Route:
       type: object
       required: [stationId, distanceM, durationS, geometry, geometryEncoding, steps]
@@ -1873,3 +2335,288 @@ components:
         lastStockUpdateAt: { type: [string, "null"], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    DeviceRequest:
+      type: object
+      required: [token, platform, installId]
+      additionalProperties: false
+      properties:
+        token: { type: string, maxLength: 255, examples: ["ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"] }
+        platform: { type: string, enum: [ios, android] }
+        installId: { type: string, format: uuid, description: UUID de l'installation (le même que X-Install-Id) }
+        language: { type: string, enum: [fr, en], default: fr, description: Langue des push }
+        appVersion: { type: [string, "null"], maxLength: 32 }
+    Device:
+      type: object
+      required: [id, platform, language, appVersion, createdAt, lastSeenAt]
+      properties:
+        id: { type: string, format: uuid }
+        platform: { type: string, enum: [ios, android] }
+        language: { type: string, enum: [fr, en] }
+        appVersion: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+    NotificationType:
+      type: string
+      enum: [stock_reminder, station_reported, back_in_stock]
+    Notification:
+      type: object
+      required: [id, type, data, createdAt, readAt]
+      description: |
+        `data` (et les données du push, qui y ajoutent `type` et `notificationId`) selon le type :
+        - `stock_reminder` : `stationId`, `stationName`, `hoursSinceUpdate` (absent si jamais mis à jour),
+          `etag` ; le push porte la catégorie Expo `stock_reminder` et `actions` : `update` (ouvre
+          l'app) et `confirm` (POST `/api/v1/manager/station/stocks/confirm` avec `If-Match: etag`, sans
+          ouvrir l'app ; un 412 signifie que les stocks ont déjà bougé) ;
+        - `station_reported` : `stationId`, `stationName`, `reason`, `productId`/`productLabel` (rupture),
+          `reporters`, `level` (`flagged` à 3, `excluded` à 5) — jamais l'identité des auteurs ;
+        - `back_in_stock` : `stationId`, `stationName`, `productId`, `productLabel`.
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: "#/components/schemas/NotificationType" }
+        data: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: [string, "null"], format: date-time }
+    NotificationPage:
+      type: object
+      required: [items, nextCursor, unreadCount]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Notification" }
+        nextCursor: { type: [string, "null"] }
+        unreadCount: { type: integer }
+    MarkReadRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ids:
+          type: array
+          maxItems: 100
+          items: { type: string, format: uuid }
+        all: { type: boolean, description: "Tout marquer comme lu (ids alors vide)" }
+    UnreadCount:
+      type: object
+      required: [unreadCount]
+      properties:
+        unreadCount: { type: integer }
+    NotificationSetting:
+      type: object
+      required: [type, enabled]
+      properties:
+        type: { $ref: "#/components/schemas/NotificationType" }
+        enabled: { type: boolean }
+    NotificationSettingList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/NotificationSetting" }
+    UpdateNotificationSettingsRequest:
+      type: object
+      required: [settings]
+      additionalProperties: false
+      properties:
+        settings:
+          type: array
+          items: { $ref: "#/components/schemas/NotificationSetting" }
+    Favorite:
+      type: object
+      required: [station, available, alertProductIds, createdAt]
+      properties:
+        station:
+          type: object
+          required: [id, name, brand, address, city, location]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            brand: { type: [string, "null"] }
+            address: { type: string }
+            city: { type: [string, "null"] }
+            location:
+              oneOf:
+                - $ref: "#/components/schemas/LatLng"
+                - type: "null"
+        available: { type: boolean, description: "Station approuvée (fiche et recherche) ; false si suspendue entre-temps" }
+        alertProductIds:
+          type: array
+          description: Produits suivis pour l'alerte « de retour en stock »
+          items: { type: integer }
+        createdAt: { type: string, format: date-time }
+    FavoriteList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/Favorite" }
+    AddFavoriteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        alertProductIds:
+          type: array
+          description: Remplace les produits suivis (absent = inchangés, [] = aucun)
+          items: { type: integer }
+    ReportReason:
+      type: string
+      enum: [out_of_stock, station_closed, wrong_location, other]
+    ReportRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { $ref: "#/components/schemas/ReportReason" }
+        productId: { type: integer, description: "Obligatoire pour out_of_stock, interdit sinon" }
+        comment: { type: string, maxLength: 300, description: Obligatoire pour other }
+        position:
+          allOf: [{ $ref: "#/components/schemas/LatLng" }]
+          description: "Obligatoire pour out_of_stock et station_closed : contrôle des 2 km, jamais stockée ni journalisée"
+    Report:
+      type: object
+      required: [id, reason, productId, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        reason: { $ref: "#/components/schemas/ReportReason" }
+        productId: { type: [integer, "null"] }
+        status: { type: string, enum: [open, resolved, dismissed] }
+        createdAt: { type: string, format: date-time }
+    ProductRef:
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: integer }
+        label: { type: string }
+    StationRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    ReportFlag:
+      type: object
+      required: [reason, product, reporters, level, flaggedAt, excludedAt]
+      properties:
+        reason: { $ref: "#/components/schemas/ReportReason" }
+        product:
+          oneOf:
+            - $ref: "#/components/schemas/ProductRef"
+            - type: "null"
+        reporters: { type: integer, description: Auteurs distincts au dernier franchissement }
+        level: { type: string, enum: [flagged, excluded] }
+        flaggedAt: { type: string, format: date-time }
+        excludedAt: { type: [string, "null"], format: date-time }
+    ManagerReport:
+      type: object
+      required: [id, reason, product, status, createdAt, resolvedAt]
+      properties:
+        id: { type: string, format: uuid }
+        reason: { $ref: "#/components/schemas/ReportReason" }
+        product:
+          oneOf:
+            - $ref: "#/components/schemas/ProductRef"
+            - type: "null"
+        status: { type: string, enum: [open, resolved, dismissed] }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, "null"], format: date-time }
+    ManagerReportPage:
+      type: object
+      required: [flags, items, nextCursor]
+      properties:
+        flags:
+          type: array
+          items: { $ref: "#/components/schemas/ReportFlag" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ManagerReport" }
+        nextCursor: { type: [string, "null"] }
+    Reporter:
+      type: object
+      required: [id, firstName, lastName, email, abusiveReports, reportingBanned]
+      properties:
+        id: { type: string, format: uuid }
+        firstName: { type: string }
+        lastName: { type: string }
+        email: { type: string, format: email }
+        abusiveReports: { type: integer, description: Signalements de l'auteur classés abusifs }
+        reportingBanned: { type: boolean }
+    AdminReport:
+      type: object
+      required: [id, station, reason, product, comment, status, abusive, resolutionNote, resolvedAt, createdAt, reporter]
+      properties:
+        id: { type: string, format: uuid }
+        station: { $ref: "#/components/schemas/StationRef" }
+        reason: { $ref: "#/components/schemas/ReportReason" }
+        product:
+          oneOf:
+            - $ref: "#/components/schemas/ProductRef"
+            - type: "null"
+        comment: { type: [string, "null"] }
+        status: { type: string, enum: [open, resolved, dismissed] }
+        abusive: { type: boolean }
+        resolutionNote: { type: [string, "null"] }
+        resolvedAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        reporter:
+          oneOf:
+            - $ref: "#/components/schemas/Reporter"
+            - type: "null"
+    AdminReportPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminReport" }
+        nextCursor: { type: [string, "null"] }
+    NoteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        note: { type: string, maxLength: 500 }
+    DismissReportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        abusive: { type: boolean, default: false }
+        note: { type: string, maxLength: 500 }
+    ReportingBanRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    AdminAlert:
+      type: object
+      required: [id, kind, station, reason, product, details, createdAt, resolvedAt, resolvedBy, resolution]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [manager_inactive, reports_threshold] }
+        station: { $ref: "#/components/schemas/StationRef" }
+        reason:
+          oneOf:
+            - $ref: "#/components/schemas/ReportReason"
+            - type: "null"
+        product:
+          oneOf:
+            - $ref: "#/components/schemas/ProductRef"
+            - type: "null"
+        details: { type: object, additionalProperties: true, description: "ignoredReminders (gérant inactif) ou reporters (seuil)" }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, "null"], format: date-time }
+        resolvedBy: { type: [string, "null"], format: uuid, description: "null + resolvedAt : résolue par l'activité du gérant" }
+        resolution: { type: [string, "null"] }
+    AdminAlertPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminAlert" }
+        nextCursor: { type: [string, "null"] }
+    MuteResponse:
+      type: object
+      required: [mutedUntil]
+      properties:
+        mutedUntil: { type: string, format: date-time }

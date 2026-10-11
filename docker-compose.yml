@@ -88,7 +88,7 @@ services:
       start_period: 20s
     networks: [net]
 
-  # API Go (profil « api », démarrée par `make api-up` après les migrations).
+  # API Go (profil « api », démarrée par `make api-up` après les migrations, avec le worker).
   api:
     build:
       context: ./Backend
@@ -124,6 +124,59 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks: [net]
+
+  # Worker asynq (profil « api », démarré par `make worker-up` ou `make api-up`) : emails, push,
+  # alertes, rappels, stats, purges. Même image que l'API. UNE SEULE instance : le scheduler des
+  # tâches périodiques tourne dans ce processus (ARCHITECTURE §7).
+  worker:
+    build:
+      context: ./Backend
+      args:
+        VERSION: ${API_VERSION:-dev}
+    image: gostation-api:${API_VERSION:-dev}
+    profiles: [api]
+    restart: unless-stopped
+    entrypoint: ["/app/worker"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      OSRM_URL: http://osrm:5000
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      # Répertoire de l'image (le worker ne lit aucun justificatif, il n'a pas besoin du volume).
+      DOCUMENTS_STORAGE_DIR: /var/lib/gostation/documents
+      WORKER_HEALTH_ADDR: ":8081"
+    deploy:
+      replicas: 1
+    # Laisse au worker le temps de finir ses tâches (WORKER_SHUTDOWN_TIMEOUT, 25 s par défaut).
+    stop_grace_period: 30s
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mailpit: { condition: service_healthy, required: false }
+    healthcheck:
+      test: ["CMD", "/app/worker", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [net]
+
+  # Supervision des files asynq (profil « dev ») : http://127.0.0.1:8090. Le mot de passe Redis
+  # passe en argument (visible dans `docker inspect`) : réservé au développement local.
+  asynqmon:
+    image: ${ASYNQMON_IMAGE:-hibiken/asynqmon:0.7.2}
+    profiles: [dev]
+    restart: unless-stopped
+    command:
+      - --redis-addr=redis:6379
+      - --redis-password=${REDIS_PASSWORD}
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${ASYNQMON_PORT:-8090}:8080"
+    depends_on:
+      redis: { condition: service_healthy }
     networks: [net]
 
   # Serveur SMTP de dev (profil « dev ») : capture tous les emails, interface web sur :8025.

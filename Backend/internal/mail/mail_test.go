@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/mail"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	"gostation/backend/internal/platform/crypto"
 )
 
 func TestTemplates(t *testing.T) {
@@ -79,6 +79,7 @@ func TestStationStatusEmails(t *testing.T) {
 	}
 	for change, want := range map[StationStatusChange]string{
 		StationMoveApproved: "Position validée", StationResubmitted: "En attente de validation", StationIdentityChanged: "En attente de validation",
+		StationRemindersPaused: "Stocks à mettre à jour",
 	} {
 		m, err := r.StationStatus("k@example.bj", "Kofi", "Station Akpakpa", change, "ignored")
 		if err != nil {
@@ -150,31 +151,45 @@ func TestBuildMIME(t *testing.T) {
 	}
 }
 
-type recordingMailer struct {
-	mu   sync.Mutex
-	sent []Message
+type recordingEnqueuer struct {
+	payloads [][]byte
 }
 
-func (r *recordingMailer) Send(_ context.Context, m Message) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.sent = append(r.sent, m)
+func (r *recordingEnqueuer) EnqueueEmail(_ context.Context, sealed []byte) error {
+	r.payloads = append(r.payloads, sealed)
 	return nil
 }
 
-func TestAsyncDeliversAndDrainsOnClose(t *testing.T) {
-	rec := &recordingMailer{}
-	a := NewAsync(rec, slog.New(slog.DiscardHandler), 2, 10)
-	for range 5 {
-		if err := a.Send(t.Context(), Message{To: "x@example.bj", Subject: "s"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := a.Close(t.Context()); err != nil {
+// TestQueueSealsMessages : la file ne contient jamais l'adresse ni le code en clair, et le
+// worker retrouve le message intact ; une charge altérée est refusée.
+func TestQueueSealsMessages(t *testing.T) {
+	sealer, err := crypto.NewSealer(make([]byte, crypto.KeySize))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.sent) != 5 {
-		t.Fatalf("sent %d messages, want 5", len(rec.sent))
+	rec := &recordingEnqueuer{}
+	q := NewQueue(rec, sealer)
+	m := Message{To: "afi@example.bj", Subject: "Code", Text: "Votre code : 482913", HTML: "<b>482913</b>"}
+	if err := q.Send(t.Context(), m); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.payloads) != 1 {
+		t.Fatalf("enqueued %d payloads, want 1", len(rec.payloads))
+	}
+	raw := string(rec.payloads[0])
+	for _, secret := range []string{"afi@example.bj", "482913"} {
+		if strings.Contains(raw, secret) {
+			t.Errorf("queued payload contains %q in clear", secret)
+		}
+	}
+	got, err := q.Decode(rec.payloads[0])
+	if err != nil || got != m {
+		t.Fatalf("Decode = %+v, %v; want %+v", got, err, m)
+	}
+	tampered := append([]byte(nil), rec.payloads[0]...)
+	tampered[len(tampered)-1] ^= 1
+	if _, err := q.Decode(tampered); err == nil {
+		t.Error("tampered payload decoded")
 	}
 }
 

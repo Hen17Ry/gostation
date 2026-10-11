@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"gostation/backend/internal/apperr"
 )
 
@@ -285,4 +287,71 @@ func ParseClosureDate(s string, now time.Time, loc *time.Location) (time.Time, e
 		return time.Time{}, apperr.Validation(apperr.FieldError{Field: "date", Code: "too_far", Message: "must be within one year"})
 	}
 	return d, nil
+}
+
+// DayEnd renvoie la « fermeture du jour » vue depuis t : la fin de la dernière plage qui commence
+// le jour local de t (y compris après minuit pour une plage de nuit), sinon la fin de la plage de
+// nuit commencée la veille, si elle est encore à venir ; à défaut (jour fermé, ou plus aucune
+// ouverture), minuit à la fin du jour local. Sert à la sourdine des rappels « pour la journée ».
+func (s Schedule) DayEnd(t time.Time) time.Time {
+	local := t.In(s.Loc)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, s.Loc)
+	midnight := day.AddDate(0, 0, 1)
+	if s.Closures[dateKey(day)] {
+		return midnight
+	}
+	weekday := isoWeekday(day)
+	yesterday := day.AddDate(0, 0, -1)
+	var end time.Time
+	for _, r := range s.Ranges {
+		var e time.Time
+		switch {
+		case r.Weekday == weekday:
+			e = day.Add(time.Duration(r.end()) * time.Minute)
+		case r.Weekday == isoWeekday(yesterday) && r.overnight() && !s.Closures[dateKey(yesterday)]:
+			e = day.Add(time.Duration(r.Closes) * time.Minute)
+		default:
+			continue
+		}
+		if e.After(end) {
+			end = e
+		}
+	}
+	if end.After(t) {
+		return end
+	}
+	return midnight
+}
+
+// LocalClock porte les paramètres « ouverte maintenant » des requêtes SQL (search.sql,
+// reminders.sql) : dates, jours ISO et heure locales, calculés en Go dans le fuseau de l'app.
+type LocalClock struct {
+	Date, PrevDate     pgtype.Date
+	ISODow, PrevISODow int16
+	Time               pgtype.Time
+}
+
+// ClockAt calcule les paramètres « ouverte maintenant » de l'instant t.
+func ClockAt(t time.Time, loc *time.Location) LocalClock {
+	now := t.In(loc)
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	minutes := int64(now.Hour()*60 + now.Minute())
+	return LocalClock{
+		Date:       pgtype.Date{Time: day, Valid: true},
+		PrevDate:   pgtype.Date{Time: day.AddDate(0, 0, -1), Valid: true},
+		ISODow:     int16(isoWeekday(now)),                   //nolint:gosec // 1 à 7
+		PrevISODow: int16(isoWeekday(now.AddDate(0, 0, -1))), //nolint:gosec // 1 à 7
+		Time:       pgtype.Time{Microseconds: minutes * int64(time.Minute/time.Microsecond), Valid: true},
+	}
+}
+
+// LocalDate renvoie la date civile locale de t (minuit UTC, format des colonnes date).
+func LocalDate(t time.Time, loc *time.Location) pgtype.Date {
+	return ClockAt(t, loc).Date
+}
+
+// DayStart renvoie minuit, heure locale, du jour de t.
+func DayStart(t time.Time, loc *time.Location) time.Time {
+	local := t.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 }

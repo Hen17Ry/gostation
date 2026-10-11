@@ -79,6 +79,7 @@ type searchResultDTO struct {
 	IsOpen         bool             `json:"isOpen"`
 	NextOpening    *time.Time       `json:"nextOpening"`
 	ServedAt       *time.Time       `json:"servedAt"`
+	Reported       bool             `json:"reported"`
 }
 
 type searchResponse struct {
@@ -128,7 +129,7 @@ func (h *Search) Search(w http.ResponseWriter, r *http.Request) error {
 			Station:   searchStationDTO{ID: it.ID.String(), Name: it.Name, Brand: it.Brand, Location: latLngDTO{Lat: it.Lat, Lng: it.Lng}},
 			DistanceM: it.DistanceM, RouteDistanceM: it.RouteDistanceM, DurationS: it.DurationS, Quantity: it.Quantity,
 			Stale: it.Stale, StockUpdatedAt: it.FreshAt.UTC(), UpdatedAgoS: it.UpdatedAgoS, IsOpen: it.IsOpen,
-			NextOpening: next, ServedAt: it.ServedAt,
+			NextOpening: next, ServedAt: it.ServedAt, Reported: it.Reported,
 		})
 	}
 	hdr := w.Header()
@@ -152,6 +153,7 @@ type publicStockDTO struct {
 	Quantity  *int32    `json:"quantity"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	Freshness string    `json:"freshness"`
+	Reported  bool      `json:"reported"`
 }
 
 type publicHoursDTO struct {
@@ -171,6 +173,7 @@ type publicStationDTO struct {
 	Location *latLngDTO       `json:"location"`
 	Hours    publicHoursDTO   `json:"openingHours"`
 	Stocks   []publicStockDTO `json:"stocks"`
+	Reported bool             `json:"reported"`
 }
 
 // Station renvoie la fiche publique d'une station approuvée (GET /api/v1/stations/{id}).
@@ -189,7 +192,8 @@ func (h *Search) Station(w http.ResponseWriter, r *http.Request) error {
 			Timezone: st.Schedule.Loc.String(), IsOpenNow: st.IsOpenNow, NextOpening: st.NextOpening,
 			Days: toDays(st.Schedule.Ranges), Closures: st.Closures,
 		},
-		Stocks: make([]publicStockDTO, 0, len(st.Stocks)),
+		Stocks:   make([]publicStockDTO, 0, len(st.Stocks)),
+		Reported: st.Reported,
 	}
 	if st.Lat != nil && st.Lng != nil {
 		resp.Location = &latLngDTO{Lat: *st.Lat, Lng: *st.Lng}
@@ -198,6 +202,7 @@ func (h *Search) Station(w http.ResponseWriter, r *http.Request) error {
 		resp.Stocks = append(resp.Stocks, publicStockDTO{
 			ProductID: s.ProductID, Code: s.Code, Label: s.Label, Unit: s.Unit,
 			SizeKg: s.SizeKg, Quantity: s.Quantity, UpdatedAt: s.FreshAt.UTC(), Freshness: s.Freshness,
+			Reported: s.Reported,
 		})
 	}
 	w.Header().Set("Cache-Control", "no-cache")
