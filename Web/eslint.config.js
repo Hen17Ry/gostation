@@ -9,7 +9,17 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'playwright-report', 'test-results', 'src/routeTree.gen.ts', 'src/api/schema.d.ts'] },
+  {
+    ignores: [
+      'dist',
+      'coverage',
+      'playwright-report',
+      'test-results',
+      'playwright/.auth',
+      'src/routeTree.gen.ts',
+      'src/api/schema.d.ts',
+    ],
+  },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
