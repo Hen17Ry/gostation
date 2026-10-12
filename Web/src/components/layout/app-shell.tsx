@@ -18,8 +18,8 @@ const EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)'
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 
-/** Coquille : barre latérale repliable, barre supérieure, contenu. */
-export function AppShell({ me, children }: { me: Profile; children: ReactNode }) {
+/** Coquille : barre latérale repliable, barre supérieure, contenu (`me` absent : profil en cours de vérification). */
+export function AppShell({ me, children }: { me?: Profile; children: ReactNode }) {
   const { collapsed, toggle } = useSidebarCollapsed()
   const [mobileNav, setMobileNav] = useState(false)
   const [command, setCommand] = useState(false)

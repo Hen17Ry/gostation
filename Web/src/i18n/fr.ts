@@ -39,6 +39,7 @@ export const fr = {
     account: 'Compte administrateur',
     signOut: 'Se déconnecter',
     signingOut: 'Déconnexion…',
+    adminRole: 'Administrateur · 2FA active',
   },
   command: {
     title: 'Palette de commandes',

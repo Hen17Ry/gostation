@@ -18,7 +18,7 @@ export function Topbar({
   onOpenMobileNav,
   onOpenCommand,
 }: {
-  me: Profile
+  me?: Profile
   collapsed: boolean
   sidebarId: string
   onToggleSidebar: () => void
