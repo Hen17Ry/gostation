@@ -1,6 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css'
 
-import { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl'
+import { LngLatBounds, Map as MapLibreMap, NavigationControl, setWorkerUrl } from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { useEffect, useRef } from 'react'
 
 import type { Dashboard } from '@/api/schemas'
@@ -8,6 +9,10 @@ import { t } from '@/i18n'
 import { useTheme } from '@/lib/theme'
 
 type Zone = Dashboard['shortages']['top'][number]
+
+// MapLibre 6 cherche son worker à côté de son propre module : introuvable une fois bundlé par
+// Vite. On lui donne l'URL du fichier copié tel quel dans le build (même origine, CSP inchangée).
+setWorkerUrl(workerUrl)
 
 // Tuiles OpenFreeMap uniquement (CLAUDE.md, règle 6).
 const STYLES = {
