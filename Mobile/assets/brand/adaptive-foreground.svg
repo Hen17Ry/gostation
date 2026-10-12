@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Avant-plan de l'icône adaptative Android : dans la zone sûre (≈ 55 % du canevas). -->
+  <g transform="translate(16 16) scale(0.95) translate(-16 -15.8)">
+    <path d="M16 6.5c-4 0-7.2 3.1-7.2 7 0 5.1 6.1 10.9 6.6 11.4a.9.9 0 0 0 1.2 0c.5-.5 6.6-6.3 6.6-11.4 0-3.9-3.2-7-7.2-7Z" fill="#fff"/>
+    <path d="M16.9 9.6l-3.2 4.6h2.4l-.9 3.9 3.3-4.9h-2.5l.9-3.6Z" fill="#d14200"/>
+  </g>
+</svg>
