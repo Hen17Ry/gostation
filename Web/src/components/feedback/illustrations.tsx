@@ -149,3 +149,51 @@ export function NotFoundIllustration({ className = frame }: IllustrationProps) {
     </svg>
   )
 }
+
+/** Liste vide : tableau aux lignes en pointillés et loupe. */
+export function EmptyListIllustration({ className = frame }: IllustrationProps) {
+  return (
+    <svg viewBox="0 0 120 96" className={className} aria-hidden fill="none">
+      <Backdrop />
+      <rect
+        x="26"
+        y="20"
+        width="60"
+        height="54"
+        rx="8"
+        className="fill-surface stroke-border-strong"
+        strokeWidth="1.5"
+      />
+      <path d="M26 32h60" className="stroke-border-strong" strokeWidth="1.5" />
+      {[44, 54, 64].map((y) => (
+        <path key={y} d={`M36 ${y}h40`} className="stroke-border-strong" strokeWidth="1.5" strokeDasharray="3 4" />
+      ))}
+      <circle cx="84" cy="62" r="11" className="fill-surface stroke-primary" strokeWidth="2" />
+      <path d="M92 70l7 7" className="stroke-primary" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Rien à traiter : boîte de réception avec coche. */
+export function AllClearIllustration({ className = frame }: IllustrationProps) {
+  return (
+    <svg viewBox="0 0 120 96" className={className} aria-hidden fill="none">
+      <Backdrop />
+      <path
+        d="M30 52l8-26h44l8 26v16a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V52Z"
+        className="fill-surface stroke-border-strong"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M30 52h18l4 7h16l4-7h18" className="stroke-border-strong" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx="60" cy="38" r="11" className="fill-primary" />
+      <path
+        d="M55 38.2l3.4 3.4 6.6-6.8"
+        className="stroke-primary-foreground"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

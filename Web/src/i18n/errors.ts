@@ -26,6 +26,21 @@ const byCode: Record<string, string> = {
   'service.unavailable': 'Le service est momentanément indisponible. Réessayez dans un instant.',
   'internal.error': 'Erreur inattendue du serveur. L’équipe technique peut la retrouver avec la référence.',
   'network.error': 'Connexion impossible. Vérifiez votre réseau puis réessayez.',
+  // Administration
+  'station.invalid_status_transition': 'Cette décision n’est plus possible : le statut de la station a changé.',
+  'station.manager_email_unverified': 'Le gérant n’a pas encore vérifié son adresse email.',
+  'station.location_outside_country': 'Cette position est hors du Bénin.',
+  'station.not_approved': 'Cette station n’est pas approuvée.',
+  'product.already_exists': 'Ce produit existe déjà dans le catalogue.',
+  'user.admin_protected': 'Les comptes administrateurs se gèrent avec la CLI.',
+  'user.already_verified': 'Cette adresse email est déjà vérifiée.',
+  'user.invalid_status': 'Cette action n’est pas possible dans l’état actuel du compte.',
+  'user.account_deleted': 'Ce compte a été supprimé.',
+  'export.not_ready': 'Cet export n’est pas encore prêt.',
+  'export.expired': 'Cet export a expiré : le fichier a été supprimé.',
+  'export.link_expired': 'Le lien de téléchargement a expiré. Rechargez la liste puis réessayez.',
+  'export.invalid_signature': 'Lien de téléchargement invalide. Rechargez la liste puis réessayez.',
+  'response.invalid': 'Réponse inattendue du serveur. Rechargez la page.',
 }
 
 const byStatus: Record<number, string> = {
@@ -34,6 +49,9 @@ const byStatus: Record<number, string> = {
   403: byCode['auth.forbidden']!,
   404: byCode['resource.not_found']!,
   409: byCode['resource.conflict']!,
+  410: byCode['export.expired']!,
+  412: byCode['resource.version_conflict']!,
+  428: byCode['request.precondition_required']!,
   422: byCode['request.validation_failed']!,
   429: byCode['rate_limit.exceeded']!,
   503: byCode['service.unavailable']!,

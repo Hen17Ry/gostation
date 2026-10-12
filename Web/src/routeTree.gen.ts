@@ -19,8 +19,9 @@ import { Route as AppCatalogRouteImport } from './routes/_app/catalog'
 import { Route as AppExportsRouteImport } from './routes/_app/exports'
 import { Route as AppMapsRouteImport } from './routes/_app/maps'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
-import { Route as AppStationsRouteImport } from './routes/_app/stations'
 import { Route as AppUsersRouteImport } from './routes/_app/users'
+import { Route as AppStationsIndexRouteImport } from './routes/_app/stations/index'
+import { Route as AppStationsStationIdRouteImport } from './routes/_app/stations/$stationId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -71,14 +72,19 @@ const AppReportsRoute = AppReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
-const AppStationsRoute = AppStationsRouteImport.update({
-  id: '/stations',
-  path: '/stations',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppUsersRoute = AppUsersRouteImport.update({
   id: '/users',
   path: '/users',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStationsIndexRoute = AppStationsIndexRouteImport.update({
+  id: '/stations/',
+  path: '/stations/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStationsStationIdRoute = AppStationsStationIdRouteImport.update({
+  id: '/stations/$stationId',
+  path: '/stations/$stationId',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -92,8 +98,9 @@ export interface FileRoutesByFullPath {
   '/exports': typeof AppExportsRoute
   '/maps': typeof AppMapsRoute
   '/reports': typeof AppReportsRoute
-  '/stations': typeof AppStationsRoute
   '/users': typeof AppUsersRoute
+  '/stations/$stationId': typeof AppStationsStationIdRoute
+  '/stations/': typeof AppStationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/design': typeof DesignRoute
@@ -104,9 +111,10 @@ export interface FileRoutesByTo {
   '/exports': typeof AppExportsRoute
   '/maps': typeof AppMapsRoute
   '/reports': typeof AppReportsRoute
-  '/stations': typeof AppStationsRoute
   '/users': typeof AppUsersRoute
   '/': typeof AppIndexRoute
+  '/stations/$stationId': typeof AppStationsStationIdRoute
+  '/stations': typeof AppStationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -119,9 +127,10 @@ export interface FileRoutesById {
   '/_app/exports': typeof AppExportsRoute
   '/_app/maps': typeof AppMapsRoute
   '/_app/reports': typeof AppReportsRoute
-  '/_app/stations': typeof AppStationsRoute
   '/_app/users': typeof AppUsersRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/stations/$stationId': typeof AppStationsStationIdRoute
+  '/_app/stations/': typeof AppStationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -135,8 +144,9 @@ export interface FileRouteTypes {
     | '/exports'
     | '/maps'
     | '/reports'
-    | '/stations'
     | '/users'
+    | '/stations/$stationId'
+    | '/stations/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/design'
@@ -147,9 +157,10 @@ export interface FileRouteTypes {
     | '/exports'
     | '/maps'
     | '/reports'
-    | '/stations'
     | '/users'
     | '/'
+    | '/stations/$stationId'
+    | '/stations'
   id:
     | '__root__'
     | '/_app'
@@ -161,9 +172,10 @@ export interface FileRouteTypes {
     | '/_app/exports'
     | '/_app/maps'
     | '/_app/reports'
-    | '/_app/stations'
     | '/_app/users'
     | '/_app/'
+    | '/_app/stations/$stationId'
+    | '/_app/stations/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -244,18 +256,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/stations': {
-      id: '/_app/stations'
-      path: '/stations'
-      fullPath: '/stations'
-      preLoaderRoute: typeof AppStationsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/users': {
       id: '/_app/users'
       path: '/users'
       fullPath: '/users'
       preLoaderRoute: typeof AppUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/stations/': {
+      id: '/_app/stations/'
+      path: '/stations'
+      fullPath: '/stations/'
+      preLoaderRoute: typeof AppStationsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/stations/$stationId': {
+      id: '/_app/stations/$stationId'
+      path: '/stations/$stationId'
+      fullPath: '/stations/$stationId'
+      preLoaderRoute: typeof AppStationsStationIdRouteImport
       parentRoute: typeof AppRoute
     }
   }
@@ -268,9 +287,10 @@ interface AppRouteChildren {
   AppExportsRoute: typeof AppExportsRoute
   AppMapsRoute: typeof AppMapsRoute
   AppReportsRoute: typeof AppReportsRoute
-  AppStationsRoute: typeof AppStationsRoute
   AppUsersRoute: typeof AppUsersRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppStationsStationIdRoute: typeof AppStationsStationIdRoute
+  AppStationsIndexRoute: typeof AppStationsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -280,9 +300,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppExportsRoute: AppExportsRoute,
   AppMapsRoute: AppMapsRoute,
   AppReportsRoute: AppReportsRoute,
-  AppStationsRoute: AppStationsRoute,
   AppUsersRoute: AppUsersRoute,
   AppIndexRoute: AppIndexRoute,
+  AppStationsStationIdRoute: AppStationsStationIdRoute,
+  AppStationsIndexRoute: AppStationsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

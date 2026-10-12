@@ -381,3 +381,51 @@ html,
 body {
   overflow-x: clip;
 }
+
+/* ── Cartes (MapLibre) ───────────────────────────────────────────────────────── */
+/* Épingle HTML : forme aux tokens, liseré de la surface pour rester lisible sur toutes les tuiles. */
+.gs-pin {
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.3));
+}
+.gs-pin path {
+  fill: var(--primary);
+  stroke: var(--card);
+  stroke-width: 1.5;
+}
+.gs-pin circle {
+  fill: var(--card);
+}
+.gs-pin[data-variant='muted'] path {
+  fill: var(--color-neutral-500);
+}
+.gs-pin[data-variant='info'] path {
+  fill: var(--info);
+}
+/* Contrôles et attribution de MapLibre aux couleurs du thème. */
+.maplibregl-ctrl-group {
+  background: var(--popover);
+  border: 1px solid var(--border);
+  box-shadow: var(--elevation-2);
+}
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+.maplibregl-popup-content {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
+  font-family: var(--font-sans);
+}
+/* Attribution (compacte ou non) : surface et textes du thème, contraste AA dans les deux modes. */
+.maplibregl-ctrl.maplibregl-ctrl-attrib,
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact {
+  background-color: color-mix(in oklab, var(--popover) 92%, transparent);
+  color: var(--muted-foreground);
+}
+.maplibregl-ctrl.maplibregl-ctrl-attrib a {
+  color: var(--foreground);
+}
+.dark .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}

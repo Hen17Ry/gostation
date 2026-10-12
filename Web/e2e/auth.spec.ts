@@ -96,10 +96,10 @@ test('lien profond, tableau de bord, puis session expirée : retour à la connex
 
   // Palette ⌘K : navigation au clavier.
   await page.keyboard.press('Control+k')
-  await page.getByPlaceholder('Rechercher une page ou une action…').fill('Signal')
+  await page.getByRole('combobox').fill('Signal')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/reports$/)
-  await expect(page.getByText('Bientôt disponible')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Signalements' })).toBeVisible()
 
   // Expiration : plus de cookies de session ; la page demandée est conservée.
   await context.clearCookies()

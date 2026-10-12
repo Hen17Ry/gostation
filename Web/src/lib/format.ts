@@ -92,3 +92,63 @@ export function formatCountdown(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
+
+/** « 11 oct. 2026, 14:05 » (fuseau des stats). */
+export const formatDateTime = (iso: string, timeZone?: string) =>
+  dateFormat({ day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }, timeZone).format(
+    new Date(iso),
+  )
+
+/** « 11 oct. 2026 » ; une date seule (AAAA-MM-JJ) est lue à midi UTC pour ne pas changer de jour. */
+export function formatDate(value: string, timeZone?: string): string {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00Z`) : new Date(value)
+  return dateFormat({ day: 'numeric', month: 'short', year: 'numeric' }, timeZone).format(d)
+}
+
+/** « lundi 13 oct. » (jour de fermeture, prochaine ouverture). */
+export function formatDay(value: string, timeZone?: string): string {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00Z`) : new Date(value)
+  return dateFormat({ weekday: 'long', day: 'numeric', month: 'short' }, timeZone).format(d)
+}
+
+/** « 14:05 » (heure locale du fuseau des stats). */
+export const formatTime = (iso: string, timeZone?: string) =>
+  dateFormat({ hour: '2-digit', minute: '2-digit' }, timeZone).format(new Date(iso))
+
+let rtf: Intl.RelativeTimeFormat | undefined
+/** « il y a 5 min », « il y a 3 h », « il y a 2 j » (ou « dans … » pour une date future). */
+export function formatRelative(iso: string, now = Date.now()): string {
+  rtf ??= new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'short' })
+  const s = Math.round((Date.parse(iso) - now) / 1000)
+  const a = Math.abs(s)
+  if (a < 60) return 'à l’instant'
+  if (a < 3600) return rtf.format(Math.trunc(s / 60), 'minute')
+  if (a < 172_800) return rtf.format(Math.trunc(s / 3600), 'hour')
+  if (a < 60 * 86_400) return rtf.format(Math.trunc(s / 86_400), 'day')
+  return rtf.format(Math.trunc(s / (30 * 86_400)), 'month')
+}
+
+/** « 800 m », « 1,2 km », « 25 km ». */
+export function formatDistance(meters: number): string {
+  if (meters < 1000) return `${formatInteger(Math.round(meters))} m`
+  const km = meters / 1000
+  return `${nf(km < 10 ? 'km1' : 'km0', { maximumFractionDigits: km < 10 ? 1 : 0 }).format(km)} km`
+}
+
+/** « 12 Ko », « 3,4 Mo ». */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${nf('kb', { maximumFractionDigits: 0 }).format(kb)} Ko`
+  return `${nf('mb', { maximumFractionDigits: 1 }).format(kb / 1024)} Mo`
+}
+
+/** Distance à vol d'oiseau (haversine), en mètres. */
+export function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6_371_008.8
+  const rad = Math.PI / 180
+  const dLat = (b.lat - a.lat) * rad
+  const dLng = (b.lng - a.lng) * rad
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
