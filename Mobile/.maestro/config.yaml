@@ -1,0 +1,5 @@
+# Parcours E2E Maestro (npm run e2e) : pile API isolée (scripts/e2e.sh), build release.
+flows:
+  - '*.yaml'
+executionOrder:
+  continueOnFailure: false

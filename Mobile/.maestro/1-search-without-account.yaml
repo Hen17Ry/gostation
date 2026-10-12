@@ -1,0 +1,13 @@
+# Recherche sans compte : accueil, choix du produit, résultats, fiche station.
+appId: bj.gostation.app
+name: Recherche sans compte
+---
+- runFlow: common/start.yaml
+- runFlow: common/search.yaml
+- assertVisible: Résultats de la recherche
+- tapOn:
+    id: result-1
+- assertVisible: Stocks
+- assertVisible: Horaires
+- assertVisible:
+    id: station-route

@@ -1,0 +1,10 @@
+# Inscription + code à 6 chiffres (Mailpit), puis compte visible.
+appId: bj.gostation.app
+name: Inscription et code
+---
+- runFlow: common/start.yaml
+- runFlow: common/sign-up.yaml
+- tapOn:
+    id: tab-account
+- assertVisible: Ama Kossou
+- assertNotVisible: Email non vérifié

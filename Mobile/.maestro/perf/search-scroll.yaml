@@ -1,0 +1,37 @@
+# Mesure (Flashlight) : recherche avec l'animation de rayon, puis défilement des résultats.
+appId: bj.gostation.app
+---
+- launchApp:
+    stopApp: true
+    permissions:
+      location: allow
+- setLocation:
+    latitude: 6.3654
+    longitude: 2.4183
+- extendedWaitUntil:
+    visible:
+      id: search-submit
+    timeout: 20000
+- tapOn:
+    id: kind-petrol
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible:
+      id: result-1
+    timeout: 20000
+- swipe:
+    start: 50%, 85%
+    end: 50%, 25%
+    duration: 400
+- repeat:
+    times: 4
+    commands:
+      - swipe:
+          start: 50%, 80%
+          end: 50%, 30%
+          duration: 300
+      - swipe:
+          start: 50%, 30%
+          end: 50%, 80%
+          duration: 300

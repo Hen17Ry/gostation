@@ -1,0 +1,22 @@
+# Lancement à neuf : état effacé, localisation accordée, position à Cotonou, accueil passé.
+appId: bj.gostation.app
+---
+- launchApp:
+    clearState: true
+    permissions:
+      location: allow
+- setLocation:
+    latitude: 6.3654
+    longitude: 2.4183
+    label: Cotonou (émulateur ; ignoré si la position simulée n'est pas disponible)
+    optional: true
+- tapOn:
+    id: onboarding-next
+- tapOn:
+    id: onboarding-allow-location
+- tapOn:
+    id: onboarding-start
+- extendedWaitUntil:
+    visible:
+      id: search-submit
+    timeout: 15000
