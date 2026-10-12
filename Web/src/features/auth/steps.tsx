@@ -1,16 +1,12 @@
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { REGEXP_ONLY_DIGITS } from 'input-otp'
-import { ArrowLeft, Copy, Download, Eye, EyeOff, KeyRound, LifeBuoy, ShieldAlert, Smartphone } from 'lucide-react'
+import { ArrowLeft, Copy, Download, KeyRound, ShieldAlert, Smartphone } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import * as z from 'zod/mini'
 
-import { ApiError, isApiError } from '@/api/errors'
 import type { AdminChallenge, AdminSession } from '@/api/schemas'
 import { Field } from '@/components/form/field'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -20,141 +16,19 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 import { formatCountdown } from '@/lib/format'
 
-import { adminLogin, adminSecondFactor, normalizeRecoveryCode, RECOVERY_CODE_PATTERN, type SecondFactor } from './api'
+import { adminSecondFactor, normalizeRecoveryCode, RECOVERY_CODE_PATTERN, type SecondFactor } from './api'
+import { asApiError } from './notice'
 import { StepHeader } from './step-header'
 import { SetupStepper } from './stepper'
 import { useCountdown } from './use-countdown'
 
 const QrCode = lazy(() => import('./qr-code'))
 
-export interface Notice {
-  variant: 'info' | 'success' | 'destructive'
-  title?: string
-  body: string
-}
-
 /** Place le focus sur l'élément à l'affichage de l'étape. */
 function useFocusOnMount<T extends HTMLElement>() {
   const ref = useRef<T>(null)
   useEffect(() => ref.current?.focus(), [])
   return ref
-}
-
-const asApiError = (e: unknown) => (isApiError(e) ? e : ApiError.network(e))
-
-export function NoticeAlert({ notice }: { notice: Notice }) {
-  return (
-    <Alert variant={notice.variant}>
-      {notice.variant === 'destructive' ? <ShieldAlert aria-hidden /> : <LifeBuoy aria-hidden />}
-      {notice.title && <AlertTitle>{notice.title}</AlertTitle>}
-      <AlertDescription>{notice.body}</AlertDescription>
-    </Alert>
-  )
-}
-
-/** Message d'une erreur de connexion ; le compte désactivé a son propre encadré. */
-function errorNotice(e: ApiError): Notice {
-  if (e.code === 'auth.account_disabled') {
-    return { variant: 'destructive', title: t.auth.disabledTitle, body: t.auth.disabledBody }
-  }
-  return { variant: 'destructive', body: e.userMessage }
-}
-
-// ── 1. Email et mot de passe ────────────────────────────────────────────────
-
-const credentialsSchema = z.object({
-  email: z
-    .string()
-    .check(
-      z.trim(),
-      z.minLength(1, { error: t.validation.emailRequired }),
-      z.regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, { error: t.validation.emailInvalid }),
-    ),
-  password: z.string().check(z.minLength(1, { error: t.validation.passwordRequired })),
-})
-type Credentials = z.infer<typeof credentialsSchema>
-
-export function CredentialsStep({
-  notice,
-  defaultEmail,
-  onChallenge,
-}: {
-  notice?: Notice
-  defaultEmail?: string
-  onChallenge: (challenge: AdminChallenge, email: string) => void
-}) {
-  const [error, setError] = useState<Notice | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
-  const form = useForm<Credentials>({
-    resolver: zodResolver(credentialsSchema),
-    defaultValues: { email: defaultEmail ?? '', password: '' },
-  })
-  const { errors, isSubmitting } = form.formState
-
-  // Chaque étape remplace la précédente sur place : le focus va au premier champ utile.
-  useEffect(() => form.setFocus(defaultEmail ? 'password' : 'email'), [form, defaultEmail])
-
-  async function onSubmit(values: Credentials) {
-    setError(null)
-    try {
-      onChallenge(await adminLogin(values.email, values.password), values.email)
-    } catch (e) {
-      setError(errorNotice(asApiError(e)))
-      form.resetField('password')
-      form.setFocus('password')
-    }
-  }
-
-  const shown = error ?? notice
-  return (
-    <div className="flex flex-col gap-6">
-      <StepHeader title={t.auth.signInTitle} subtitle={t.auth.signInSubtitle} />
-      {shown && <NoticeAlert notice={shown} />}
-      <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
-        <Field label={t.auth.email} error={errors.email?.message}>
-          {(p) => (
-            <Input
-              {...p}
-              {...form.register('email')}
-              type="email"
-              autoComplete="username"
-              inputMode="email"
-              autoCapitalize="none"
-              spellCheck={false}
-              placeholder={t.auth.emailPlaceholder}
-            />
-          )}
-        </Field>
-        <Field label={t.auth.password} error={errors.password?.message}>
-          {(p) => (
-            <div className="relative">
-              <Input
-                {...p}
-                {...form.register('password')}
-                type={showPassword ? 'text' : 'password'}
-                autoComplete="current-password"
-                className="pr-10"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="absolute top-0.5 right-0.5 text-muted-foreground"
-                aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
-                aria-pressed={showPassword}
-                onClick={() => setShowPassword((s) => !s)}
-              >
-                {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-              </Button>
-            </div>
-          )}
-        </Field>
-        <Button type="submit" size="lg" className="mt-2 w-full" loading={isSubmitting}>
-          {isSubmitting ? t.auth.submitting : t.auth.submit}
-        </Button>
-      </form>
-    </div>
-  )
 }
 
 // ── 2. Code TOTP ou code de secours ─────────────────────────────────────────

@@ -27,6 +27,10 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Hôte des toasts, hors de #root : les dialogues Radix masquent le reste de la page aux
+         lecteurs d'écran mais épargnent les régions [aria-live] présentes ; celle-ci l'est dès le
+         chargement, même si les toasts se montent après l'ouverture d'un dialogue. -->
+    <div id="toasts" aria-live="off"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

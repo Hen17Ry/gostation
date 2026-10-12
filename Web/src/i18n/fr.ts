@@ -109,6 +109,7 @@ export const fr = {
     copied: 'Copié dans le presse-papiers',
     downloaded: 'Fichier téléchargé',
     copyFailed: 'Copie impossible : sélectionnez le texte manuellement.',
+    welcome: (firstName: string) => `Bienvenue, ${firstName}`,
   },
   validation: {
     emailRequired: "Saisissez l'adresse email.",

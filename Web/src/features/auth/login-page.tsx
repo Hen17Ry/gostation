@@ -1,17 +1,25 @@
 import { useNavigate } from '@tanstack/react-router'
 import { ShieldCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
+import { lazy, Suspense, useEffect, useState } from 'react'
 
 import type { AdminChallenge, AdminSession } from '@/api/schemas'
 import { Logo } from '@/components/brand/logo'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
-import { TooltipProvider } from '@/components/ui/tooltip'
+import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
 
 import { safeRedirect } from './api'
 import { BrandPanel } from './brand-panel'
-import { CredentialsStep, type Notice, RecoveryCodesStep, RecoveryStep, SetupStep, TotpStep } from './steps'
+import { CredentialsStep } from './credentials-step'
+import type { Notice } from './notice'
+
+// Étapes 2FA (input-otp, QR code, codes de secours) : chunk à part, préchargé dès que l'admin
+// commence à saisir ; il est prêt quand l'API demande le code.
+const loadSteps = () => import('./steps')
+const TotpStep = lazy(() => loadSteps().then((m) => ({ default: m.TotpStep })))
+const RecoveryStep = lazy(() => loadSteps().then((m) => ({ default: m.RecoveryStep })))
+const SetupStep = lazy(() => loadSteps().then((m) => ({ default: m.SetupStep })))
+const RecoveryCodesStep = lazy(() => loadSteps().then((m) => ({ default: m.RecoveryCodesStep })))
 
 type Challenge = { challenge: AdminChallenge; email: string; expiresAt: number }
 type Step =
@@ -42,7 +50,7 @@ export function LoginPage({ redirect, reason }: { redirect?: string; reason?: Lo
   }, [])
 
   function finish(firstName: string) {
-    toast.success(`Bienvenue, ${firstName}`)
+    void import('sonner').then(({ toast }) => toast.success(t.auth.welcome(firstName)))
     void navigate({ href: safeRedirect(redirect), replace: true })
   }
 
@@ -108,7 +116,7 @@ export function LoginPage({ redirect, reason }: { redirect?: string; reason?: Lo
 
   const wide = step.kind === 'setup' || step.kind === 'codes'
   return (
-    <TooltipProvider>
+    <>
       <div className="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
         <BrandPanel />
         <main className="flex min-w-0 flex-col px-5 py-6 sm:px-10">
@@ -121,7 +129,10 @@ export function LoginPage({ redirect, reason }: { redirect?: string; reason?: Lo
               {/* Entrée de chaque étape en CSS (opacité + translation) : pas de bibliothèque
                   d'animation sur l'écran de connexion, premier rendu plus léger. */}
               <div key={step.kind} className={step.kind === 'credentials' ? undefined : 'animate-step-in'}>
-                {content}
+                {/* Première saisie (le champ reçoit le focus dès l'affichage) : préchargement des étapes 2FA. */}
+                <div onInputCapture={step.kind === 'credentials' ? () => void loadSteps() : undefined}>
+                  <Suspense fallback={<StepSkeleton />}>{content}</Suspense>
+                </div>
               </div>
             </div>
           </div>
@@ -131,6 +142,16 @@ export function LoginPage({ redirect, reason }: { redirect?: string; reason?: Lo
           </p>
         </main>
       </div>
-    </TooltipProvider>
+    </>
+  )
+}
+
+function StepSkeleton() {
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-label={t.app.loading}>
+      <Skeleton className="h-7 w-48" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-12 w-full" />
+    </div>
   )
 }

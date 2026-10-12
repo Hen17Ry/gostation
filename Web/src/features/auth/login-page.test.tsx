@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { session } from '@/api/client'
 
@@ -78,6 +78,12 @@ afterEach(() => {
 })
 
 describe('LoginPage', () => {
+  // Les étapes 2FA sont préchargées dès la saisie (import dynamique) : leur transformation par
+  // Vitest se fait ici, hors du délai des tests.
+  beforeAll(async () => {
+    await import('./steps')
+  }, 30_000)
+
   it('compte désactivé : message dédié, mot de passe effacé', async () => {
     stubApi({ '/api/v1/auth/admin/login': () => problem(403, 'auth.account_disabled') })
     renderLogin()

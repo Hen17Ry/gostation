@@ -1,44 +1,38 @@
 import { Moon, Sun } from 'lucide-react'
+import { lazy, Suspense, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { t } from '@/i18n'
-import { type ThemePreference, useTheme } from '@/lib/theme'
+import { useTheme } from '@/lib/theme'
 
 import { themeOptions } from './theme-options'
 
+// Le menu (Radix DropdownMenu et son positionnement) n'est pas nécessaire au premier affichage :
+// il est préchargé au survol ou au focus du bouton, et ouvert au clic.
+const loadMenu = () => import('./theme-menu')
+const ThemeMenu = lazy(loadMenu)
+
 export function ThemeToggle() {
-  const { preference, resolved, setPreference } = useTheme()
+  const { preference, resolved } = useTheme()
+  const [open, setOpen] = useState(false)
   const Current = resolved === 'dark' ? Moon : Sun
+  const trigger = (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-haspopup="menu"
+      aria-label={`${t.topbar.theme} : ${themeOptions.find((o) => o.value === preference)?.label}`}
+      onPointerEnter={() => void loadMenu()}
+      onFocus={() => void loadMenu()}
+      onClick={() => setOpen(true)}
+    >
+      <Current aria-hidden />
+    </Button>
+  )
+  if (!open) return trigger
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`${t.topbar.theme} : ${themeOptions.find((o) => o.value === preference)?.label}`}
-        >
-          <Current aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuLabel className="text-2xs text-muted-foreground">{t.topbar.theme}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={preference} onValueChange={(v) => setPreference(v as ThemePreference)}>
-          {themeOptions.map(({ value, label, icon: Icon }) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              <Icon aria-hidden className="text-muted-foreground" />
-              {label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Suspense fallback={trigger}>
+      <ThemeMenu defaultOpen />
+    </Suspense>
   )
 }

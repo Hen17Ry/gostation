@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Flag, MapPinOff, Search, Store, UserPlus } from 'lucide-react'
-import { type ReactNode, startTransition, useDeferredValue, useEffect, useState } from 'react'
+import { type ReactNode, startTransition, useDeferredValue, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '@/api/errors'
 import { dashboardQuery } from '@/api/queries'
@@ -93,11 +93,32 @@ function useStages(total: number, ready: (next: number) => boolean) {
   return stage
 }
 
+/** Vrai dès que l'élément approche de la fenêtre (une seule fois). */
+function useNearViewport<T extends Element>(margin = '200px') {
+  const ref = useRef<T>(null)
+  // Sans IntersectionObserver (environnement de test), tout est chargé tout de suite.
+  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined')
+  useEffect(() => {
+    const el = ref.current
+    if (!el || near) return
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setNear(true), {
+      rootMargin: margin,
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [near, margin])
+  return [ref, near] as const
+}
+
 function DashboardContent({ data: d }: { data: Dashboard }) {
   const [charts, setCharts] = useState<Charts | null>(null)
   const [chartsError, setChartsError] = useState<unknown>(null)
   const [attempt, setAttempt] = useState(0)
+  // Graphiques (Recharts) chargés quand leur section approche de l'écran : sur un téléphone, ils
+  // sont sous les indicateurs et n'alourdissent pas l'arrivée sur la page.
+  const [chartsRef, chartsNear] = useNearViewport<HTMLDivElement>()
   useEffect(() => {
+    if (!chartsNear) return
     let alive = true
     loadCharts().then(
       (c) => alive && setCharts(c),
@@ -106,9 +127,11 @@ function DashboardContent({ data: d }: { data: Dashboard }) {
     return () => {
       alive = false
     }
-  }, [attempt])
-  // Étapes 2 et 3 (graphiques) : une fois leur module chargé (ou son échec connu).
-  const stage = useStages(4, (next) => next === 4 || charts !== null || chartsError !== null)
+  }, [attempt, chartsNear])
+  // Étapes : indicateurs, puis pénuries et statuts ; chaque graphique, une fois son module chargé,
+  // est monté dans sa propre étape (jamais deux graphiques dans le même commit).
+  const stage = useStages(2, () => true)
+  const chartStage = useStages(3, (next) => next === 2 || charts !== null)
   const retryCharts = () => {
     setChartsError(null)
     setAttempt((a) => a + 1)
@@ -169,22 +192,33 @@ function DashboardContent({ data: d }: { data: Dashboard }) {
       <Reveal i={1}>
         <Shortcuts data={d} />
       </Reveal>
-      <Reveal i={2} className="grid gap-4 @5xl:grid-cols-3">
-        {chartsError ? (
-          <ErrorState error={chartsError} onRetry={retryCharts} className="rounded-xl border bg-card @5xl:col-span-3" />
-        ) : (
-          <>
-            {charts && stage >= 2 ? (
-              <charts.SearchesChart data={d} className="@5xl:col-span-2" />
-            ) : (
-              <Skeleton className="h-[392px] rounded-xl @5xl:col-span-2" />
-            )}
-            {charts && stage >= 3 ? <charts.FreshnessCard data={d} /> : <Skeleton className="h-[392px] rounded-xl" />}
-          </>
-        )}
-      </Reveal>
+      {/* Conteneur observé (une boîte réelle : un élément en display: contents n'intersecte jamais). */}
+      <div ref={chartsRef}>
+        <Reveal i={2} className="grid gap-4 @5xl:grid-cols-3">
+          {chartsError ? (
+            <ErrorState
+              error={chartsError}
+              onRetry={retryCharts}
+              className="rounded-xl border bg-card @5xl:col-span-3"
+            />
+          ) : (
+            <>
+              {charts && chartStage >= 2 ? (
+                <charts.SearchesChart data={d} className="@5xl:col-span-2" />
+              ) : (
+                <Skeleton className="h-[392px] rounded-xl @5xl:col-span-2" />
+              )}
+              {charts && chartStage >= 3 ? (
+                <charts.FreshnessCard data={d} />
+              ) : (
+                <Skeleton className="h-[392px] rounded-xl" />
+              )}
+            </>
+          )}
+        </Reveal>
+      </div>
       <Reveal i={3} className="grid items-start gap-4 @5xl:grid-cols-3">
-        {stage >= 4 ? (
+        {stage >= 2 ? (
           <>
             <ShortagesCard data={d} className="@5xl:col-span-2" />
             <StationsCard data={d} />
