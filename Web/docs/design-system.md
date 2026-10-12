@@ -169,19 +169,38 @@ erreur, introuvable.
 ## 8. Composants
 
 Primitives shadcn/ui (Radix) harmonisées : `button` (variantes, tailles, `loading`), `input`,
-`badge` (marque, succès, alerte, danger, info), `alert` (mêmes statuts), `card`, `table`, `dialog`,
-`sheet`, `dropdown-menu`, `tooltip`, `toggle-group` (variante `segmented`), `checkbox`, `input-otp`,
-`calendar`, `popover`, `command`, `chart`, `sonner`, `skeleton`, `breadcrumb`.
+`textarea`, `badge` (marque, succès, alerte, danger, info), `alert` (mêmes statuts), `card`, `table`,
+`dialog`, `alert-dialog` (confirmation, focus sur « Annuler »), `sheet`, `dropdown-menu`, `tooltip`,
+`toggle-group` (variante `segmented`), `tabs` (même rendu segmenté), `switch`, `checkbox`,
+`input-otp`, `calendar`, `popover`, `command`, `chart`, `sonner`, `skeleton`, `breadcrumb`.
+
+Composants de l'administration (`src/components/{data,dialogs,panel,status,map}`) :
+
+| Composant                                           | Rôle                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DataTable`                                         | TanStack Table v9 ; pagination serveur par curseur (`CursorPager`, `useCursorPages`), colonnes masquables (choix mémorisé par tableau), menu d'actions par ligne, squelettes, états vide et d'erreur, ligne sélectionnée ; clic sur la ligne, ou bouton `data-open-row` au clavier |
+| `FilterBar`                                         | recherche (300 ms, Entrée, Échap), listes de filtres à libellé préfixé, pastilles `aria-pressed`, onglets de statut segmentés à compteur, « Réinitialiser les filtres » ; **tous les filtres vivent dans l'URL**                                                                   |
+| `DetailPanel`                                       | panneau latéral (Radix Dialog) : badges, titre, actions, contenu défilant, pied ; modal (fond assombri, focus piégé) ou non modal sur une carte                                                                                                                                    |
+| `ReasonDialog`, `ConfirmDialog`                     | décision avec motif (obligatoire quand l'API l'exige, compteur, erreur de l'API dans le dialogue, saisie conservée) ; confirmation sans motif                                                                                                                                      |
+| `StationStatusBadge`, `FreshnessBadge`, `FlagBadge` | statuts avec icône + libellé, « mis à jour il y a » en info-bulle et en texte lu                                                                                                                                                                                                   |
+| `LocationMap`, `StationsMap`, `ShortagesHexMap`     | MapLibre à la demande : épingle et avant/après reliés ; regroupement des stations (couleur = statut et fraîcheur) ; polygones H3 en dégradé séquentiel orange → braise, contours seulement de près                                                                                 |
+
+Couleurs des cartes : fraîcheur et statut reprennent `--status-good|warning|critical`, `--info` et
+le neutre 500 (même sémantique que les badges, légende avec compteurs) ; les pénuries suivent la
+rampe de marque 200 → 950 (une teinte, du clair au foncé, règle `dataviz`), avec une liste des
+cellules à côté de la carte comme alternative au clic.
 
 Blocs inspirés du catalogue 21st.dev (code récupéré via le MCP, puis réécrit aux tokens) :
 
-| Bloc                                     | Source 21st.dev                                  | Adaptation                                                                                                                                               |
-| ---------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Barre latérale                           | « Sidebar » (wensity)                            | sections, badges, pastille active qui glisse ; **repli en transform** (l'original anime la largeur), rail d'icônes avec info-bulles, tiroir sous 768 px  |
-| Cartes d'indicateurs, carte de graphique | « Charts & KPI Cards » (uvain)                   | indicateur qui sait si la hausse est favorable, flèche + libellé lu (jamais la couleur seule), résumé et tableau pour lecteurs d'écran, sur shadcn Chart |
-| État vide                                | « Empty » (cnippet)                              | composition média / titre / description / action, illustrations maison                                                                                   |
-| Palette ⌘K                               | « Command Menu » (uvain, inspiration)            | shadcn `command` (cmdk), chargée au premier usage                                                                                                        |
-| Mise en place 2FA                        | « Two-Factor Authentication Card » (inspiration) | QR généré localement, clé manuelle groupée par 4, étapes Scanner / Vérifier / Sauvegarder                                                                |
+| Bloc                                     | Source 21st.dev                                  | Adaptation                                                                                                                                                                                                                                |
+| ---------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Barre latérale                           | « Sidebar » (wensity)                            | sections, badges, pastille active qui glisse ; **repli en transform** (l'original anime la largeur), rail d'icônes avec info-bulles, tiroir sous 768 px                                                                                   |
+| Cartes d'indicateurs, carte de graphique | « Charts & KPI Cards » (uvain)                   | indicateur qui sait si la hausse est favorable, flèche + libellé lu (jamais la couleur seule), résumé et tableau pour lecteurs d'écran, sur shadcn Chart                                                                                  |
+| État vide                                | « Empty » (cnippet)                              | composition média / titre / description / action, illustrations maison                                                                                                                                                                    |
+| Palette ⌘K                               | « Command Menu » (uvain, inspiration)            | shadcn `command` (cmdk), chargée au premier usage                                                                                                                                                                                         |
+| Mise en place 2FA                        | « Two-Factor Authentication Card » (inspiration) | QR généré localement, clé manuelle groupée par 4, étapes Scanner / Vérifier / Sauvegarder                                                                                                                                                 |
+| Tableau de données                       | « Complex Data Table » (felipemenezes098)        | TanStack Table v9 au lieu de v8 ; pagination serveur par curseur au lieu de la pagination client ; menus d'actions par ligne et bouton « Colonnes » repris ; tri et sélection multiple écartés (l'API ne trie pas, aucune action groupée) |
+| Panneau latéral                          | « Drawer » du catalogue (inspiration seulement)  | quota de récupération du jour épuisé : réécrit sur Radix Dialog, en-tête à badges, pied d'actions collant, variante non modale pour les cartes                                                                                            |
 
 ## 9. Accessibilité (WCAG 2.2 AA)
 
@@ -191,13 +210,28 @@ Blocs inspirés du catalogue 21st.dev (code récupéré via le MCP, puis réécr
 - Nom accessible qui contient le texte visible (période « 7 j · 7 derniers jours », avatar).
 - Statuts jamais portés par la couleur seule ; graphiques doublés d'un tableau.
 - Contrastes vérifiés par test ; Lighthouse accessibilité 100 (connexion et tableau de bord).
+- Balayage axe-core (WCAG 2.2 A et AA) de chaque écran et des dialogues, en clair et en sombre
+  (`e2e/a11y.spec.ts`) ; zones défilantes focusables (visionneuse), focus initial des panneaux sur
+  leur contenu.
+- Glisser-déposer du catalogue utilisable au clavier (Espace, flèches, Échap) avec annonces en
+  français, et boutons « Monter » / « Descendre » en alternative.
+- Aucune couleur seule : statuts, fraîcheur, pénuries (contour épais + badge « Zone en pénurie »).
 
 ## 10. Performance
 
-- JS initial **137 Ko gzip** (budget 200 Ko, `npm run check:bundle`) : routes découpées, MapLibre,
-  calendrier, palette ⌘K, QR code, graphiques, toasts et schéma du tableau de bord chargés à la
-  demande ; `zod/mini` ; formateurs `Intl` créés au premier usage.
+- JS initial **144 Ko gzip** (budget 200 Ko, `npm run check:bundle`) : routes découpées, MapLibre,
+  pdf.js, dnd-kit, calendrier, palette ⌘K, QR code, graphiques, toasts et schéma du tableau de bord
+  chargés à la demande ; `zod/mini` ; formateurs `Intl` créés au premier usage.
+- Premier affichage : la route d'arrivée est résolue avant le premier rendu (pas de Suspense en
+  attente, donc pas de délai de regroupement de React) ; `index.html` précharge la police et les
+  chunks de la page demandée (plugin `build/route-preload.ts`). La connexion ne charge que l'étape
+  « identifiants » (24 Ko gzip) : étapes 2FA à la première saisie, menu du thème au survol, toasts
+  quand le navigateur est libre. Graphiques du tableau de bord chargés à l'approche de l'écran.
 - Tableau de bord : rendu différé (`useDeferredValue`), sections montées une par une, graphiques
   rendus une seule fois à leur taille mesurée.
-- Lighthouse desktop (build de production) : connexion 97–98, tableau de bord 97, accessibilité et
-  bonnes pratiques 100.
+- Lighthouse (build de production, médiane de 3 passes, 12 octobre 2026) : desktop connexion 99,
+  tableau de bord 97 ; mobile connexion 84, tableau de bord 60, mesurés sur une machine chargée
+  (charge 4 à 7 sur 8 cœurs, indice CPU de Lighthouse ≈ 1 150). Accessibilité et bonnes pratiques
+  100 partout. Sur mobile, le tableau de bord attend la garde de session (`/me`) puis rend ses
+  sections sous CPU ×4 simulé (TBT ≈ 650 ms) : rendu optimiste de la coquille et allègement des
+  indicateurs sont les prochaines pistes.
