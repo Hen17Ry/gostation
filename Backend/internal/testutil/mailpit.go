@@ -28,15 +28,22 @@ type Mailpit struct {
 	http     *http.Client
 }
 
-// StartMailpit démarre Mailpit et renvoie le client de son API et la fonction d'arrêt.
-func StartMailpit(ctx context.Context) (*Mailpit, func(), error) {
-	ctr, err := testcontainers.Run(ctx, image("MAILPIT_IMAGE", DefaultMailpitImage),
+// StartMailpit démarre Mailpit et renvoie le client de son API et la fonction d'arrêt. Les options
+// supplémentaires personnalisent le conteneur (tests du helper lui-même).
+//
+// La résolution DNS inverse du client SMTP est désactivée : Mailpit la fait avant d'envoyer sa
+// bannière, via les résolveurs externes du conteneur. Un DNS lent ou injoignable retardait alors la
+// bannière au-delà du délai du client SMTP (10 s), et les emails des tests échouaient au hasard.
+func StartMailpit(ctx context.Context, opts ...testcontainers.ContainerCustomizer) (*Mailpit, func(), error) {
+	opts = append([]testcontainers.ContainerCustomizer{
 		testcontainers.WithExposedPorts("1025/tcp", "8025/tcp"),
+		testcontainers.WithEnv(map[string]string{"MP_SMTP_DISABLE_RDNS": "true"}),
 		testcontainers.WithWaitStrategy(
 			wait.ForListeningPort("1025/tcp"),
 			wait.ForHTTP("/readyz").WithPort("8025/tcp"),
 		),
-	)
+	}, opts...)
+	ctr, err := testcontainers.Run(ctx, image("MAILPIT_IMAGE", DefaultMailpitImage), opts...)
 	stop := func() { _ = testcontainers.TerminateContainer(ctr) }
 	if err != nil {
 		stop()

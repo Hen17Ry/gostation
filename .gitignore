@@ -52,6 +52,8 @@ Web/dist/
 coverage/
 playwright-report/
 test-results/
+# Session admin des E2E (cookies) : jamais commitée
+Web/playwright/.auth/
 .eslintcache
 
 # ── Logs ─────────────────────────────────────────────────────────────────────

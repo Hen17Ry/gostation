@@ -55,6 +55,7 @@ func (s *Service) audit(ctx context.Context, a Actor, action, entityType, entity
 // AdminFilter filtre la liste admin des signalements.
 type AdminFilter struct {
 	Status    string // open | resolved | dismissed ; vide = tous
+	Reason    string // out_of_stock | station_closed | wrong_location | other ; vide = tous
 	StationID *uuid.UUID
 	Cursor    string
 	Limit     int
@@ -84,6 +85,16 @@ func (s *Service) AdminList(ctx context.Context, f AdminFilter) (AdminPage, erro
 			return AdminPage{}, apperr.Validation(apperr.FieldError{Field: "status", Code: "invalid", Message: "must be open, resolved or dismissed"})
 		}
 		p.Status = &st
+	}
+	if f.Reason != "" {
+		rs := dbgen.ReportReason(f.Reason)
+		if !rs.Valid() {
+			return AdminPage{}, apperr.Validation(apperr.FieldError{
+				Field: "reason", Code: "invalid",
+				Message: "must be out_of_stock, station_closed, wrong_location or other",
+			})
+		}
+		p.Reason = &rs
 	}
 	rows, err := s.Store.ListReportsForAdmin(ctx, p)
 	if err != nil {

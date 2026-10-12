@@ -1,0 +1,431 @@
+/*
+ * GoStation Admin — design tokens (source unique, documentée dans docs/design-system.md).
+ *
+ * Trois niveaux :
+ *   1. primitives (@theme) : palette orange 50→950 et neutres chauds, utilisables en utilitaires
+ *      (bg-brand-500, text-neutral-600) — réservées aux illustrations et à la page /design ;
+ *   2. sémantique (:root / .dark) : rôles (primary, surface, muted, success…) en clair et en sombre ;
+ *   3. exposition Tailwind (@theme inline) : bg-primary, text-muted-foreground, border-border…
+ * Les composants n'utilisent que le niveau 3. La palette par défaut de Tailwind est désactivée
+ * (--color-*: initial) : aucune couleur brute ne peut se glisser dans un composant.
+ * Les contrastes AA sont vérifiés par src/styles/tokens.test.ts.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── 1. Primitives ──────────────────────────────────────────────────────────── */
+/* « static » : toute la palette est émise en variables CSS, même les nuances qu'aucun utilitaire
+   n'emploie encore (page /design, styles en ligne, futures pages). */
+@theme static {
+  --color-*: initial;
+  --color-white: oklch(1 0 0);
+  --color-black: oklch(0 0 0);
+
+  /* Orange GoStation : flamme vers braise. 600 porte du texte blanc (4,66:1). */
+  --color-brand-50: oklch(0.982 0.016 74);
+  --color-brand-100: oklch(0.955 0.038 75);
+  --color-brand-200: oklch(0.905 0.077 70);
+  --color-brand-300: oklch(0.84 0.128 64);
+  --color-brand-400: oklch(0.765 0.17 54);
+  --color-brand-500: oklch(0.7 0.195 46);
+  --color-brand-600: oklch(0.58 0.19 39);
+  --color-brand-700: oklch(0.51 0.168 37);
+  --color-brand-800: oklch(0.445 0.14 36);
+  --color-brand-900: oklch(0.39 0.112 37);
+  --color-brand-950: oklch(0.26 0.075 36);
+
+  /* Neutres légèrement chauds (teinte 55–75, chroma ≤ 0,009) : s'accordent à l'orange. */
+  --color-neutral-50: oklch(0.985 0.002 75);
+  --color-neutral-100: oklch(0.967 0.003 75);
+  --color-neutral-200: oklch(0.923 0.004 70);
+  --color-neutral-300: oklch(0.869 0.006 65);
+  --color-neutral-400: oklch(0.708 0.008 60);
+  --color-neutral-500: oklch(0.556 0.009 58);
+  --color-neutral-600: oklch(0.47 0.009 56);
+  --color-neutral-700: oklch(0.371 0.008 55);
+  --color-neutral-800: oklch(0.269 0.006 55);
+  --color-neutral-900: oklch(0.205 0.005 55);
+  --color-neutral-950: oklch(0.145 0.004 55);
+
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Échelle typographique dense : 12 · 13 · 14 (UI) · 16 · 18 · 20 · 24 · 30. */
+  --text-2xs: 0.75rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+
+  /* Mouvement : courbes « out » pour les entrées, plus courtes à la sortie. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  --animate-shimmer: shimmer 1.6s var(--ease-in-out) infinite;
+  --animate-caret-blink: caret-blink 1.2s ease-out infinite;
+  --animate-step-in: step-in 240ms var(--ease-out) both;
+  @keyframes step-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes caret-blink {
+    0%,
+    70%,
+    100% {
+      opacity: 1;
+    }
+    20%,
+    50% {
+      opacity: 0;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+}
+
+/* ── 2. Sémantique — clair ──────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  --background: var(--color-neutral-50);
+  --foreground: var(--color-neutral-950);
+  --surface: var(--color-white);
+  --surface-sunken: var(--color-neutral-100);
+  --card: var(--color-white);
+  --card-foreground: var(--color-neutral-950);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-neutral-950);
+
+  --primary: var(--color-brand-600);
+  --primary-foreground: var(--color-white);
+  --primary-hover: var(--color-brand-700);
+  --primary-subtle: var(--color-brand-50);
+  --primary-subtle-foreground: var(--color-brand-800);
+  /* Orange porté par du texte (liens, valeurs mises en avant) : 700 sur fond clair. */
+  --brand-text: var(--color-brand-700);
+
+  --secondary: var(--color-neutral-100);
+  --secondary-foreground: var(--color-neutral-900);
+  --muted: var(--color-neutral-100);
+  --muted-foreground: var(--color-neutral-600);
+  --accent: var(--color-neutral-100);
+  --accent-foreground: var(--color-neutral-900);
+
+  --border: var(--color-neutral-200);
+  --border-strong: var(--color-neutral-300);
+  /* Bordure des champs : ≥ 3:1 sur la surface (WCAG 1.4.11, composant identifié par son contour). */
+  --input: oklch(0.64 0.008 60);
+  --ring: var(--color-brand-600);
+
+  --destructive: oklch(0.577 0.245 27.3);
+  --destructive-foreground: var(--color-white);
+  --success: oklch(0.527 0.154 150);
+  --success-foreground: var(--color-white);
+  --warning: oklch(0.769 0.188 70);
+  --warning-foreground: oklch(0.279 0.077 45.6);
+  --info: oklch(0.546 0.245 262.9);
+  --info-foreground: var(--color-white);
+
+  /* Fonds teintés + texte lisible (badges, alertes). */
+  --success-subtle: oklch(0.982 0.018 155.8);
+  --success-subtle-foreground: oklch(0.448 0.119 151.3);
+  --warning-subtle: oklch(0.987 0.022 95.3);
+  --warning-subtle-foreground: oklch(0.473 0.137 46.2);
+  --danger-subtle: oklch(0.971 0.013 17.4);
+  --danger-subtle-foreground: oklch(0.444 0.177 26.9);
+  --info-subtle: oklch(0.97 0.014 254.6);
+  --info-subtle-foreground: oklch(0.424 0.199 265.6);
+
+  /* Séries de graphiques (palette catégorielle validée, ordre fixe : produits par sort_order). */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #6250d6;
+  --chart-8: #e34948;
+  /* Statuts de fraîcheur (réservés, toujours avec icône + libellé). */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --chart-grid: var(--color-neutral-200);
+
+  --sidebar: var(--color-white);
+  --sidebar-foreground: var(--color-neutral-700);
+  --sidebar-active: var(--color-neutral-100);
+  --sidebar-border: var(--color-neutral-200);
+
+  /* Élévations : 0 à plat, 1 cartes, 2 menus et popovers, 3 dialogues. */
+  --shadow-color: 30 20% 20%;
+  --elevation-1: 0 1px 2px hsl(var(--shadow-color) / 0.05), 0 1px 3px hsl(var(--shadow-color) / 0.04);
+  --elevation-2: 0 2px 4px hsl(var(--shadow-color) / 0.05), 0 8px 24px -6px hsl(var(--shadow-color) / 0.12);
+  --elevation-3: 0 4px 8px hsl(var(--shadow-color) / 0.06), 0 24px 48px -12px hsl(var(--shadow-color) / 0.22);
+
+  --radius: 0.625rem;
+}
+
+/* ── 2. Sémantique — sombre (pas une inversion : chaque rôle est choisi pour le fond sombre) ── */
+.dark {
+  color-scheme: dark;
+
+  --background: var(--color-neutral-950);
+  --foreground: var(--color-neutral-50);
+  --surface: oklch(0.185 0.005 55);
+  --surface-sunken: oklch(0.125 0.004 55);
+  --card: oklch(0.185 0.005 55);
+  --card-foreground: var(--color-neutral-50);
+  --popover: oklch(0.215 0.006 55);
+  --popover-foreground: var(--color-neutral-50);
+
+  --primary: var(--color-brand-500);
+  --primary-foreground: var(--color-brand-950);
+  --primary-hover: var(--color-brand-400);
+  --primary-subtle: oklch(0.26 0.06 40);
+  --primary-subtle-foreground: var(--color-brand-200);
+  --brand-text: var(--color-brand-400);
+
+  --secondary: oklch(0.255 0.006 55);
+  --secondary-foreground: var(--color-neutral-100);
+  --muted: oklch(0.235 0.006 55);
+  --muted-foreground: var(--color-neutral-400);
+  --accent: oklch(0.255 0.006 55);
+  --accent-foreground: var(--color-neutral-50);
+
+  --border: oklch(0.285 0.006 55);
+  --border-strong: oklch(0.35 0.007 55);
+  --input: oklch(0.5 0.008 55);
+  --ring: var(--color-brand-400);
+
+  /* Rouge clair lisible en texte sur fond sombre ; texte foncé sur le bouton (comme primary). */
+  --destructive: oklch(0.704 0.191 22.2);
+  --destructive-foreground: oklch(0.258 0.092 26);
+  --success: oklch(0.723 0.219 149.6);
+  --success-foreground: oklch(0.266 0.065 152.9);
+  --warning: oklch(0.828 0.189 84.4);
+  --warning-foreground: oklch(0.279 0.077 45.6);
+  --info: oklch(0.707 0.165 254.6);
+  --info-foreground: oklch(0.282 0.091 267.9);
+
+  --success-subtle: oklch(0.266 0.065 152.9 / 0.55);
+  --success-subtle-foreground: oklch(0.871 0.15 154.4);
+  --warning-subtle: oklch(0.279 0.077 45.6 / 0.55);
+  --warning-subtle-foreground: oklch(0.879 0.169 91.6);
+  --danger-subtle: oklch(0.258 0.092 26 / 0.55);
+  --danger-subtle-foreground: oklch(0.808 0.114 19.6);
+  --info-subtle: oklch(0.282 0.091 267.9 / 0.55);
+  --info-subtle-foreground: oklch(0.809 0.105 251.8);
+
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --chart-grid: oklch(0.285 0.006 55);
+
+  --sidebar: oklch(0.165 0.005 55);
+  --sidebar-foreground: var(--color-neutral-300);
+  --sidebar-active: oklch(0.255 0.006 55);
+  --sidebar-border: oklch(0.255 0.006 55);
+
+  --shadow-color: 30 30% 2%;
+  --elevation-1: 0 1px 2px hsl(var(--shadow-color) / 0.4), inset 0 1px 0 oklch(1 0 0 / 0.03);
+  --elevation-2: 0 2px 4px hsl(var(--shadow-color) / 0.4), 0 12px 32px -8px hsl(var(--shadow-color) / 0.6);
+  --elevation-3: 0 4px 8px hsl(var(--shadow-color) / 0.45), 0 32px 64px -16px hsl(var(--shadow-color) / 0.75);
+}
+
+/* ── 3. Exposition Tailwind ─────────────────────────────────────────────────── */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-brand-text: var(--brand-text);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-subtle-foreground: var(--success-subtle-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-subtle-foreground: var(--warning-subtle-foreground);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-subtle-foreground: var(--danger-subtle-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-subtle-foreground: var(--info-subtle-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-critical: var(--status-critical);
+  --color-chart-grid: var(--chart-grid);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --shadow-elevation-1: var(--elevation-1);
+  --shadow-elevation-2: var(--elevation-2);
+  --shadow-elevation-3: var(--elevation-3);
+  --shadow-xs: var(--elevation-1);
+  --shadow-sm: var(--elevation-1);
+  --shadow-md: var(--elevation-2);
+  --shadow-lg: var(--elevation-3);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    @apply border-border;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background font-sans text-sm text-foreground antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+  ::selection {
+    @apply bg-primary/20;
+  }
+  /* Chiffres tabulaires partout où l'on compare des valeurs. */
+  .tabular,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* prefers-reduced-motion : on garde les fondus courts, on coupe les déplacements. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Bascule de thème : aucune transition de couleur pendant le changement (src/lib/theme.ts). */
+.theme-switching,
+.theme-switching * {
+  transition: none !important;
+}
+
+/* Le contenu glisse sous la barre latérale pendant son repli : jamais de défilement horizontal. */
+html,
+body {
+  overflow-x: clip;
+}
+
+/* ── Cartes (MapLibre) ───────────────────────────────────────────────────────── */
+/* Épingle HTML : forme aux tokens, liseré de la surface pour rester lisible sur toutes les tuiles. */
+.gs-pin {
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.3));
+}
+.gs-pin path {
+  fill: var(--primary);
+  stroke: var(--card);
+  stroke-width: 1.5;
+}
+.gs-pin circle {
+  fill: var(--card);
+}
+.gs-pin[data-variant='muted'] path {
+  fill: var(--color-neutral-500);
+}
+.gs-pin[data-variant='info'] path {
+  fill: var(--info);
+}
+/* Contrôles et attribution de MapLibre aux couleurs du thème. */
+.maplibregl-ctrl-group {
+  background: var(--popover);
+  border: 1px solid var(--border);
+  box-shadow: var(--elevation-2);
+}
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+.maplibregl-popup-content {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-2);
+  font-family: var(--font-sans);
+}
+/* Attribution (compacte ou non) : surface et textes du thème, contraste AA dans les deux modes. */
+.maplibregl-ctrl.maplibregl-ctrl-attrib,
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact {
+  background-color: color-mix(in oklab, var(--popover) 92%, transparent);
+  color: var(--muted-foreground);
+}
+.maplibregl-ctrl.maplibregl-ctrl-attrib a {
+  color: var(--foreground);
+}
+.dark .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}

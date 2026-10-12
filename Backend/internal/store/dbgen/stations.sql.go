@@ -511,6 +511,7 @@ SELECT s.id, s.name, s.brand, s.ifu, s.city, s.status, s.version, s.created_at, 
        EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move,
        EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id)::boolean AS has_opening_hours,
        EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id)::boolean AS reported,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id AND f.excluded_at IS NOT NULL)::boolean AS excluded,
        EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive'
                AND a.resolved_at IS NULL)::boolean AS manager_inactive
 FROM stations s
@@ -532,10 +533,12 @@ WHERE ($1::station_status IS NULL OR s.status = $1::station_status)
        OR EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive' AND a.resolved_at IS NULL))
   AND (NOT $8::boolean OR NOT EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id))
   AND (NOT $9::boolean OR EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id))
-  AND ($10::timestamptz IS NULL
-       OR (s.created_at, s.id) < ($10::timestamptz, $11::uuid))
+  AND (NOT $10::boolean
+       OR EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id AND f.excluded_at IS NOT NULL))
+  AND ($11::timestamptz IS NULL
+       OR (s.created_at, s.id) < ($11::timestamptz, $12::uuid))
 ORDER BY s.created_at DESC, s.id DESC
-LIMIT $12
+LIMIT $13
 `
 
 type ListStationsForAdminParams struct {
@@ -548,6 +551,7 @@ type ListStationsForAdminParams struct {
 	ManagerInactive bool           `json:"managerInactive"`
 	NoHours         bool           `json:"noHours"`
 	Reported        bool           `json:"reported"`
+	Excluded        bool           `json:"excluded"`
 	CursorCreatedAt *time.Time     `json:"cursorCreatedAt"`
 	CursorID        *uuid.UUID     `json:"cursorId"`
 	PageSize        int32          `json:"pageSize"`
@@ -571,13 +575,15 @@ type ListStationsForAdminRow struct {
 	HasPendingMove       bool          `json:"hasPendingMove"`
 	HasOpeningHours      bool          `json:"hasOpeningHours"`
 	Reported             bool          `json:"reported"`
+	Excluded             bool          `json:"excluded"`
 	ManagerInactive      bool          `json:"managerInactive"`
 }
 
 // Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
 // Filtres (étape 7) : statut (NULL = tous), fraîcheur de la dernière saisie ou confirmation
 // (stale : 8 à 24 h, expired : plus de 24 h ou jamais), gérant inactif (alerte ouverte), sans
-// horaires, signalée (effet de signalement en cours). Curseur (created_at, id) décroissants.
+// horaires, signalée (effet de signalement en cours), exclue (seuil de 5 atteint, produit ou station).
+// Curseur (created_at, id) décroissants.
 func (q *Queries) ListStationsForAdmin(ctx context.Context, arg ListStationsForAdminParams) ([]ListStationsForAdminRow, error) {
 	rows, err := q.db.Query(ctx, listStationsForAdmin,
 		arg.Status,
@@ -589,6 +595,7 @@ func (q *Queries) ListStationsForAdmin(ctx context.Context, arg ListStationsForA
 		arg.ManagerInactive,
 		arg.NoHours,
 		arg.Reported,
+		arg.Excluded,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.PageSize,
@@ -618,6 +625,7 @@ func (q *Queries) ListStationsForAdmin(ctx context.Context, arg ListStationsForA
 			&i.HasPendingMove,
 			&i.HasOpeningHours,
 			&i.Reported,
+			&i.Excluded,
 			&i.ManagerInactive,
 		); err != nil {
 			return nil, err

@@ -12,6 +12,38 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adminCounters = `-- name: AdminCounters :one
+SELECT
+  (SELECT count(*) FROM stations s JOIN users u ON u.id = s.manager_id
+   WHERE s.status = 'pending' AND u.email_verified_at IS NOT NULL)::int AS pending_stations,
+  (SELECT count(*) FROM reports WHERE status = 'open')::int AS open_reports,
+  (SELECT count(*) FROM admin_alerts WHERE resolved_at IS NULL)::int AS open_alerts,
+  (SELECT count(*) FROM stations s
+   WHERE s.location_flagged_at IS NOT NULL
+      OR EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending'))::int AS location_reviews
+`
+
+type AdminCountersRow struct {
+	PendingStations int32 `json:"pendingStations"`
+	OpenReports     int32 `json:"openReports"`
+	OpenAlerts      int32 `json:"openAlerts"`
+	LocationReviews int32 `json:"locationReviews"`
+}
+
+// Compteurs des badges de la barre latérale admin (rafraîchis toutes les 60 s) : dossiers en attente
+// (email du gérant vérifié, D5), signalements et alertes ouverts, épingles à vérifier.
+func (q *Queries) AdminCounters(ctx context.Context) (AdminCountersRow, error) {
+	row := q.db.QueryRow(ctx, adminCounters)
+	var i AdminCountersRow
+	err := row.Scan(
+		&i.PendingStations,
+		&i.OpenReports,
+		&i.OpenAlerts,
+		&i.LocationReviews,
+	)
+	return i, err
+}
+
 const cellProductStatsDaily = `-- name: CellProductStatsDaily :many
 SELECT d.h3_r7, p.code AS product_code, sum(d.searches)::bigint AS searches, sum(d.empty_within_5km)::bigint AS empty
 FROM search_stats_daily d

@@ -443,6 +443,32 @@ func (h *Auth) Refresh(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// CSRF renvoie le jeton CSRF de la session web (GET /auth/csrf). Après un rechargement de page,
+// le client admin le récupère sans dépendre d'un cookie lisible (api.<domaine> et admin.<domaine>
+// sont deux hôtes, D43) ni d'un stockage local. Session identifiée par le cookie d'accès, sinon par
+// le cookie de refresh (sans rotation : l'appel peut précéder un refresh). Une lecture n'a pas
+// besoin de jeton : la politique CORS empêche un autre site de lire la réponse.
+func (h *Auth) CSRF(w http.ResponseWriter, r *http.Request) error {
+	var sid string
+	if p, ok := httpctx.PrincipalFrom(r.Context()); ok && p.ViaCookie {
+		sid = p.SessionID
+	} else if c, err := r.Cookie(h.cookies.Refresh()); err == nil && c.Value != "" {
+		if sess, err := h.svc.SessionForRefreshToken(r.Context(), c.Value); err == nil && sess.Client == auth.ClientWeb {
+			sid = sess.ID
+		}
+	}
+	if sid == "" {
+		return apperr.New(http.StatusUnauthorized, apperr.CodeUnauthorized, "No web session.")
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	h.rs.JSON(w, r, http.StatusOK, csrfResponse{CSRFToken: auth.CSRFToken(h.csrfKey, sid)})
+	return nil
+}
+
+type csrfResponse struct {
+	CSRFToken string `json:"csrfToken"`
+}
+
 // checkCookieCSRF vérifie le jeton CSRF d'une requête qui s'appuie sur le cookie de refresh.
 func (h *Auth) checkCookieCSRF(r *http.Request, refreshToken string) error {
 	sess, err := h.svc.SessionForRefreshToken(r.Context(), refreshToken)

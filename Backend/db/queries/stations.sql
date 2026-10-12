@@ -134,13 +134,15 @@ WHERE s.id = @id;
 -- Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
 -- Filtres (étape 7) : statut (NULL = tous), fraîcheur de la dernière saisie ou confirmation
 -- (stale : 8 à 24 h, expired : plus de 24 h ou jamais), gérant inactif (alerte ouverte), sans
--- horaires, signalée (effet de signalement en cours). Curseur (created_at, id) décroissants.
+-- horaires, signalée (effet de signalement en cours), exclue (seuil de 5 atteint, produit ou station).
+-- Curseur (created_at, id) décroissants.
 SELECT s.id, s.name, s.brand, s.ifu, s.city, s.status, s.version, s.created_at, s.updated_at,
        s.location_flagged_at, s.lat, s.lng, s.last_stock_update_at,
        (u.email_verified_at IS NOT NULL)::boolean AS manager_email_verified,
        EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending')::boolean AS has_pending_move,
        EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id)::boolean AS has_opening_hours,
        EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id)::boolean AS reported,
+       EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id AND f.excluded_at IS NOT NULL)::boolean AS excluded,
        EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive'
                AND a.resolved_at IS NULL)::boolean AS manager_inactive
 FROM stations s
@@ -162,6 +164,8 @@ WHERE (sqlc.narg(status)::station_status IS NULL OR s.status = sqlc.narg(status)
        OR EXISTS (SELECT 1 FROM admin_alerts a WHERE a.station_id = s.id AND a.kind = 'manager_inactive' AND a.resolved_at IS NULL))
   AND (NOT @no_hours::boolean OR NOT EXISTS (SELECT 1 FROM station_opening_hours h WHERE h.station_id = s.id))
   AND (NOT @reported::boolean OR EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id))
+  AND (NOT @excluded::boolean
+       OR EXISTS (SELECT 1 FROM station_report_flags f WHERE f.station_id = s.id AND f.excluded_at IS NOT NULL))
   AND (sqlc.narg(cursor_created_at)::timestamptz IS NULL
        OR (s.created_at, s.id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid))
 ORDER BY s.created_at DESC, s.id DESC

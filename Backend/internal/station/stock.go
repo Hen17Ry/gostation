@@ -165,11 +165,20 @@ func (s *Service) Stocks(ctx context.Context, managerID uuid.UUID) (StocksView, 
 	if err != nil {
 		return StocksView{}, err
 	}
-	rows, err := s.Store.ListStationProducts(ctx, st.ID)
+	items, err := s.stockItems(ctx, st.ID)
 	if err != nil {
-		return StocksView{}, fmt.Errorf("station: list stocks: %w", err)
+		return StocksView{}, err
 	}
-	v := StocksView{Version: st.Version, LastActivityAt: st.LastStockUpdateAt}
+	return StocksView{Version: st.Version, LastActivityAt: st.LastStockUpdateAt, Items: items}, nil
+}
+
+// stockItems liste les stocks des produits vendus par une station, avec leur fraîcheur.
+func (s *Service) stockItems(ctx context.Context, stationID uuid.UUID) ([]StockItem, error) {
+	rows, err := s.Store.ListStationProducts(ctx, stationID)
+	if err != nil {
+		return nil, fmt.Errorf("station: list stocks: %w", err)
+	}
+	var items []StockItem
 	for _, r := range rows {
 		if !r.Sold || r.Quantity == nil || r.UpdatedAt == nil || r.LastConfirmedAt == nil {
 			continue
@@ -178,13 +187,13 @@ func (s *Service) Stocks(ctx context.Context, managerID uuid.UUID) (StocksView, 
 		if r.LastConfirmedAt.After(fresh) {
 			fresh = *r.LastConfirmedAt
 		}
-		v.Items = append(v.Items, StockItem{
+		items = append(items, StockItem{
 			ProductID: r.ID, Code: r.Code, Unit: string(r.Unit), Label: r.LabelFr, SizeKg: r.SizeKg,
 			Quantity: *r.Quantity, MaxQuantity: s.maxFor(r.Unit), UpdatedAt: *r.UpdatedAt,
 			LastConfirmedAt: *r.LastConfirmedAt, FreshAt: fresh, Freshness: s.Freshness(fresh),
 		})
 	}
-	return v, nil
+	return items, nil
 }
 
 // StockInput est la quantité saisie pour un produit vendu.

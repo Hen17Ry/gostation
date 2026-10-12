@@ -619,14 +619,16 @@ JOIN stations s ON s.id = r.station_id
 LEFT JOIN products p ON p.id = r.product_id
 LEFT JOIN users u ON u.id = r.reporter_id
 WHERE ($1::report_status IS NULL OR r.status = $1::report_status)
-  AND ($2::uuid IS NULL OR r.station_id = $2::uuid)
-  AND ($3::uuid IS NULL OR r.id < $3::uuid)
+  AND ($2::report_reason IS NULL OR r.reason = $2::report_reason)
+  AND ($3::uuid IS NULL OR r.station_id = $3::uuid)
+  AND ($4::uuid IS NULL OR r.id < $4::uuid)
 ORDER BY r.id DESC
-LIMIT $4
+LIMIT $5
 `
 
 type ListReportsForAdminParams struct {
 	Status    *ReportStatus `json:"status"`
+	Reason    *ReportReason `json:"reason"`
 	StationID *uuid.UUID    `json:"stationId"`
 	Cursor    *uuid.UUID    `json:"cursor"`
 	PageSize  int32         `json:"pageSize"`
@@ -656,6 +658,7 @@ type ListReportsForAdminRow struct {
 func (q *Queries) ListReportsForAdmin(ctx context.Context, arg ListReportsForAdminParams) ([]ListReportsForAdminRow, error) {
 	rows, err := q.db.Query(ctx, listReportsForAdmin,
 		arg.Status,
+		arg.Reason,
 		arg.StationID,
 		arg.Cursor,
 		arg.PageSize,

@@ -31,6 +31,19 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 - **Boîte de réception** : le texte se compose d'après `type` + `data` (clés i18n), jamais d'après un texte serveur. Une notification `station_reported` n'identifie jamais les auteurs.
 - **Signalement** « stock épuisé » ou « station fermée » : envoyer la position courante dans le corps (`position`), uniquement pour ce contrôle.
 
+## Règles web (admin)
+
+- **Session** : cookies posés par l'API, jeton CSRF dans `X-CSRF-Token` sur toute écriture (cookie `gs_csrf` s'il est lisible, sinon la copie en mémoire reçue au login ou au refresh, sinon `GET /auth/csrf` après un rechargement ; jamais dans le stockage du navigateur, cf. D43). Refresh single-flight **aussi entre onglets** (Web Locks + horodatage partagé), voir `src/api/session.ts`. Session expirée → `/login?redirect=<page>&reason=expired`, la page demandée est rouverte après connexion (redirection interne uniquement).
+- **Textes** : français seulement, tous dans `src/i18n/` (`fr.ts` pour la coquille et la connexion, `admin.ts` pour les écrans, chargé avec eux ; `errors.ts` par code stable). Aucun texte en dur dans un composant.
+- **Écrans** (D47) : filtres et élément ouvert dans l'URL, pagination par curseur, `DataTable` / `DetailPanel` / `ReasonDialog` de `src/components/`, écritures sur une station avec `If-Match` et gestion du 412 sans perte de saisie, optimiste seulement pour l'ordre du catalogue, confirmation avant toute action destructive.
+- **Design** : tokens de `src/styles/globals.css` uniquement (palette Tailwind par défaut désactivée, couleur brute refusée par ESLint), documentés dans `Web/docs/design-system.md` et présentés sur `/design` (dev seulement). Contrastes AA vérifiés par `src/styles/tokens.test.ts`. Thème : système par défaut, bascule mémorisée (D42).
+- **Graphiques** : shadcn Chart (Recharts), palette catégorielle en ordre fixe, statuts réservés, résumé + tableau pour lecteurs d'écran (D41).
+- **Performance** : JS initial < 200 Ko gzip (`npm run check:bundle`), Lighthouse desktop ≥ 95 et mobile ≥ 85 visé (connexion et tableau de bord, médiane de 3 passes), animations en transform et opacité, `prefers-reduced-motion` respecté, gros modules (MapLibre, Recharts, pdf.js, dnd-kit, calendrier, ⌘K, QR code) chargés à la demande, formateurs `Intl` créés au premier usage. Le premier rendu ne doit jamais suspendre (route résolue avant, `build/route-preload.ts`).
+- **Accessibilité** : WCAG 2.2 AA vérifié par axe-core sur chaque écran et dialogue, clair et sombre (`e2e/a11y.spec.ts`) ; tout glisser-déposer a son équivalent clavier.
+- **Types d'API** : générés depuis `Backend/api/openapi.yaml` (`npm run gen:api`) après toute modification de la spec ; les schémas zod des réponses sont vérifiés contre ces types (`satisfies`).
+- **Captures** : `npm run screenshots` régénère `Web/docs/screenshots/` (chaque écran en clair et en sombre à 1440 px, les principaux aussi à 1024 px). Les écrans 2FA y utilisent des réponses simulées (jamais de vrai secret dans le dépôt).
+- **E2E** (D46) : pile isolée `scripts/e2e-stack.sh` (base `gostation_e2e`, Redis 15, API 8095), lancée et supprimée par Playwright ; jamais de compte de test dans la base de dev. `E2E_KEEP=1` garde la pile entre deux lancements.
+
 ## Rôles
 
 | Rôle | Client | Périmètre |
@@ -45,9 +58,9 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 GoStation/
 ├── Backend/            API Go (cmd/api, internal/…, db/migrations, db/queries, sqlc.yaml)
 ├── Mobile/             Expo React Native — app unique user + manager
-├── Web/                Admin React (Vite)
+├── Web/                Admin React (Vite) : src/{routes,features,components,api,i18n,lib,styles}, e2e/, docs/ (design-system.md, screenshots/)
 ├── docs/               ARCHITECTURE.md
-├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), _lib.sh
+├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), e2e-stack.sh, _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
 ├── Makefile            make help
 └── .env.example        source de vérité des variables (infra + backend)
@@ -59,7 +72,7 @@ GoStation/
 - **Données** : PostgreSQL 18 + PostGIS 3.6 (`geography(Point,4326)`, index GiST, `uuidv7()` natif), Redis 8.10 (cache, refresh tokens, files asynq ; `maxmemory-policy noeviction`).
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
 - **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, Expo Router, Reanimated 4, FlashList 2, TanStack Query 5, Zustand 5, react-hook-form + zod 4, expo-secure-store, expo-location, expo-notifications. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
-- **Web** : Vite 8, React 19, TypeScript, Tailwind CSS 4, shadcn/ui + composants 21st.dev, TanStack Query + TanStack Router, maplibre-gl.
+- **Web** : Vite 8, React 19 (React Compiler), TypeScript strict, Tailwind CSS 4, shadcn/ui (Radix) + composants 21st.dev, TanStack Router (routes fichiers) + Query + Table, react-hook-form + zod/mini, openapi-typescript + openapi-fetch, Recharts via shadcn Chart, maplibre-gl, motion, lucide-react, polices Geist auto-hébergées. Tests : Vitest + Testing Library, Playwright.
 - **Outillage Go** (installé par `make tools`, versions figées dans le Makefile) : goose v3.28, sqlc v1.31, golangci-lint v2.14. Tests d'intégration avec testcontainers-go. Go 1.27 installé via snap (`/snap/bin/go`).
 - Les versions exactes sont figées par `go.mod` et les lockfiles. On reprend les versions fournies par les templates Expo et Vite à l'init.
 
@@ -95,9 +108,19 @@ make bench          # k6 (Docker) sur /search, 5 zones : p50/p95/p99 hors cache 
 make explain-stats  # EXPLAIN ANALYZE des stats admin (agrégats journaliers et tous lieux, index de search_stats)
 make bench-stats    # p50/p95/p99 du tableau de bord, des stats et des cartes sur seed-dev (échoue si un p95 > 300 ms)
 scripts/with-env.sh <cmd>   # comme « . .env » mais sans écraser les variables déjà définies (surcharges ponctuelles)
+
+# Admin web (dans Web/ ; l'API doit tourner : make up && make api-up, ou make run)
+npm install         # dépendances (versions figées par package-lock.json)
+npm run dev         # Vite sur 5173, proxy /api vers 127.0.0.1:8080 (VITE_API_PROXY_TARGET)
+npm run gen:api     # régénère src/api/schema.d.ts depuis Backend/api/openapi.yaml
+npm run lint        # ESLint + Prettier ;  npm run typecheck : tsc -b
+npm test            # Vitest (unitaires et composants)
+npm run build && npm run check:bundle   # build de production + budget du JS initial (< 200 Ko gzip)
+npm run e2e         # Playwright sur le build (vite preview, 4173) et une pile isolée (make up suffit : base gostation_e2e, API 8095)
+npm run screenshots # captures de Web/docs/screenshots (chaque écran, clair/sombre, 1440 et 1024 px)
 ```
 
-Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173**. Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
+Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**), API E2E **8095** (worker **8096**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 
@@ -137,7 +160,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
   - Domaines : `internal/auth` (comptes, sessions, codes, TOTP, gestion des comptes par l'admin), `internal/station` (espace gérant, horaires et `IsOpen`, stocks, validation, correction, carte et filtres admin), `internal/document` (justificatifs), `internal/mail` (Mailer SMTP + templates), `internal/audit`, `internal/searchcache` (générations du cache de recherche), `internal/search` (recherche, fiche publique, itinéraire), `internal/searchstats` (compteurs anonymes et vidage), `internal/push` (Pusher Expo et factice), `internal/notification` (appareils, boîte de réception, préférences, livraison des push), `internal/reminder` (rappels de stock, sourdine), `internal/report` (signalements, seuils, modération, alertes admin), `internal/favorite` (favoris, alertes « de retour en stock »), `internal/retention` (purges de conservation), `internal/analytics` (tableau de bord, stats, pénuries, relevé de fraîcheur), `internal/catalog` (catalogue produits admin), `internal/export` (exports admin : génération, chiffrement, lien signé, purge). `internal/pagination` : taille de page et curseurs communs.
   - `internal/platform/{crypto,storage,healthprobe}` : chiffrement (enveloppe, HKDF), stockage d'objets (local, S3 plus tard), sonde `/readyz` des healthchecks Docker.
   - `cmd/admin` : CLI des comptes admin (`create`, `reset-2fa`).
-  - `cmd/seed` : stations fictives et 30 jours de stats de recherche de développement (`make seed-dev`, refuse hors `APP_ENV=development`) ; `cmd/benchstats` : latence des stats admin sur ce jeu (`make bench-stats`).
+  - `cmd/seed` : stations fictives et 30 jours de stats de recherche de développement (`make seed-dev`, refuse hors `APP_ENV=development`) ; `cmd/benchstats` : latence des stats admin sur ce jeu (`make bench-stats`) ; `cmd/e2efixtures` : données des scénarios E2E (base `*_e2e` uniquement).
   - `api/openapi.yaml` : contrat OpenAPI 3.1, **mis à jour dans le même commit que toute route** (un test compare la spec aux routes servies). Les types des clients mobile et web en sont générés.
   - `db/migrations/` (goose, `YYYYMMDDHHMMSS_desc.sql` en **UTC**, créées par `make migrate-new`, toujours avec un Down, une migration de données à part) et `db/queries/` (sqlc). Les migrations sont embarquées (`db.Migrations`) pour les tests. Après modification d'une requête : `make sqlc`.
   - Piège SQL : un `CHECK` évalué à NULL passe. Toute condition sur une colonne nullable doit donc tester `IS NOT NULL` explicitement.
@@ -163,7 +186,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 - Tests d'intégration sous build tag `integration`, contre un vrai PostGIS et un vrai Redis via testcontainers-go, avec les **mêmes images que le compose** (`POSTGIS_IMAGE`, `REDIS_IMAGE`). Pas de mock SQL. Handlers testés avec `httptest`, clients OSRM et Expo avec un serveur `httptest`. Le worker asynq tourne dans le processus de test (sans scheduler : les tâches périodiques sont appelées directement, avec une horloge réglable). `make test` lance unitaires + intégration.
 - Objectif ≥ 80 % de couverture sur `internal/search` et `internal/auth`.
 - **Mobile** : jest-expo + React Native Testing Library ; E2E Maestro (recherche → itinéraire, mise à jour de stock par le gérant).
-- **Web** : Vitest + Testing Library ; E2E Playwright (validation d'un gérant).
+- **Web** : Vitest + Testing Library ; E2E Playwright (décisions sur les stations, déplacement, correction en conflit 412, signalements, comptes, catalogue, exports, CSRF après rechargement, accessibilité axe-core).
 - Tout correctif de bug s'accompagne d'un test de régression. Lint : golangci-lint, ESLint + Prettier, `tsc --noEmit`.
 
 ### Variables d'environnement

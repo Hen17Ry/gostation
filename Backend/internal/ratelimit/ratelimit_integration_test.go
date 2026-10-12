@@ -46,6 +46,7 @@ func (c *clock) Now() time.Time          { return c.now }
 func (c *clock) Advance(d time.Duration) { c.now = c.now.Add(d) }
 
 func newLimiter(t *testing.T) (*ratelimit.Limiter, *clock) {
+	testutil.ResetRedis(t, testRedis) // compteurs d'une itération précédente (-count) effacés
 	c := &clock{now: time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)}
 	return ratelimit.New(testRedis, ratelimit.WithClock(c.Now), ratelimit.WithPrefix("test:"+t.Name())), c
 }

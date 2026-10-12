@@ -49,6 +49,29 @@ func flushStats(t *testing.T) {
 
 func day(n int) string { return localTime(-n, 12, 0).Format(time.DateOnly) }
 
+// clearHistory efface ce qu'une exécution précédente (-count) a écrit dans la fenêtre passée d'un
+// test d'agrégats (jours locaux de J-from à J-to inclus) : chaque test possède sa fenêtre, les
+// sommes attendues restent exactes à chaque passage.
+func clearHistory(t *testing.T, from, to int) {
+	t.Helper()
+	start, end := localTime(-from, 0, 0), localTime(-to+1, 0, 0)
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`DELETE FROM search_stats WHERE bucket >= $1 AND bucket < $2`, []any{start, end}},
+		{`DELETE FROM search_stats_totals WHERE bucket >= $1 AND bucket < $2`, []any{start, end}},
+		{`DELETE FROM search_stats_daily WHERE day >= $1::date AND day < $2::date`, []any{start.Format(time.DateOnly), end.Format(time.DateOnly)}},
+		{`DELETE FROM stock_freshness_stats WHERE bucket >= $1 AND bucket < $2`, []any{start, end}},
+		{`DELETE FROM reports WHERE created_at >= $1 AND created_at < $2`, []any{start, end}},
+		{`DELETE FROM users WHERE role IN ('user', 'manager') AND created_at >= $1 AND created_at < $2`, []any{start, end}},
+	} {
+		if _, err := it.pool.Exec(t.Context(), q.sql, q.args...); err != nil {
+			t.Fatalf("clear history: %v", err)
+		}
+	}
+}
+
 type kpiResp struct {
 	Value    float64  `json:"value"`
 	Previous float64  `json:"previous"`
@@ -138,6 +161,7 @@ func insertReportAt(t *testing.T, stationID string, at time.Time) {
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 func TestAdminDashboard(t *testing.T) {
+	clearHistory(t, 210, 190)
 	admin := adminClient(t)
 	gasA, gasB := newProduct(t), newProduct(t)
 	x, y, z := statsCell(t, [2]float64{9.0, 1.2}), statsCell(t, [2]float64{9.6, 2.9}), statsCell(t, [2]float64{10.2, 1.6})
@@ -306,6 +330,7 @@ type shortageResp struct {
 }
 
 func TestAdminShortagesThresholdAndAnonymity(t *testing.T) {
+	clearHistory(t, 152, 148)
 	admin := adminClient(t)
 	gasA, gasB := newProduct(t), newProduct(t)
 	cell := func(lat, lng float64) h3.Cell { return statsCell(t, [2]float64{lat, lng}) }

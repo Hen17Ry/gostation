@@ -158,3 +158,23 @@ func (s *Service) Dashboard(ctx context.Context, p Period) (Dashboard, error) {
 	d.ManagerSignups = KPI{Value: float64(signups.Managers), Previous: float64(signupsPrev.Managers)}
 	return d, nil
 }
+
+// Counters sont les compteurs des badges de la barre latérale admin.
+type Counters struct {
+	PendingStations int
+	OpenReports     int
+	OpenAlerts      int
+	LocationReviews int
+}
+
+// Counters compte ce qui attend l'admin : dossiers, signalements, alertes, épingles à vérifier.
+func (s *Service) Counters(ctx context.Context) (Counters, error) {
+	r, err := s.store.AdminCounters(ctx)
+	if err != nil {
+		return Counters{}, fmt.Errorf("analytics: counters: %w", err)
+	}
+	return Counters{
+		PendingStations: int(r.PendingStations), OpenReports: int(r.OpenReports), OpenAlerts: int(r.OpenAlerts),
+		LocationReviews: int(r.LocationReviews),
+	}, nil
+}

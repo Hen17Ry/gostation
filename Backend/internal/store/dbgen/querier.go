@@ -16,6 +16,9 @@ type Querier interface {
 	AddNotificationOptOut(ctx context.Context, arg AddNotificationOptOutParams) error
 	// Nouveau produit vendu : stock initial 0 (rupture jusqu'à la première saisie).
 	AddStationProduct(ctx context.Context, arg AddStationProductParams) error
+	// Compteurs des badges de la barre latérale admin (rafraîchis toutes les 60 s) : dossiers en attente
+	// (email du gérant vérifié, D5), signalements et alertes ouverts, épingles à vérifier.
+	AdminCounters(ctx context.Context) (AdminCountersRow, error)
 	// Verrou transactionnel nommé (limites par auteur, seuils par station).
 	AdvisoryLock(ctx context.Context, key string) error
 	// Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
@@ -231,7 +234,8 @@ type Querier interface {
 	// Un dossier pending n'apparaît qu'une fois l'email du gérant vérifié (D5).
 	// Filtres (étape 7) : statut (NULL = tous), fraîcheur de la dernière saisie ou confirmation
 	// (stale : 8 à 24 h, expired : plus de 24 h ou jamais), gérant inactif (alerte ouverte), sans
-	// horaires, signalée (effet de signalement en cours). Curseur (created_at, id) décroissants.
+	// horaires, signalée (effet de signalement en cours), exclue (seuil de 5 atteint, produit ou station).
+	// Curseur (created_at, id) décroissants.
 	ListStationsForAdmin(ctx context.Context, arg ListStationsForAdminParams) ([]ListStationsForAdminRow, error)
 	// Carte admin (GeoJSON léger, regroupement côté client) : stations épinglées.
 	ListStationsForMap(ctx context.Context, status *StationStatus) ([]ListStationsForMapRow, error)

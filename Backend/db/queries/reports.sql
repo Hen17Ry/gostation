@@ -107,6 +107,7 @@ JOIN stations s ON s.id = r.station_id
 LEFT JOIN products p ON p.id = r.product_id
 LEFT JOIN users u ON u.id = r.reporter_id
 WHERE (sqlc.narg(status)::report_status IS NULL OR r.status = sqlc.narg(status)::report_status)
+  AND (sqlc.narg(reason)::report_reason IS NULL OR r.reason = sqlc.narg(reason)::report_reason)
   AND (sqlc.narg(station_id)::uuid IS NULL OR r.station_id = sqlc.narg(station_id)::uuid)
   AND (sqlc.narg(cursor)::uuid IS NULL OR r.id < sqlc.narg(cursor)::uuid)
 ORDER BY r.id DESC

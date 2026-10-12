@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Administration GoStation : validation des stations, fraîcheur des stocks et zones en pénurie au Bénin."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#fbfaf9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c0a09" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>GoStation · Administration</title>
+    <script>
+      // Thème appliqué avant le premier rendu (même règle que src/lib/theme.ts).
+      ;(function () {
+        var pref = 'system'
+        try {
+          pref = localStorage.getItem('gs-theme') || 'system'
+        } catch (e) {}
+        var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.classList.toggle('dark', dark)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Hôte des toasts, hors de #root : les dialogues Radix masquent le reste de la page aux
+         lecteurs d'écran mais épargnent les régions [aria-live] présentes ; celle-ci l'est dès le
+         chargement, même si les toasts se montent après l'ouverture d'un dialogue. -->
+    <div id="toasts" aria-live="off"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

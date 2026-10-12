@@ -165,6 +165,7 @@ func New(cfg Config, d Deps) http.Handler {
 			j.Post("/auth/resend-verification", h(a.ResendVerification))
 			j.Post("/auth/login", h(a.Login))
 			j.Post("/auth/refresh", h(a.Refresh))
+			j.With(d.Authenticator.Optional).Get("/auth/csrf", h(a.CSRF))
 			j.With(d.Authenticator.Optional).Post("/auth/logout", h(a.Logout))
 			j.With(d.Authenticator.Require).Post("/auth/logout-all", h(a.LogoutAll))
 			j.Post("/auth/password/forgot", h(a.ForgotPassword))
@@ -232,6 +233,7 @@ func New(cfg Config, d Deps) http.Handler {
 			j.Group(func(ad chi.Router) {
 				ad.Use(d.Authenticator.Require, middleware.RequireRole(rs, roleAdmin), middleware.RequireCookieSession(rs))
 				ad.Get("/admin/dashboard", h(adm.Dashboard))
+				ad.Get("/admin/counters", h(adm.Counters))
 				ad.Get("/admin/stats/searches", h(adm.SearchStats))
 				ad.Get("/admin/stats/shortages", h(adm.Shortages))
 				ad.Get("/admin/stations", h(st.AdminList))

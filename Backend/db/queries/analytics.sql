@@ -133,3 +133,15 @@ VALUES (@bucket, @product_id, @searches, @empty_within_5km)
 ON CONFLICT (bucket, product_id) DO UPDATE
 SET searches = search_stats_totals.searches + EXCLUDED.searches,
     empty_within_5km = search_stats_totals.empty_within_5km + EXCLUDED.empty_within_5km;
+
+-- name: AdminCounters :one
+-- Compteurs des badges de la barre latérale admin (rafraîchis toutes les 60 s) : dossiers en attente
+-- (email du gérant vérifié, D5), signalements et alertes ouverts, épingles à vérifier.
+SELECT
+  (SELECT count(*) FROM stations s JOIN users u ON u.id = s.manager_id
+   WHERE s.status = 'pending' AND u.email_verified_at IS NOT NULL)::int AS pending_stations,
+  (SELECT count(*) FROM reports WHERE status = 'open')::int AS open_reports,
+  (SELECT count(*) FROM admin_alerts WHERE resolved_at IS NULL)::int AS open_alerts,
+  (SELECT count(*) FROM stations s
+   WHERE s.location_flagged_at IS NOT NULL
+      OR EXISTS (SELECT 1 FROM station_location_requests r WHERE r.station_id = s.id AND r.status = 'pending'))::int AS location_reviews;

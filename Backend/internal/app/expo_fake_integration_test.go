@@ -132,6 +132,15 @@ func setClock(t *testing.T, at time.Time) {
 	t.Cleanup(func() { it.clock.fixed.Store(nil) })
 }
 
+// freezeMidWindow fige l'horloge au milieu d'une minute, pour les tests qui comptent un quota à
+// la requête près. Le limiteur estime une fenêtre glissante à partir de deux fenêtres fixes : une
+// rafale de plusieurs secondes à cheval sur un changement de minute est sous-estimée d'une requête
+// ou deux (approximation assumée), et le test échouait selon l'heure de son lancement.
+func freezeMidWindow(t *testing.T) {
+	t.Helper()
+	setClock(t, time.Now().Truncate(time.Minute).Add(30*time.Second))
+}
+
 // ── SMTP capricieux ─────────────────────────────────────────────────────────
 
 // flakyMailer fait échouer les premiers envois vers une adresse (retry des emails via asynq).

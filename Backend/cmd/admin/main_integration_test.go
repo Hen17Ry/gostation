@@ -62,20 +62,21 @@ func runCLI(t *testing.T, stdin string, args ...string) (string, error) {
 }
 
 func TestCreateAdmin(t *testing.T) {
-	out, err := runCLI(t, "Lagune-Cotonou-88\n", "create", "--email", "ada@gostation.bj", "--first-name", "Ada", "--last-name", "Admin")
-	if err != nil || !strings.Contains(out, "Admin created: ada@gostation.bj") {
+	email := testutil.UniqueEmail("ada")
+	out, err := runCLI(t, "Lagune-Cotonou-88\n", "create", "--email", email, "--first-name", "Ada", "--last-name", "Admin")
+	if err != nil || !strings.Contains(out, "Admin created: "+email) {
 		t.Fatalf("create = %q, %v", out, err)
 	}
 	var role string
 	var verified bool
-	if err := testPool.QueryRow(t.Context(), `SELECT role, email_verified_at IS NOT NULL FROM users WHERE email = 'ada@gostation.bj'`).Scan(&role, &verified); err != nil {
+	if err := testPool.QueryRow(t.Context(), `SELECT role, email_verified_at IS NOT NULL FROM users WHERE email = $1`, email).Scan(&role, &verified); err != nil {
 		t.Fatal(err)
 	}
 	if role != "admin" || !verified {
 		t.Errorf("created account: role=%s verified=%v", role, verified)
 	}
 
-	if _, err := runCLI(t, "Lagune-Cotonou-88\n", "create", "--email", "ADA@gostation.bj", "--first-name", "Ada", "--last-name", "Bis"); err == nil {
+	if _, err := runCLI(t, "Lagune-Cotonou-88\n", "create", "--email", strings.ToUpper(email), "--first-name", "Ada", "--last-name", "Bis"); err == nil {
 		t.Error("duplicate admin email accepted")
 	}
 	_, err = runCLI(t, "password123\n", "create", "--email", "weak@gostation.bj", "--first-name", "W", "--last-name", "K")
@@ -88,18 +89,19 @@ func TestCreateAdmin(t *testing.T) {
 }
 
 func TestResetTwoFactor(t *testing.T) {
-	if _, err := runCLI(t, "Lagune-Cotonou-88\n", "create", "--email", "grace@gostation.bj", "--first-name", "Grace", "--last-name", "Admin"); err != nil {
+	email := testutil.UniqueEmail("grace")
+	if _, err := runCLI(t, "Lagune-Cotonou-88\n", "create", "--email", email, "--first-name", "Grace", "--last-name", "Admin"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := testPool.Exec(t.Context(), `UPDATE users SET totp_secret_encrypted = '\x01', totp_enabled_at = now() WHERE email = 'grace@gostation.bj'`); err != nil {
+	if _, err := testPool.Exec(t.Context(), `UPDATE users SET totp_secret_encrypted = '\x01', totp_enabled_at = now() WHERE email = $1`, email); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runCLI(t, "", "reset-2fa", "--email", "grace@gostation.bj")
+	out, err := runCLI(t, "", "reset-2fa", "--email", email)
 	if err != nil || !strings.Contains(out, "Two-factor authentication reset") {
 		t.Fatalf("reset-2fa = %q, %v", out, err)
 	}
 	var enabled bool
-	if err := testPool.QueryRow(t.Context(), `SELECT totp_enabled_at IS NOT NULL FROM users WHERE email = 'grace@gostation.bj'`).Scan(&enabled); err != nil || enabled {
+	if err := testPool.QueryRow(t.Context(), `SELECT totp_enabled_at IS NOT NULL FROM users WHERE email = $1`, email).Scan(&enabled); err != nil || enabled {
 		t.Fatalf("2FA still enabled: %v %v", enabled, err)
 	}
 	if _, err := runCLI(t, "", "reset-2fa", "--email", "nobody@gostation.bj"); err == nil {

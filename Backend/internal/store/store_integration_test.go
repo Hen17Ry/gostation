@@ -133,11 +133,12 @@ func TestGetStationByID(t *testing.T) {
 
 func TestTranslateUniqueViolation(t *testing.T) {
 	insert := `INSERT INTO users (email, password_hash, first_name, last_name, privacy_policy_version, privacy_accepted_at)
-		VALUES ('dup@example.bj', 'x', 'A', 'B', '2026-10', now())`
-	if _, err := testPool.Exec(t.Context(), insert); err != nil {
+		VALUES ($1, 'x', 'A', 'B', '2026-10', now())`
+	email := testutil.UniqueEmail("dup")
+	if _, err := testPool.Exec(t.Context(), insert, email); err != nil {
 		t.Fatal(err)
 	}
-	_, err := testPool.Exec(t.Context(), insert)
+	_, err := testPool.Exec(t.Context(), insert, email)
 	if !apperr.HasCode(store.Translate(err), apperr.CodeConflict) || store.ConstraintName(err) != "uq_users_email" {
 		t.Errorf("Translate(%v) is not a conflict on uq_users_email", err)
 	}

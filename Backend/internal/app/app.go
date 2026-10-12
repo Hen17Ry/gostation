@@ -58,8 +58,8 @@ type Infra struct {
 	OSRM *osrm.Client
 	// Pusher remplace celui de la configuration (Expo si EXPO_ACCESS_TOKEN, factice sinon).
 	Pusher push.Pusher
-	// Clock remplace l'horloge des rappels, des alertes favoris, des stats admin et des exports
-	// (tests d'intégration).
+	// Clock remplace l'horloge des rappels, des alertes favoris, des stats admin, des exports et
+	// des quotas (tests d'intégration).
 	Clock func() time.Time
 }
 
@@ -130,7 +130,11 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	tokens := auth.NewTokenManager(keys, cfg.Auth.Issuer, cfg.Auth.Audience, cfg.Auth.AccessTTL)
 
 	st := store.New(infra.Pool)
-	limiter := ratelimit.New(infra.Redis)
+	var limiterOpts []ratelimit.Option
+	if infra.Clock != nil {
+		limiterOpts = append(limiterOpts, ratelimit.WithClock(infra.Clock))
+	}
+	limiter := ratelimit.New(infra.Redis, limiterOpts...)
 	jobsClient := jobs.NewClient(infra.Redis, cfg.Push.ReceiptsDelay)
 	emails := mail.NewQueue(jobsClient, queueSealer)
 	// La révocation d'une session supprime son appareil push (notifSvc est construit plus bas :

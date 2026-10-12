@@ -46,7 +46,8 @@ var appTables = []string{
 
 func TestMigrationsUpDownUp(t *testing.T) {
 	ctx := t.Context()
-	p, sqlDB, err := testutil.NewMigrator(testDSN)
+	// Base vide propre au test : le premier Up applique toujours toutes les migrations.
+	p, sqlDB, err := testutil.NewMigrator(testutil.FreshDatabase(t, testDSN, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,13 +112,11 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	assertState(t, "after second up", len(appTables), 18, 5)
 }
 
-// migratedPool garantit un schéma à jour (Up est idempotent) et ouvre un pool.
+// migratedPool ouvre un pool sur une base migrée propre au test (clone du gabarit migré) : les
+// lignes d'une exécution précédente ne gênent jamais la suivante.
 func migratedPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	if err := testutil.MigrateUp(t.Context(), testDSN); err != nil {
-		t.Fatal(err)
-	}
-	pool, err := pgxpool.New(t.Context(), testDSN)
+	pool, err := pgxpool.New(t.Context(), testutil.FreshDatabase(t, testDSN, true))
 	if err != nil {
 		t.Fatal(err)
 	}
