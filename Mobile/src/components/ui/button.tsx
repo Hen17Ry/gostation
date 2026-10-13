@@ -1,10 +1,11 @@
 import type { LucideIcon } from 'lucide-react-native'
-import { ActivityIndicator, type PressableProps, type StyleProp, View, type ViewStyle } from 'react-native'
+import { type PressableProps, type StyleProp, View, type ViewStyle } from 'react-native'
 
 import { cn } from '@/lib/cn'
 import { useTheme } from '@/theme/theme'
 
 import { PressableScale } from './pressable-scale'
+import { Spinner } from './spinner'
 import { Text, type TextTone } from './text'
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'link'
@@ -78,7 +79,7 @@ export function Button({
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={fg} />
+        <Spinner color={fg} size={size === 'lg' ? 22 : 20} />
       ) : (
         Icon && (
           <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">

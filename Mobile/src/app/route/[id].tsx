@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react-native'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, View } from 'react-native'
+import { View } from 'react-native'
 import { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -30,6 +30,7 @@ import { Banner } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { Text } from '@/components/ui/text'
 import { searchOrigin, useLocation } from '@/features/location/location-store'
 import { openExternalNavigation } from '@/features/navigation/external'
@@ -302,7 +303,7 @@ function Loading() {
   const { colors } = useTheme()
   return (
     <View className="flex-row items-center gap-3 py-2" accessible accessibilityLabel={t.common.loading}>
-      <ActivityIndicator color={colors.primary} />
+      <Spinner color={colors.primary} />
       <View className="flex-1 gap-2">
         <Skeleton height={20} width="60%" />
         <Skeleton height={14} width="40%" />
@@ -474,7 +475,7 @@ function ManeuverBanner({
       )}
       {rerouting && (
         <View className="flex-row items-center gap-2 self-center rounded-full bg-foreground px-3 py-1.5">
-          <ActivityIndicator size="small" color={colors.background} />
+          <Spinner color={colors.background} size={16} />
           <Text variant="footnote" weight="semibold" style={{ color: colors.background }}>
             {t.route.rerouting}
           </Text>

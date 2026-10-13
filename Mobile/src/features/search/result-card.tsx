@@ -11,6 +11,13 @@ import { APPROX, formatAgo, formatDistance, formatDuration, formatQuantity, form
 import { alpha, useTheme } from '@/theme/theme'
 
 /**
+ * Délai avant l'état appuyé (130 ms, comme les `Touchable` de React Native ; Android : 100 ms) : un
+ * balayage qui part d'une carte devient un défilement sans déclencher l'ondulation, animée par le GPU
+ * pendant tout le geste (images perdues sur le S10). Un toucher bref la montre toujours.
+ */
+const PRESS_DELAY_MS = 130
+
+/**
  * Résultat de recherche : rang, nom et marque, distance et durée (≈ si estimées), quantité,
  * fraîcheur (« mis à jour il y a »), badges « À vérifier » (stale) et « Signalée », « Fermée ·
  * rouvre à HH:MM ». Bouton Itinéraire direct (le reste de la carte ouvre la fiche).
@@ -61,6 +68,7 @@ export const ResultCard = memo(function ResultCard({
     // cellule quand la liste défile.
     <Pressable
       testID={`result-${rank}`}
+      unstable_pressDelay={PRESS_DELAY_MS}
       android_ripple={{ color: colors.accent, foreground: true }}
       accessibilityRole="button"
       accessibilityLabel={a11y}
@@ -123,6 +131,7 @@ export const ResultCard = memo(function ResultCard({
             </Text>
             <Pressable
               testID={`result-${rank}-route`}
+              unstable_pressDelay={PRESS_DELAY_MS}
               android_ripple={{ color: alpha(colors['primary-subtle-foreground'], 0.2), foreground: true }}
               accessibilityRole="button"
               accessibilityLabel={`${t.station.route} : ${r.station.name}`}

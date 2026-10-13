@@ -1,5 +1,4 @@
 import BottomSheet, { useBottomSheetScrollableCreator } from '@gorhom/bottom-sheet'
-import { FlashList, type FlashListRef } from '@shopify/flash-list'
 import { useQuery } from '@tanstack/react-query'
 import * as Linking from 'expo-linking'
 import { router, useFocusEffect } from 'expo-router'
@@ -30,12 +29,13 @@ import { elevation } from '@/theme/elevation'
 import { useTheme } from '@/theme/theme'
 
 import { ProductPicker, productLabel } from './product-picker'
-import { ResultCard } from './result-card'
+import { ResultsList, type ResultsListHandle } from './results-list'
 import { resultsSummary } from './results-summary'
 import { SearchPulse } from './search-pulse'
 import { useSearch } from './search-store'
 
 const HANDLE_H = 24
+const NO_RESULTS: SearchResult[] = []
 
 /**
  * Accueil : carte plein écran + panneau de recherche (bottom sheet). Le panneau montre d'abord le
@@ -48,7 +48,7 @@ export function MapHome() {
   const online = useOnline()
   const map = useRef<StationsMapHandle>(null)
   const sheet = useRef<BottomSheet>(null)
-  const list = useRef<FlashListRef<SearchResult>>(null)
+  const list = useRef<ResultsListHandle>(null)
   const sheetPosition = useSharedValue(0)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [headerH, setHeaderH] = useState(320)
@@ -61,7 +61,7 @@ export function MapHome() {
   const origin = searchOrigin(loc)
   const search = useSearch()
   const response = search.response
-  const results = useMemo(() => response?.results ?? [], [response])
+  const results = useMemo(() => response?.results ?? NO_RESULTS, [response])
   const searching = search.status === 'searching'
   const picking = loc.mode === 'manual' || loc.permission === 'denied' || loc.permission === 'undetermined'
   // Position de l'appareil lisible au moment de l'appui (même si aucune mesure n'est encore connue).
@@ -149,7 +149,7 @@ export function MapHome() {
     const index = results.findIndex((r) => r.station.id === id)
     if (index >= 0) {
       sheet.current?.snapToIndex(1)
-      requestAnimationFrame(() => list.current?.scrollToIndex({ index, animated: true, viewPosition: 0 }))
+      list.current?.scrollToResult(index)
     }
   }
 
@@ -337,32 +337,21 @@ export function MapHome() {
           accessibilityLabel={t.a11y.sheetHandle}
         >
           {topBlock}
-          <FlashList
+          <ResultsList
             ref={list}
-            style={{ flex: 1 }}
-            data={pickerOpen && !response ? [] : results}
-            keyExtractor={(r) => r.station.id}
-            renderScrollComponent={scrollable}
-            ListHeaderComponent={header}
-            ListEmptyComponent={
+            results={pickerOpen && !response ? NO_RESULTS : results}
+            unit={unit}
+            approximate={response?.routingApproximate ?? false}
+            selectedId={search.selectedId}
+            onOpen={openStation}
+            onRoute={openRoute}
+            header={header}
+            empty={
               response && response.results.length === 0 ? (
                 <EmptyState illustration={<NoStationIllustration />} title={t.search.none} body={t.search.noneBody} />
               ) : null
             }
-            extraData={search.selectedId}
-            renderItem={({ item, index }) => (
-              <ResultCard
-                result={item}
-                rank={index + 1}
-                unit={unit}
-                approximate={response?.routingApproximate ?? false}
-                selected={item.station.id === search.selectedId}
-                onOpen={openStation}
-                onRoute={openRoute}
-              />
-            )}
-            contentContainerStyle={{ paddingBottom: 24 }}
-            accessibilityLabel={t.search.resultsLabel}
+            renderScrollComponent={scrollable}
           />
         </BottomSheet>
       )}
