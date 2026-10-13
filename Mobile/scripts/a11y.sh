@@ -7,6 +7,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(cd .. && pwd)"
 ADB="${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb"
 OUT="$ROOT/var/a11y"
+# shellcheck source=device.sh
+source scripts/device.sh
+device_save
+trap device_restore EXIT INT TERM
 rm -rf "$OUT" && mkdir -p "$OUT/dumps" "$OUT/font-scale"
 API="${API:-http://127.0.0.1:8080}"
 

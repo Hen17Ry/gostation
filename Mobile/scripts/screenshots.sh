@@ -7,6 +7,9 @@ mkdir -p docs/screenshots
 ROOT="$(cd .. && pwd)"
 ADB="${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb"
 MAESTRO="${MAESTRO:-$HOME/.maestro/bin/maestro}"
+# shellcheck source=device.sh
+source scripts/device.sh
+device_save
 
 ready() { curl -fsS -o /dev/null http://127.0.0.1:8095/readyz 2> /dev/null; }
 stack=""
@@ -16,7 +19,7 @@ if [[ "${SPLASH_ONLY:-0}" != 1 ]] && ! ready; then
   for _ in $(seq 1 180); do ready && break; sleep 1; done
 fi
 cleanup() {
-  "$ADB" shell cmd uimode night no > /dev/null 2>&1 || true
+  device_restore
   "$ADB" reverse tcp:8080 tcp:8080 > /dev/null 2>&1 || true
   if [[ -n "$stack" && "${E2E_KEEP:-0}" != 1 ]]; then
     kill "$stack" 2> /dev/null || true
@@ -70,6 +73,7 @@ PY
 }
 
 "$ADB" reverse tcp:8080 tcp:8095 > /dev/null
+demo_on
 if [[ "${SPLASH_ONLY:-0}" == 1 ]]; then
   for theme in ${THEMES:-light dark}; do
     "$ADB" shell cmd uimode night "$([[ $theme == dark ]] && echo yes || echo no)" > /dev/null

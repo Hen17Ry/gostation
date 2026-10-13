@@ -9,6 +9,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(cd .. && pwd)"
 ADB="${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb"
 MAESTRO="${MAESTRO:-$HOME/.maestro/bin/maestro}"
+# shellcheck source=device.sh
+source scripts/device.sh
+device_save
 SHOTS=docs/screenshots
 WORK="$(mktemp -d)"
 STACK=""
@@ -31,13 +34,13 @@ stack_down() {
   "$ROOT/scripts/e2e-stack.sh" down > /dev/null 2>&1 || true
 }
 cleanup() {
-  "$ADB" shell cmd uimode night no > /dev/null 2>&1 || true
-  "$ADB" shell cmd connectivity airplane-mode disable > /dev/null 2>&1 || true
+  device_restore
   "$ADB" reverse tcp:8080 tcp:8080 > /dev/null 2>&1 || true
   stack_down
   rm -rf "$WORK"
 }
 trap cleanup EXIT INT TERM
+demo_on
 
 theme() {
   "$ADB" shell cmd uimode night "$([[ $1 == dark ]] && echo yes || echo no)" > /dev/null
