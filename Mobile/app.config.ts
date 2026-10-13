@@ -39,8 +39,9 @@ const config: ExpoConfig = {
       backgroundColor: '#d14200',
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
-    // Seules les permissions utiles : position (premier plan), réseau. Pas de stockage ni de micro.
-    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
+    // Seules les permissions utiles : position (premier plan), réseau, appareil photo (justificatif du
+    // gérant). Pas de stockage (fichiers par le sélecteur du système) ni de micro.
+    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA'],
     blockedPermissions: [
       'android.permission.RECORD_AUDIO',
       'android.permission.READ_EXTERNAL_STORAGE',
@@ -73,6 +74,19 @@ const config: ExpoConfig = {
       },
     ],
     '@maplibre/maplibre-react-native',
+    // Justificatif du gérant : photo prise avec l'appareil (les fichiers passent par le sélecteur
+    // du système, sans permission de stockage).
+    [
+      'expo-image-picker',
+      {
+        cameraPermission:
+          'GoStation utilise l’appareil photo pour photographier le justificatif de votre station (IFU, RCCM).',
+        photosPermission: false,
+        microphonePermission: false,
+      },
+    ],
+    // Heures et dates des horaires (sélecteurs natifs).
+    '@react-native-community/datetimepicker',
     // Méthodes Java/Kotlin du parcours principal précompilées à l'installation (images perdues sinon).
     './plugins/with-baseline-profile',
     [
