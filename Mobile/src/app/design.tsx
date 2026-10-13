@@ -153,7 +153,7 @@ export default function DesignScreen() {
         <Badge label="Marque" tone="brand" />
         <Badge label="Neutre" />
       </View>
-      <Banner tone="info">Hors connexion : derniers résultats de cette session.</Banner>
+      <Banner tone="info">Derniers résultats de cette session : les stocks ont pu changer depuis.</Banner>
       <Banner tone="warning" title="Distances estimées">
         Trajets à vol d’oiseau.
       </Banner>

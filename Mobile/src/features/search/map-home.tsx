@@ -189,7 +189,7 @@ export function MapHome() {
           ) : (
             <ProductPicker products={products.data} productId={productId} onChange={setProductId} />
           )}
-          {!online && !response && <Banner tone="info">{t.search.offlineNoResults}</Banner>}
+          {!online && <Banner tone="info">{t.search.offlineSearch}</Banner>}
           {picking && !origin && <Banner tone="info">{t.location.pickHint}</Banner>}
           <Button
             testID="search-submit"
