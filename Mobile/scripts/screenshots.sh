@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Captures de référence de chaque écran (docs/screenshots/), en clair puis en sombre, sur l'appareil
 # branché (téléphone de préférence). Contre la pile API isolée (comptes jetables, cf. e2e.sh).
+# PARTS : « main » (parcours principal, 01 à 26), « manager » (espace gérant, 50 à 69) ; les deux
+# par défaut.
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 mkdir -p docs/screenshots
@@ -20,7 +22,11 @@ if [[ "${SPLASH_ONLY:-0}" != 1 ]] && ! ready; then
   stack=$!
   for _ in $(seq 1 180); do ready && break; sleep 1; done
 fi
+TEST_DOC=/sdcard/Download/gostation-justificatif-e2e.pdf
+media_scan() { "$ADB" shell content call --method scan_volume --uri content://media --arg external_primary > /dev/null 2>&1 || true; }
 cleanup() {
+  "$ADB" shell rm -f "$TEST_DOC" > /dev/null 2>&1 || true
+  media_scan
   device_restore
   "$ADB" reverse tcp:8080 tcp:8080 > /dev/null 2>&1 || true
   if [[ -n "$stack" && "${E2E_KEEP:-0}" != 1 ]]; then
@@ -36,6 +42,12 @@ trap cleanup EXIT INT TERM
 # trois essais, et un échec ne bloque pas les autres captures.
 splash() {
   local theme=$1
+  # Téléphone : l'enregistrement d'écran ne capte pas l'écran de démarrage et retiendrait l'écran
+  # d'accueil du téléphone (applications, fond d'écran personnels). Émulateur seulement.
+  if [[ "$("$ADB" shell getprop ro.kernel.qemu | tr -d '\r')" != 1 ]]; then
+    echo "  · écran de démarrage ($theme) : émulateur seulement, capture précédente gardée"
+    return 0
+  fi
   for attempt in 1 2 3; do
     splash_once "$theme" && return 0
     echo "  · écran de démarrage ($theme) non capté, essai $attempt/3"
@@ -85,17 +97,37 @@ if [[ "${SPLASH_ONLY:-0}" == 1 ]]; then
   echo "✔ écran de démarrage capturé"
   exit 0
 fi
-for theme in ${THEMES:-light dark}; do
-  "$ADB" shell cmd uimode night "$([[ $theme == dark ]] && echo yes || echo no)" > /dev/null
-  sleep 2
-  echo "▶ captures ($theme)"
+# Gérant de la station exclue des fixtures : écran des signalements avec des effets en cours.
+fixtures="$ROOT/var/e2e/fixtures.json"
+reports_email=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["excluded"]["managerEmail"])' "$fixtures")
+reports_password=$(python3 -c 'import json,sys; print("Lagune-" + json.load(open(sys.argv[1]))["run"] + "-Porto")' "$fixtures")
+"$ADB" push .maestro/assets/gostation-justificatif-e2e.pdf "$TEST_DOC" > /dev/null
+media_scan
+
+# capture <flux> <thème> [-e VAR=valeur…] : exécute un flux de captures et les recopie à plat.
+capture() {
+  local flow=$1 theme=$2 out status=0
+  shift 2
   out="$(mktemp -d)"
-  status=0
-  "$MAESTRO" test .maestro/screenshots/capture.yaml -e THEME="$theme" --test-output-dir "$out" || status=$?
+  "$MAESTRO" test "$flow" -e THEME="$theme" "$@" --test-output-dir "$out" || status=$?
   # Maestro range les captures dans son dossier de sortie : on les recopie à plat.
   find "$out" -path '*takeScreenshot*' -name '*.png' -exec cp {} docs/screenshots/ \;
   rm -rf "$out"
-  [[ $status == 0 ]] || { echo "✗ captures ($theme) incomplètes"; exit "$status"; }
-  splash "$theme"
+  return "$status"
+}
+parts=" ${PARTS:-main manager} "
+for theme in ${THEMES:-light dark}; do
+  "$ADB" shell cmd uimode night "$([[ $theme == dark ]] && echo yes || echo no)" > /dev/null
+  sleep 2
+  if [[ $parts == *" main "* ]]; then
+    echo "▶ captures du parcours principal ($theme)"
+    capture .maestro/screenshots/capture.yaml "$theme" || { echo "✗ captures ($theme) incomplètes"; exit 1; }
+    splash "$theme"
+  fi
+  if [[ $parts == *" manager "* ]]; then
+    echo "▶ captures de l'espace gérant ($theme)"
+    capture .maestro/screenshots/manager.yaml "$theme" -e REPORTS_EMAIL="$reports_email" -e REPORTS_PASSWORD="$reports_password" ||
+      { echo "✗ captures du gérant ($theme) incomplètes"; exit 1; }
+  fi
 done
 echo "✔ $(find docs/screenshots -name '*.png' | wc -l) captures dans docs/screenshots/"

@@ -1,0 +1,42 @@
+# Gérant : saisie des stocks pendant qu'un autre appareil les modifie (412) ; ce qui a changé est
+# montré, la saisie gardée au rechargement, puis envoyée.
+appId: bj.gostation.app
+name: Gérant, conflit sur les stocks
+---
+- runScript:
+    file: scripts/control.js
+    env:
+      ACTION: operational
+- runFlow:
+    file: common/manager-sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+      PASSWORD: ${output.password}
+- extendedWaitUntil:
+    visible:
+      id: stock-lpg_10kg-qty-plus
+    timeout: 15000
+- tapOn:
+    id: stock-lpg_10kg-qty-plus
+- runScript:
+    file: scripts/control.js
+    env:
+      ACTION: bump-stocks
+      EMAIL: ${output.email}
+- tapOn:
+    id: stocks-submit
+- tapOn:
+    id: stocks-send
+- extendedWaitUntil:
+    visible: Les stocks ont changé entre-temps
+    timeout: 10000
+- tapOn:
+    id: stocks-reload
+- waitForAnimationToEnd
+- tapOn:
+    id: stocks-submit
+- tapOn:
+    id: stocks-send
+- extendedWaitUntil:
+    visible: 'Rien n’a changé'
+    timeout: 10000

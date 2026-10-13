@@ -1,0 +1,13 @@
+# Proposition d'enregistrer les identifiants (Samsung Pass, Google) : « pas maintenant ».
+appId: bj.gostation.app
+---
+- runFlow:
+    when:
+      visible: 'Pas maint.*'
+    commands:
+      - tapOn: 'Pas maint.*'
+- runFlow:
+    when:
+      visible: 'Pas maintenant'
+    commands:
+      - tapOn: 'Pas maintenant'

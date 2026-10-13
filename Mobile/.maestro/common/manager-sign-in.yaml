@@ -1,0 +1,19 @@
+# Connexion d'un gérant (EMAIL, PASSWORD) depuis un lancement à neuf ; arrivée dans son espace.
+appId: bj.gostation.app
+---
+- runFlow: start.yaml
+- tapOn:
+    id: tab-account
+- tapOn:
+    id: account-sign-in
+- tapOn:
+    id: sign-in-email
+- inputText: ${EMAIL}
+- tapOn:
+    id: sign-in-password
+- inputText: ${PASSWORD}
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: sign-in-submit
+- runFlow: dismiss-autofill.yaml

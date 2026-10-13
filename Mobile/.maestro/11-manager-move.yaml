@@ -1,0 +1,36 @@
+# Gérant d'une station approuvée et épinglée : déplacement de plus de 200 m, mis en attente de
+# validation, l'ancienne position restant active.
+appId: bj.gostation.app
+name: Gérant, déplacement mis en attente
+---
+- runScript:
+    file: scripts/control.js
+    env:
+      ACTION: operational
+- runFlow:
+    file: common/manager-sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+      PASSWORD: ${output.password}
+- tapOn:
+    id: tab-station
+- tapOn:
+    id: station-location
+- extendedWaitUntil:
+    visible:
+      id: location-warning
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 5000
+# Zoom 17 : ≈ 0,6 m par dp ; un geste vertical d'un demi-écran déplace la carte d'environ 300 m.
+- swipe:
+    start: 50%, 70%
+    end: 50%, 20%
+    duration: 800
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    id: location-confirm
+- extendedWaitUntil:
+    visible: Déplacement en attente de validation
+    timeout: 10000

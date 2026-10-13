@@ -57,7 +57,15 @@ module.exports = defineConfig([
     // Scripts Maestro (GraalJS) : variables fournies par Maestro.
     files: ['.maestro/**/*.js'],
     languageOptions: {
-      globals: { http: 'readonly', json: 'readonly', output: 'writable', EMAIL: 'readonly', SUBJECT: 'readonly' },
+      globals: {
+        http: 'readonly',
+        json: 'readonly',
+        output: 'writable',
+        EMAIL: 'readonly',
+        SUBJECT: 'readonly',
+        ACTION: 'readonly',
+        REASON: 'readonly',
+      },
     },
   },
   {
