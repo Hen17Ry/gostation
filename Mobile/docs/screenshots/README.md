@@ -1,8 +1,9 @@
 # Captures de l'app mobile
 
-Chaque écran en clair (`-light`) et en sombre (`-dark`), build release, 1080 × 2400. Relevé du
-2026-10-13 sur l'émulateur Android 16 (le téléphone n'était pas branché) : à refaire sur un
-téléphone dès qu'il l'est.
+Chaque écran en clair (`-light`) et en sombre (`-dark`), build release, police à 100 %, barre
+d'état de démonstration. Parcours principal (01 à 26) : Galaxy S10 (Android 12, 1080 × 2280), le
+2026-10-13 ; écran de démarrage (00) et états mis en scène (05, 27 à 45) : émulateur Android 16
+(1080 × 2400), même jour (sur le S10, l'enregistrement d'écran ne capte pas l'écran de démarrage).
 
 | Plage   | Contenu                                                                            | Régénération                                 |
 | ------- | ---------------------------------------------------------------------------------- | -------------------------------------------- |

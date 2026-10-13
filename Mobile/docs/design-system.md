@@ -99,8 +99,13 @@ En sombre, la hiérarchie passe aussi par la surface (`card` < `popover`).
 - **Retour immédiat** : [`PressableScale`](../src/components/ui/pressable-scale.tsx) réduit l'élément
   à 0,97 par un ressort sur le thread UI, sans décaler la mise en page ; ripple Android sur les
   lignes de liste.
-- **Chargement** : tout bouton qui déclenche un appel passe en état occupé (indicateur, `busy`
-  annoncé, appuis ignorés) ; squelettes aux dimensions du contenu final (aucun saut).
+- **Chargement** : tout bouton qui déclenche un appel passe en état occupé (`busy` annoncé, appuis
+  ignorés) avec [`Spinner`](../src/components/ui/spinner.tsx), un anneau qui tourne sur le thread
+  UI : jamais l'`ActivityIndicator` natif, dont la création coûte 30 à 46 ms au moment de l'appui ;
+  squelettes aux dimensions du contenu final (aucun saut).
+- **Listes qui défilent** : état appuyé retardé de 130 ms sur les cartes de résultats
+  (`unstable_pressDelay`, comme Android) : un balayage qui part d'une carte ne déclenche pas
+  l'ondulation d'Android 12, animée par le GPU pendant tout le geste ; un toucher bref la montre.
 - **Erreurs** : sous le champ concerné (annoncées), message général en bandeau ; messages issus du
   `code` de l'API, jamais du texte technique.
 
@@ -131,11 +136,13 @@ Jamais à chaque toucher.
 
 Dans [`src/components/ui/`](../src/components/ui) : `Text`, `Button` (primaire, secondaire,
 contour, fantôme, destructif ; 3 tailles), `IconButton` (posé sur la carte : `floating`),
-`PressableScale`, `ChoiceTile` et `Chip` (choix radio), `TextField` (libellé visible, aide, erreur,
+`PressableScale`, `Spinner`, `ChoiceTile` et `Chip` (choix radio), `TextField` (libellé visible, aide, erreur,
 afficher/masquer le mot de passe), `OtpInput` (6 cases, un seul champ natif : saisie automatique et
 collage), `Badge`, `Banner`, `Card`, `Section`, `ListRow`, `SwitchRow`, `Skeleton`, `EmptyState` et
 ses illustrations, `Toast`, `Screen` (zones sûres, en-tête, pied collant, clavier), `TabScreen`.
-Domaine : `ResultCard`, `ProductPicker`, `SearchPulse`, `StationsMap`, `RouteMap`.
+Domaine : `ResultCard`, `ResultsList` (cartes montées par étapes : deux avec les résultats, les
+autres une par image après l'ouverture du panneau, puis plus de recyclage pendant le défilement),
+`ProductPicker`, `SearchPulse`, `StationsMap`, `RouteMap`, `MapAttribution`.
 
 **Composants animés et classes.** NativeWind (css-interop) ne doit jamais recevoir un style
 Reanimated : il l'aplatirait en objet ordinaire (valeurs lues pendant le rendu, classes et animation
@@ -159,6 +166,11 @@ variante `link` de `Button` (alignés sur le texte voisin, zone tactile élargie
   marqueur : la carte reste à 60 fps.
 - **Économie de data** : caméra limitée au Bénin et ses abords, zoom 5,5 à 18, cache ambiant de
   80 Mo réutilisé entre les sessions.
+- **Crédits** : [`MapAttribution`](../src/map/attribution.tsx) remplace le bouton ⓘ natif de
+  MapLibre (21 dp) : pastille « © OpenStreetMap · OpenFreeMap » toujours visible sur la carte, dans
+  une cible de 48 dp de haut ; le toucher ouvre les sources (OpenStreetMap et sa licence ODbL,
+  OpenFreeMap, OpenMapTiles). Accueil : posée sur le panneau à gauche, face à « ma position » ;
+  itinéraire : au-dessus du panneau du bas.
 - Rotation et inclinaison coupées pendant la recherche ; en navigation, la caméra suit la position
   et le cap (inclinaison 45°).
 
@@ -168,8 +180,8 @@ Vérification : `npm run a11y` ouvre chaque écran par lien profond, extrait son
 d'accessibilité et signale tout élément actionnable sans nom ou de moins de 48 dp, puis capture les
 écrans principaux en police ×1,5 (`var/a11y/`). Dernier audit (2026-10-13, émulateur) : aucun
 élément sans nom ; les cibles signalées sous 48 dp (liens de 40 dp, puces de 44 dp, « Passer »)
-atteignent 48 dp avec leur `hitSlop`, que l'arbre n'indique pas. Seule exception : le bouton ⓘ
-d'attribution de la carte (21 dp), dessiné par MapLibre.
+atteignent 48 dp avec leur `hitSlop`, que l'arbre n'indique pas. Les crédits de la carte, d'abord
+dessinés par MapLibre (bouton ⓘ de 21 dp), sont devenus une cible de 48 dp (`MapAttribution`).
 
 Libellé sur chaque élément interactif (le libellé visible fait office de nom), rôles (`button`,
 `radio`, `tab`, `switch`, `header`), états annoncés (sélectionné, coché, occupé), carte de résultat
@@ -183,5 +195,7 @@ Marque commune avec l'admin : épingle de station blanche portant un éclair («
 suite »), sur une pastille orange en dégradé 500 → 700. Sources SVG dans
 [`assets/brand/`](../assets/brand) (`logo.svg`, `icon.svg`, avant-plan et monochrome de l'icône
 adaptative Android) ; `npm run gen:icons` produit les PNG d'`assets/images/`. Démarrage : pastille
-de 120 dp sur `background` (clair `#fbfaf9`, sombre `#0b0a09`), masquée dès que la session locale
-est lue (aucun appel réseau avant le premier affichage).
+de 120 dp sur `background` (clair `#fbfaf9`, sombre `#0b0a09`), masquée quand la session locale
+est lue (aucun appel réseau avant le premier affichage) et, si l'app s'ouvre sur la carte, après sa
+première image complète, 2,5 s au plus ([`src/lib/splash.ts`](../src/lib/splash.ts)) : le creux
+d'images du lancement (création de la carte) reste sous l'écran de démarrage.
