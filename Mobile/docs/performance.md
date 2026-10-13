@@ -13,6 +13,28 @@ un Android de milieu de gamme ; requêtes et tuiles minimisées.
 - Démarrage à froid : `adb shell am start -W -n bj.gostation.app/.MainActivity` (`TotalTime`,
   médiane de 5 lancements après `force-stop`).
 
+## Relevé du 2026-10-13 — Galaxy S10, build release
+
+Samsung Galaxy S10 (SM-G973F, Exynos 9820, 8 Go de RAM, Android 12, 1080 × 2280), build release
+arm64-v8a, mode « Ne pas déranger », position simulée à Cotonou par Maestro. C'est un ancien haut de
+gamme (2019), plus puissant que la cible D50 (2 à 3 Go) : **la mesure sur un Android d'entrée ou de
+milieu de gamme reste à faire**. Trois itérations par scénario, mêmes définitions que le relevé
+émulateur ci-dessous (p5 = 2ᵉ plus faible des 51 mesures, « hors lancement » = sans les 10 premières).
+
+| Scénario                             | FPS médian | FPS médian hors lancement | FPS moyen   | p5      | CPU moyen | RAM moyenne  |
+| ------------------------------------ | ---------- | ------------------------- | ----------- | ------- | --------- | ------------ |
+| Recherche + défilement des résultats | 59,9       | 59,9                      | 57,6 à 57,8 | 38 à 42 | 63 à 66 % | 313 à 321 Mo |
+| Itinéraire + navigation              | 59,9       | 59,9                      | 57,4 à 58,4 | 37 à 47 | 66 à 73 % | 325 à 332 Mo |
+
+Démarrage à froid : médiane 0,92 s (5 lancements, 0,90 à 0,95 s).
+
+La médiane tient 60 FPS dans les deux scénarios. Les creux reviennent au même moment à chaque
+itération : lancement (≈ 1,5 s, 23 à 36 FPS), recherche (≈ 8,5 s), arrivée des résultats (≈ 11 à
+12 s, 38 à 42 FPS), puis début de chaque balayage (47 à 55 FPS sur l'échantillon de 500 ms, avec un
+pic du thread JS). Maestro est plus lent sur le téléphone que sur l'émulateur (≈ 50 s par itération
+de recherche contre 33 s) : la fenêtre de 25 s couvre le lancement, la recherche et environ la moitié
+des balayages. La RAM est plus élevée que sur l'émulateur (≈ 315 à 330 Mo contre ≈ 275 Mo).
+
 ## Relevé du 2026-10-13 — build final, émulateur (le téléphone n'était pas branché)
 
 Émulateur Android 16 x86_64, 2 Go de RAM, GPU de l'hôte, build release final (1 rem = 16 dp, D57).
