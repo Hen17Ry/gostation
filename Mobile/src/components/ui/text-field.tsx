@@ -44,7 +44,7 @@ export const TextField = forwardRef<
           cursorColor={colors.primary}
           secureTextEntry={secure && !visible}
           maxFontSizeMultiplier={1.6}
-          className="h-full flex-1 font-sans text-body text-foreground"
+          className="h-full flex-1 font-geist text-body text-foreground"
           {...props}
           onFocus={(e) => {
             setFocused(true)

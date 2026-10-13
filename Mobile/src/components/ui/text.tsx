@@ -20,11 +20,13 @@ const VARIANT: Record<TextVariant, { size: string; weight: TextWeight }> = {
   caption: { size: 'text-caption', weight: 'medium' },
 }
 
-const WEIGHT: Record<TextWeight, string> = {
-  regular: 'font-sans',
-  medium: 'font-medium',
-  semibold: 'font-semibold',
-  bold: 'font-bold',
+// Familles Geist par graisse (jamais `font-bold` & co : leur font-weight ferait retomber Android sur
+// Roboto ; test de non-régression dans text.test.tsx).
+export const WEIGHT: Record<TextWeight, string> = {
+  regular: 'font-geist',
+  medium: 'font-geist-medium',
+  semibold: 'font-geist-semibold',
+  bold: 'font-geist-bold',
 }
 
 const TONE: Record<TextTone, string> = {

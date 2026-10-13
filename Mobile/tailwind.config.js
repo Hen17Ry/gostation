@@ -3,6 +3,8 @@
  * sémantiques (variables posées par le thème, clair ou sombre selon le système), générés depuis le
  * design system web (scripts/gen-tokens.mts) ; la palette Tailwind par défaut est remplacée.
  */
+const { platformSelect } = require('nativewind/theme')
+
 const { tokens } = require('./src/theme/tokens.cjs')
 
 const role = (name) => `rgb(var(--${name}) / <alpha-value>)`
@@ -34,12 +36,16 @@ module.exports = {
       title1: ['28px', { lineHeight: '34px' }],
       display: ['34px', { lineHeight: '40px' }],
     },
+    // Une famille par graisse (Android ne synthétise pas les graisses d'une police embarquée) :
+    // nom du fichier sous Android, nom PostScript sous iOS. Clés distinctes des utilitaires de
+    // graisse (`font-bold`…) : leur `font-weight` ferait retomber Android sur Roboto ; et pas `sans`
+    // ni `mono`, que le preset NativeWind redéfinit (polices système) dans theme.extend.
     fontFamily: {
-      sans: ['Geist_400Regular'],
-      medium: ['Geist_500Medium'],
-      semibold: ['Geist_600SemiBold'],
-      bold: ['Geist_700Bold'],
-      mono: ['GeistMono_500Medium'],
+      geist: [platformSelect({ ios: 'Geist-Regular', default: 'Geist_400Regular' })],
+      'geist-medium': [platformSelect({ ios: 'Geist-Medium', default: 'Geist_500Medium' })],
+      'geist-semibold': [platformSelect({ ios: 'Geist-SemiBold', default: 'Geist_600SemiBold' })],
+      'geist-bold': [platformSelect({ ios: 'Geist-Bold', default: 'Geist_700Bold' })],
+      'geist-mono': [platformSelect({ ios: 'GeistMono-Medium', default: 'GeistMono_500Medium' })],
     },
     borderRadius: {
       none: '0px',

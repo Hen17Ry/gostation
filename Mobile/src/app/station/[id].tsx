@@ -237,7 +237,7 @@ function Hours({ s }: { s: PublicStation }) {
                   variant="subhead"
                   weight={isToday ? 'semibold' : 'regular'}
                   tone={!day ? 'muted' : 'default'}
-                  className={cn('font-mono', isToday && 'text-primary-subtle-foreground')}
+                  className={cn('font-geist-mono', isToday && 'text-primary-subtle-foreground')}
                 >
                   {text}
                 </Text>
