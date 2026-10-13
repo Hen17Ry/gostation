@@ -12,6 +12,8 @@ MAESTRO="${MAESTRO:-$HOME/.maestro/bin/maestro}"
 # shellcheck source=device.sh
 source scripts/device.sh
 device_save
+# Captures de référence en police normale (celle du téléphone est rétablie à la fin).
+"$ADB" shell settings put system font_scale 1.0
 SHOTS=docs/screenshots
 WORK="$(mktemp -d)"
 STACK=""

@@ -10,6 +10,8 @@ MAESTRO="${MAESTRO:-$HOME/.maestro/bin/maestro}"
 # shellcheck source=device.sh
 source scripts/device.sh
 device_save
+# Captures de référence en police normale (celle du téléphone est rétablie à la fin).
+"$ADB" shell settings put system font_scale 1.0
 
 ready() { curl -fsS -o /dev/null http://127.0.0.1:8095/readyz 2> /dev/null; }
 stack=""

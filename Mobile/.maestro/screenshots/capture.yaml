@@ -41,9 +41,10 @@ appId: bj.gostation.app
 - waitForAnimationToEnd:
     timeout: 5000
 - takeScreenshot: 06-results-${THEME}
+# Geste parti du résumé (qui ne défile pas) : le panneau s'ouvre sans faire défiler la liste.
 - swipe:
-    start: 50%, 60%
-    end: 50%, 12%
+    start: 30%, 46%
+    end: 30%, 8%
     duration: 500
 - waitForAnimationToEnd
 - takeScreenshot: 07-results-expanded-${THEME}
@@ -107,6 +108,12 @@ appId: bj.gostation.app
 - tapOn:
     id: sign-up-email
 - inputText: ${output.email}
+# Sur un téléphone (police agrandie, clavier haut), le champ peut être sous le clavier.
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: sign-up-password
+    direction: DOWN
 - tapOn:
     id: sign-up-password
 - inputText: Cotonou-Fidjrosse-2026

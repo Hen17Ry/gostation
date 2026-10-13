@@ -16,6 +16,12 @@ appId: bj.gostation.app
 - tapOn:
     id: sign-up-email
 - inputText: ${output.email}
+# Sur un téléphone (police agrandie, clavier haut), le champ peut être sous le clavier.
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: sign-up-password
+    direction: DOWN
 - tapOn:
     id: sign-up-password
 - inputText: Cotonou-Fidjrosse-2026
