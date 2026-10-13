@@ -5,28 +5,40 @@ const n = (s: string) => s.replace(/[  ]/g, ' ')
 
 describe('formats', () => {
   it('distances', () => {
-    expect(formatDistance(447)).toBe('450 m')
+    expect(n(formatDistance(447))).toBe('450 m')
     expect(n(formatDistance(1234))).toBe('1,2 km')
-    expect(formatDistance(25_400)).toBe('25 km')
+    expect(n(formatDistance(25_400))).toBe('25 km')
+  })
+
+  // Régression : « la plus proche à ≈ 320 » puis « m » seul à la ligne suivante.
+  it('ne sépare jamais un nombre de son unité', () => {
+    for (const s of [
+      formatDistance(447),
+      formatDistance(1234),
+      formatDuration(65 * 60),
+      formatQuantity('liter', 1200),
+    ]) {
+      expect(s).not.toMatch(/ /)
+    }
   })
 
   it('durées', () => {
-    expect(formatDuration(20)).toBe('1 min')
-    expect(formatDuration(7 * 60)).toBe('7 min')
-    expect(formatDuration(65 * 60)).toBe('1 h 05')
+    expect(n(formatDuration(20))).toBe('1 min')
+    expect(n(formatDuration(7 * 60))).toBe('7 min')
+    expect(n(formatDuration(65 * 60))).toBe('1 h 05')
   })
 
   it('quantités', () => {
-    expect(formatQuantity('cylinder', 1)).toBe('1 bouteille')
-    expect(formatQuantity('cylinder', 12)).toBe('12 bouteilles')
+    expect(n(formatQuantity('cylinder', 1))).toBe('1 bouteille')
+    expect(n(formatQuantity('cylinder', 12))).toBe('12 bouteilles')
     expect(n(formatQuantity('liter', 1200))).toBe('1 200 L')
   })
 
   it('« il y a »', () => {
     expect(formatAgo(30)).toBe('à l’instant')
-    expect(formatAgo(5 * 60)).toBe('il y a 5 min')
-    expect(formatAgo(3 * 3600 + 10)).toBe('il y a 3 h')
-    expect(formatAgo(3 * 86_400)).toBe('il y a 3 j')
+    expect(n(formatAgo(5 * 60))).toBe('il y a 5 min')
+    expect(n(formatAgo(3 * 3600 + 10))).toBe('il y a 3 h')
+    expect(n(formatAgo(3 * 86_400))).toBe('il y a 3 j')
   })
 
   it('distances lues par la synthèse vocale', () => {

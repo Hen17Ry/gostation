@@ -17,18 +17,24 @@ function df(key: string, o: Intl.DateTimeFormatOptions) {
 
 export const formatInteger = (n: number) => nf('int', { maximumFractionDigits: 0 }).format(n)
 
+/** Espace insécable entre un nombre et son unité : « 320 m » ne se coupe jamais en fin de ligne. */
+export const NBSP = '\u00a0'
+
+/** Préfixe des valeurs estimées (vol d'oiseau) : « ≈ 320 m ». */
+export const APPROX = `≈${NBSP}`
+
 /** « 450 m », « 1,2 km », « 25 km ». */
 export function formatDistance(m: number): string {
-  if (m < 1000) return `${formatInteger(Math.round(m / 10) * 10)} m`
+  if (m < 1000) return `${formatInteger(Math.round(m / 10) * 10)}${NBSP}m`
   const km = m / 1000
-  return `${nf(km < 10 ? 'km1' : 'km0', { maximumFractionDigits: km < 10 ? 1 : 0 }).format(km)} km`
+  return `${nf(km < 10 ? 'km1' : 'km0', { maximumFractionDigits: km < 10 ? 1 : 0 }).format(km)}${NBSP}km`
 }
 
 /** « 7 min », « 1 h 05 ». */
 export function formatDuration(s: number): string {
   const min = Math.max(1, Math.round(s / 60))
-  if (min < 60) return `${min} min`
-  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`
+  if (min < 60) return `${min}${NBSP}min`
+  return `${Math.floor(min / 60)}${NBSP}h${NBSP}${String(min % 60).padStart(2, '0')}`
 }
 
 /** « 06:00 » (heure locale du Bénin). */

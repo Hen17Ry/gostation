@@ -85,7 +85,8 @@ describe('ResultCard', () => {
 
   it('résume tout pour les lecteurs d’écran', async () => {
     await renderCard({ stale: true })
-    const label = screen.getByTestId('result-1').props.accessibilityLabel as string
+    // Espaces insécables (nombre et unité) normalisées : les lecteurs d'écran les lisent comme des espaces.
+    const label = (screen.getByTestId('result-1').props.accessibilityLabel as string).replace(/\u00a0/g, ' ')
     expect(label).toContain('1. Station Akpakpa')
     expect(label).toContain('14 bouteilles')
     expect(label).toContain('Stock mis à jour il y a plus de 8 h')

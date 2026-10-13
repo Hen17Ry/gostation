@@ -2,6 +2,9 @@ import type { SearchResult } from '@/api/schemas'
 
 import { resultsSummary } from './results-summary'
 
+// Espaces insécables entre nombre et unité : normalisées pour les comparaisons.
+const n = (s: string) => s.replace(/\u00a0/g, ' ')
+
 const result = (distanceM: number, routeDistanceM: number | null): SearchResult => ({
   station: { id: `st-${distanceM}`, name: 'Station', brand: null, location: { lat: 6.37, lng: 2.44 } },
   distanceM,
@@ -22,16 +25,18 @@ describe('resultsSummary', () => {
   // vol d'oiseau, élargi par le cache, contre distance routière sur les cartes).
   it('donne la distance de la plus proche, comptée comme sur les cartes', () => {
     const results = [result(450, 2100), result(420, 590), result(480, 900), result(900, 1300)]
-    expect(resultsSummary(results)).toBe('4 stations · la plus proche à 590 m')
-    expect(resultsSummary(results)).not.toMatch(/moins de/)
+    expect(n(resultsSummary(results))).toBe('4 stations · la plus proche à 590 m')
+    expect(n(resultsSummary(results))).not.toMatch(/moins de/)
   })
 
   it('se rabat sur le vol d’oiseau sans distance routière, précédé de ≈ comme sur les cartes', () => {
-    expect(resultsSummary([result(12_400, null), result(3_200, null)])).toBe('2 stations · la plus proche à ≈ 3,2 km')
-    expect(resultsSummary([result(800, 950)], true)).toBe('1 station · la plus proche à ≈ 950 m')
+    expect(n(resultsSummary([result(12_400, null), result(3_200, null)]))).toBe(
+      '2 stations · la plus proche à ≈ 3,2 km',
+    )
+    expect(n(resultsSummary([result(800, 950)], true))).toBe('1 station · la plus proche à ≈ 950 m')
   })
 
   it('accorde au singulier', () => {
-    expect(resultsSummary([result(800, 950)])).toBe('1 station · la plus proche à 950 m')
+    expect(n(resultsSummary([result(800, 950)]))).toBe('1 station · la plus proche à 950 m')
   })
 })

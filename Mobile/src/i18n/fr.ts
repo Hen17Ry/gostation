@@ -98,8 +98,8 @@ export const fr = {
   },
   result: {
     quantity: {
-      cylinder: (n: number) => `${n} ${plural(n, 'bouteille', 'bouteilles')}`,
-      liter: (n: string) => `${n} L`,
+      cylinder: (n: number) => `${n}\u00a0${plural(n, 'bouteille', 'bouteilles')}`,
+      liter: (n: string) => `${n}\u00a0L`,
     },
     updated: (rel: string) => `Mis à jour ${rel}`,
     stale: 'À vérifier',
@@ -118,9 +118,9 @@ export const fr = {
     tomorrowAt: (time: string) => `demain à ${time}`,
     dayAt: (day: string, time: string) => `${day} à ${time}`,
     justNow: 'à l’instant',
-    agoMin: (n: number) => `il y a ${n} min`,
-    agoHour: (n: number) => `il y a ${n} h`,
-    agoDay: (n: number) => `il y a ${n} j`,
+    agoMin: (n: number) => `il y a ${n}\u00a0min`,
+    agoHour: (n: number) => `il y a ${n}\u00a0h`,
+    agoDay: (n: number) => `il y a ${n}\u00a0j`,
   },
   station: {
     title: 'Station',

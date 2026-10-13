@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Text } from '@/components/ui/text'
 import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
-import { formatAgo, formatDistance, formatDuration, formatQuantity, formatReopening } from '@/lib/format'
+import { APPROX, formatAgo, formatDistance, formatDuration, formatQuantity, formatReopening } from '@/lib/format'
 import { alpha, useTheme } from '@/theme/theme'
 
 /**
@@ -35,7 +35,7 @@ export const ResultCard = memo(function ResultCard({
   const { colors } = useTheme()
   const distance = formatDistance(r.routeDistanceM ?? r.distanceM)
   const duration = r.durationS !== null ? formatDuration(r.durationS) : null
-  const approx = approximate || r.routeDistanceM === null ? '≈ ' : ''
+  const approx = approximate || r.routeDistanceM === null ? APPROX : ''
   const travel = duration ? `${approx}${distance} · ${approx}${duration}` : `${approx}${distance}`
   const quantity = formatQuantity(unit, r.quantity)
   const closedText = !r.isOpen

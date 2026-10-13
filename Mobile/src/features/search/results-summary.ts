@@ -1,6 +1,6 @@
 import type { SearchResult } from '@/api/schemas'
 import { t } from '@/i18n'
-import { formatDistance } from '@/lib/format'
+import { APPROX, formatDistance } from '@/lib/format'
 
 /**
  * Sous-titre du panneau de résultats : « 4 stations · la plus proche à 590 m ». La distance est
@@ -13,7 +13,7 @@ export function resultsSummary(results: readonly SearchResult[], approximate = f
   const nearest = results.reduce((best, r) =>
     (r.routeDistanceM ?? r.distanceM) < (best.routeDistanceM ?? best.distanceM) ? r : best,
   )
-  const estimated = approximate || nearest.routeDistanceM === null ? '≈ ' : ''
+  const estimated = approximate || nearest.routeDistanceM === null ? APPROX : ''
   const distance = `${estimated}${formatDistance(nearest.routeDistanceM ?? nearest.distanceM)}`
   return `${t.search.results(results.length)} · ${t.search.nearest(distance)}`
 }
