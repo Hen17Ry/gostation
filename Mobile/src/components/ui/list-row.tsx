@@ -96,18 +96,18 @@ export function SwitchRow({
           </Text>
         )}
       </View>
-      <Switch
-        value={value}
-        disabled={disabled}
-        onValueChange={(v) => {
-          haptics.selection()
-          onValueChange(v)
-        }}
-        trackColor={{ false: colors.input, true: colors.primary }}
-        // Pouce clair dans les deux thèmes : sur fond sombre, la couleur de surface le rendait invisible.
-        thumbColor={tokens.neutral[50]}
-        importantForAccessibility="no"
-      />
+      {/* Visuel seulement : la ligne entière est l'unique cible et l'unique élément annoncé
+          (sinon l'interrupteur natif restait une seconde cible, sans nom). */}
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Switch
+          value={value}
+          disabled={disabled}
+          focusable={false}
+          trackColor={{ false: colors.input, true: colors.primary }}
+          // Pouce clair dans les deux thèmes : sur fond sombre, la couleur de surface le rendait invisible.
+          thumbColor={tokens.neutral[50]}
+        />
+      </View>
     </Pressable>
   )
 }
