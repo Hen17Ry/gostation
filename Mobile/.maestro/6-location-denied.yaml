@@ -1,0 +1,34 @@
+# Localisation refusée : l'app reste utilisable, le lieu se choisit sur la carte.
+appId: bj.gostation.app
+name: Localisation refusée
+---
+- launchApp:
+    clearState: true
+    permissions:
+      location: deny
+- tapOn:
+    id: onboarding-next
+- tapOn:
+    id: onboarding-later
+- tapOn:
+    id: onboarding-start
+- extendedWaitUntil:
+    visible: Localisation désactivée
+    timeout: 20000
+- assertVisible: Touchez la carte pour choisir le lieu autour duquel chercher.
+# Toucher la carte place le point de recherche (centre : Cotonou).
+- tapOn:
+    point: 50%,30%
+- extendedWaitUntil:
+    visible: Point de recherche choisi
+    timeout: 10000
+- tapOn:
+    id: kind-lpg
+- tapOn:
+    id: size-lpg_10kg
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible:
+      id: result-1
+    timeout: 20000

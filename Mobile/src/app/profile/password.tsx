@@ -38,12 +38,21 @@ export default function ChangePassword() {
   return (
     <Screen
       title={t.account.password}
-      footer={<Button label={t.common.save} size="lg" loading={form.formState.isSubmitting} onPress={submit} />}
+      footer={
+        <Button
+          testID="password-submit"
+          label={t.common.save}
+          size="lg"
+          loading={form.formState.isSubmitting}
+          onPress={submit}
+        />
+      }
     >
       {error && <Banner tone="danger">{error}</Banner>}
       <FormField
         control={form.control}
         name="currentPassword"
+        testID="current-password"
         label={t.account.currentPassword}
         secure
         autoComplete="current-password"
@@ -52,6 +61,7 @@ export default function ChangePassword() {
       <FormField
         control={form.control}
         name="newPassword"
+        testID="new-password"
         label={t.auth.newPassword}
         hint={t.auth.passwordHint}
         secure

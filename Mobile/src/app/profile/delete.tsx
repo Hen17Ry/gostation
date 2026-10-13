@@ -40,6 +40,7 @@ export default function DeleteAccount() {
       title={t.account.deleteTitle}
       footer={
         <Button
+          testID="delete-submit"
           label={t.account.delete}
           icon={Trash2}
           variant="destructive"
@@ -54,6 +55,7 @@ export default function DeleteAccount() {
       <FormField
         control={form.control}
         name="password"
+        testID="delete-password"
         label={t.auth.password}
         secure
         autoComplete="current-password"

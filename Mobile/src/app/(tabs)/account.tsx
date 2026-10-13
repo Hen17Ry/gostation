@@ -122,13 +122,24 @@ export default function Account() {
           <Section title={t.account.profile}>
             <ListRow icon={UserRound} title={t.account.editProfile} onPress={() => router.push('/profile/edit')} />
             <Divider className="ml-14" />
-            <ListRow icon={Smartphone} title={t.account.sessions} onPress={() => router.push('/profile/sessions')} />
+            <ListRow
+              testID="account-sessions"
+              icon={Smartphone}
+              title={t.account.sessions}
+              onPress={() => router.push('/profile/sessions')}
+            />
             <Divider className="ml-14" />
-            <ListRow icon={KeyRound} title={t.account.password} onPress={() => router.push('/profile/password')} />
+            <ListRow
+              testID="account-password"
+              icon={KeyRound}
+              title={t.account.password}
+              onPress={() => router.push('/profile/password')}
+            />
             {me.emailVerified && (
               <>
                 <Divider className="ml-14" />
                 <ListRow
+                  testID="account-notifications"
                   icon={BellRing}
                   title={t.account.notifications}
                   onPress={() => router.push('/profile/notifications')}
@@ -143,7 +154,12 @@ export default function Account() {
         </Section>
 
         <Section title={t.account.legal}>
-          <ListRow icon={ShieldCheck} title={t.account.privacy} onPress={() => router.push('/legal/privacy')} />
+          <ListRow
+            testID="account-privacy"
+            icon={ShieldCheck}
+            title={t.account.privacy}
+            onPress={() => router.push('/legal/privacy')}
+          />
           <Divider className="ml-14" />
           <ListRow icon={FileText} title={t.account.terms} onPress={() => router.push('/legal/terms')} />
           {__DEV__ && (
@@ -156,9 +172,15 @@ export default function Account() {
 
         {signedIn && (
           <Section>
-            <ListRow icon={LogOut} title={t.account.signOut} onPress={leaving ? undefined : signOut} />
+            <ListRow
+              testID="account-sign-out"
+              icon={LogOut}
+              title={t.account.signOut}
+              onPress={leaving ? undefined : signOut}
+            />
             <Divider className="ml-14" />
             <ListRow
+              testID="account-delete"
               icon={Trash2}
               title={t.account.delete}
               destructive

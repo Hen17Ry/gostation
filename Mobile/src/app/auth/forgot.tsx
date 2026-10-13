@@ -34,13 +34,21 @@ export default function Forgot() {
       title={t.auth.forgotTitle}
       subtitle={t.auth.forgotSubtitle}
       footer={
-        <Button label={t.auth.sendCode} icon={Send} size="lg" loading={form.formState.isSubmitting} onPress={submit} />
+        <Button
+          testID="forgot-submit"
+          label={t.auth.sendCode}
+          icon={Send}
+          size="lg"
+          loading={form.formState.isSubmitting}
+          onPress={submit}
+        />
       }
     >
       {error && <Banner tone="danger">{error}</Banner>}
       <FormField
         control={form.control}
         name="email"
+        testID="forgot-email"
         label={t.auth.email}
         autoComplete="email"
         textContentType="emailAddress"

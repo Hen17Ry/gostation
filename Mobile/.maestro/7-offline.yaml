@@ -1,0 +1,16 @@
+# Hors connexion : message et derniers résultats de la session ; retour à la normale ensuite.
+appId: bj.gostation.app
+name: Hors connexion
+---
+- runFlow: common/start.yaml
+- runFlow: common/search.yaml
+- setAirplaneMode: enabled
+- extendedWaitUntil:
+    visible: 'Derniers résultats de cette session.*'
+    timeout: 20000
+- assertVisible:
+    id: result-1
+- setAirplaneMode: disabled
+- extendedWaitUntil:
+    notVisible: 'Derniers résultats de cette session.*'
+    timeout: 30000

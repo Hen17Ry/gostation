@@ -45,7 +45,14 @@ export default function Reset() {
       title={t.auth.resetTitle}
       subtitle={t.auth.resetSubtitle(email)}
       footer={
-        <Button label={t.auth.reset} icon={KeyRound} size="lg" loading={form.formState.isSubmitting} onPress={submit} />
+        <Button
+          testID="reset-submit"
+          label={t.auth.reset}
+          icon={KeyRound}
+          size="lg"
+          loading={form.formState.isSubmitting}
+          onPress={submit}
+        />
       }
     >
       {error && <Banner tone="danger">{error}</Banner>}
@@ -67,6 +74,7 @@ export default function Reset() {
       <FormField
         control={form.control}
         name="newPassword"
+        testID="reset-password"
         label={t.auth.newPassword}
         hint={t.auth.passwordHint}
         secure

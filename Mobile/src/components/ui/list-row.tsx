@@ -16,7 +16,9 @@ export function ListRow({
   onPress,
   trailing,
   destructive,
+  testID,
 }: {
+  testID?: string
   icon?: LucideIcon
   title: string
   subtitle?: string
@@ -44,6 +46,7 @@ export function ListRow({
   if (!onPress) return content
   return (
     <Pressable
+      testID={testID}
       accessibilityRole="button"
       accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
       onPress={onPress}

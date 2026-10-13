@@ -32,6 +32,7 @@ cleanup() {
   "$ADB" reverse tcp:8080 tcp:8080 > /dev/null 2>&1 || true
   if [[ -n "$stack" && "${E2E_KEEP:-0}" != 1 ]]; then
     kill "$stack" 2> /dev/null || true
+    pkill -f "$ROOT/var/e2e/bin/" 2> /dev/null || true
     "$ROOT/scripts/e2e-stack.sh" down > /dev/null 2>&1 || true
   fi
 }
