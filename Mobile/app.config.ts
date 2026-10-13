@@ -73,6 +73,8 @@ const config: ExpoConfig = {
       },
     ],
     '@maplibre/maplibre-react-native',
+    // Méthodes Java/Kotlin du parcours principal précompilées à l'installation (images perdues sinon).
+    './plugins/with-baseline-profile',
     [
       'expo-build-properties',
       {

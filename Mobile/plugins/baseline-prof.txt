@@ -1,0 +1,15 @@
+# Profil de référence ART (baseline profile), compilé par AGP dans assets/dexopt/baseline.prof.
+# Bibliothèques du parcours principal : montage Fabric et texte, SVG (icônes), carte, gestes et
+# animations, modules Expo, liste. Précompilées à l'installation (Play Store, ou ProfileInstaller
+# puis compilation en tâche de fond) au lieu d'être interprétées au premier usage.
+# Mesures avant/après : docs/performance.md.
+HSPLcom/facebook/react/**->**(**)**
+HSPLcom/facebook/yoga/**->**(**)**
+HSPLcom/facebook/jni/**->**(**)**
+HSPLcom/facebook/fbreact/**->**(**)**
+HSPLcom/horcrux/svg/**->**(**)**
+HSPLorg/maplibre/**->**(**)**
+HSPLcom/swmansion/**->**(**)**
+HSPLexpo/modules/**->**(**)**
+HSPLcom/th3rdwave/**->**(**)**
+HSPLcom/shopify/**->**(**)**
