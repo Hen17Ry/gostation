@@ -36,15 +36,22 @@ export const RouteMap = forwardRef<
 >(function RouteMap({ line, dashed = false, station, origin, showUser, follow, topInset }, ref) {
   const { colors, scheme } = useTheme()
   const camera = useRef<CameraRef>(null)
+  // Un cadrage demandé avant la fin du chargement de la carte serait perdu (repli en 503, immédiat
+  // sans OSRM) : le dernier est gardé et appliqué au chargement.
+  const loaded = useRef(false)
+  const pendingFit = useRef<(() => void) | null>(null)
 
   useImperativeHandle(ref, () => ({
     fit(points, padding) {
       if (points.length === 0) return
-      camera.current?.fitBounds(bounds(points), {
-        padding: { top: padding.top + 24, bottom: padding.bottom + 24, left: 40, right: 40 },
-        duration: 600,
-        easing: 'ease',
-      })
+      const run = () =>
+        camera.current?.fitBounds(bounds(points), {
+          padding: { top: padding.top + 24, bottom: padding.bottom + 24, left: 40, right: 40 },
+          duration: 600,
+          easing: 'ease',
+        })
+      if (loaded.current) run()
+      else pendingFit.current = run
     },
   }))
 
@@ -90,6 +97,11 @@ export const RouteMap = forwardRef<
       touchRotate={follow}
       touchPitch={false}
       attributionPosition={{ top: topInset + 4, right: 8 }}
+      onDidFinishLoadingMap={() => {
+        loaded.current = true
+        pendingFit.current?.()
+        pendingFit.current = null
+      }}
     >
       <Camera
         ref={camera}
