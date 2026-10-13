@@ -4,11 +4,16 @@ import { formatDistance } from '@/lib/format'
 
 /**
  * Sous-titre du panneau de résultats : « 4 stations · la plus proche à 590 m ». La distance est
- * celle des cartes (routière, sinon à vol d'oiseau). Le rayon de recherche ne convient pas : compté
- * à vol d'oiseau et élargi du rayon de la cellule du cache, il ne dit pas où sont les stations.
+ * celle des cartes (routière, sinon à vol d'oiseau, précédée de ≈ comme sur les cartes). Le rayon de
+ * recherche ne convient pas : compté à vol d'oiseau et élargi du rayon de la cellule du cache, il
+ * ne dit pas où sont les stations.
  */
-export function resultsSummary(results: readonly SearchResult[]): string {
+export function resultsSummary(results: readonly SearchResult[], approximate = false): string {
   if (results.length === 0) return t.search.results(0)
-  const nearest = Math.min(...results.map((r) => r.routeDistanceM ?? r.distanceM))
-  return `${t.search.results(results.length)} · ${t.search.nearest(formatDistance(nearest))}`
+  const nearest = results.reduce((best, r) =>
+    (r.routeDistanceM ?? r.distanceM) < (best.routeDistanceM ?? best.distanceM) ? r : best,
+  )
+  const estimated = approximate || nearest.routeDistanceM === null ? '≈ ' : ''
+  const distance = `${estimated}${formatDistance(nearest.routeDistanceM ?? nearest.distanceM)}`
+  return `${t.search.results(results.length)} · ${t.search.nearest(distance)}`
 }

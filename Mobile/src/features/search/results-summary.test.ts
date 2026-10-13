@@ -26,8 +26,9 @@ describe('resultsSummary', () => {
     expect(resultsSummary(results)).not.toMatch(/moins de/)
   })
 
-  it('se rabat sur le vol d’oiseau sans distance routière', () => {
-    expect(resultsSummary([result(12_400, null), result(3_200, null)])).toBe('2 stations · la plus proche à 3,2 km')
+  it('se rabat sur le vol d’oiseau sans distance routière, précédé de ≈ comme sur les cartes', () => {
+    expect(resultsSummary([result(12_400, null), result(3_200, null)])).toBe('2 stations · la plus proche à ≈ 3,2 km')
+    expect(resultsSummary([result(800, 950)], true)).toBe('1 station · la plus proche à ≈ 950 m')
   })
 
   it('accorde au singulier', () => {

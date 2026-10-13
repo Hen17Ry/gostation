@@ -205,7 +205,7 @@ export function MapHome() {
       ) : (
         <Summary
           label={product ? productLabel(product) : response.product.label}
-          summary={resultsSummary(results)}
+          summary={resultsSummary(results, response.routingApproximate)}
           onEdit={() => {
             setPickerOpen(true)
             sheet.current?.snapToIndex(0)
