@@ -1,5 +1,6 @@
 import { onlineManager } from '@tanstack/react-query'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native'
+import { Keyboard } from 'react-native'
 
 import { t } from '@/i18n'
 import { renderWithProviders } from '@/test/render'
@@ -154,6 +155,15 @@ describe('saisie des stocks (D59)', () => {
     await fireEvent.changeText(screen.getByTestId('stock-petrol-qty'), '8 000')
     expect(screen.getByText(t.manager.stocks.save(2))).toBeTruthy()
     expect(useStockDraft.getState().values).toEqual({ 1: 0, 2: 8000 })
+  })
+
+  it('l’enregistrement ferme le clavier et quitte le champ des litres', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss')
+    await renderStocks()
+    await fireEvent.changeText(screen.getByTestId('stock-petrol-qty'), '8 000')
+    await fireEvent.press(submit())
+    expect(dismiss).toHaveBeenCalled()
+    dismiss.mockRestore()
   })
 
   it('hors connexion : saisie gardée, envoi bloqué puis proposé au retour du réseau', async () => {

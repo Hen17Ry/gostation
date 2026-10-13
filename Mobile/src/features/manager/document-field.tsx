@@ -1,5 +1,5 @@
 import { Image } from 'expo-image'
-import { Camera, FileText, FolderOpen, RefreshCw, Trash2 } from 'lucide-react-native'
+import { Camera, FileText, FolderOpen, Trash2 } from 'lucide-react-native'
 import { useState } from 'react'
 import { View } from 'react-native'
 
@@ -101,23 +101,21 @@ export function DocumentField({
         </View>
       )}
 
-      <View className="flex-row gap-3">
+      <View className="gap-3">
         <Button
           testID="document-photo"
-          label={value ? t.manager.replaceDocument : t.manager.takePhoto}
-          icon={value ? RefreshCw : Camera}
+          label={value ? t.manager.retakePhoto : t.manager.takePhoto}
+          icon={Camera}
           variant={value ? 'outline' : 'primary'}
           disabled={busy}
-          className="flex-1"
           onPress={() => choose('photo')}
         />
         <Button
           testID="document-file"
-          label={t.manager.pickFile}
+          label={value ? t.manager.pickOtherFile : t.manager.pickFile}
           icon={FolderOpen}
           variant="outline"
           disabled={busy}
-          className="flex-1"
           onPress={() => choose('file')}
         />
       </View>

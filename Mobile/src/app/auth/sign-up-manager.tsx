@@ -214,6 +214,7 @@ export default function ManagerSignUp() {
             testID="manager-sign-up-previous"
             label={t.manager.previous}
             icon={ArrowLeft}
+            iconOnly
             variant="outline"
             size="lg"
             onPress={() => (step === 0 ? router.back() : goTo(step - 1))}

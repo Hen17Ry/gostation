@@ -3,7 +3,7 @@ import { onlineManager, useQuery, useQueryClient } from '@tanstack/react-query'
 import { router } from 'expo-router'
 import { ArrowRight, BellOff, Check, PackageOpen, Search, Send, Undo2, WifiOff } from 'lucide-react-native'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, BackHandler, KeyboardAvoidingView, ScrollView, View } from 'react-native'
+import { Alert, BackHandler, Keyboard, KeyboardAvoidingView, ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { isApiError } from '@/api/errors'
@@ -158,7 +158,13 @@ export function StocksScreen() {
 
   const items = base?.items ?? []
   const setQuantity = (productId: number, q: number) => useStockDraft.getState().setQuantity(productId, q)
-  const primary = () => (changes.length > 0 ? summary.current?.present() : send())
+  const primary = () => {
+    // Le retour d'Android ferme le clavier sans quitter le champ des litres : sans ce blur, il
+    // resterait actif (contour, texte sélectionné) sous le récapitulatif et après l'envoi.
+    Keyboard.dismiss()
+    if (changes.length > 0) summary.current?.present()
+    else void send()
+  }
 
   return (
     <TabScreen

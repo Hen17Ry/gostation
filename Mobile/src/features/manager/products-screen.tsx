@@ -86,7 +86,7 @@ export function ProductsScreen() {
 
   const group = (title: string, list: StationProduct[]) =>
     list.length > 0 && (
-      <Section title={title}>
+      <Section title={title} bare>
         <Card flush className="overflow-hidden">
           {list.map((p) => (
             <SwitchRow

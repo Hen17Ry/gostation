@@ -10,7 +10,7 @@ import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { agoFrom, formatInteger, formatQuantity } from '@/lib/format'
 import { haptics } from '@/lib/haptics'
-import { useTheme } from '@/theme/theme'
+import { alpha, useTheme } from '@/theme/theme'
 
 /**
  * Ligne de la saisie des stocks : produit, fraîcheur (« mis à jour il y a », badge à vérifier ou
@@ -138,6 +138,8 @@ function LitersInput({
         keyboardType="number-pad"
         returnKeyType="done"
         selectTextOnFocus
+        selectionColor={alpha(colors.primary, 0.35)}
+        cursorColor={colors.primary}
         maxFontSizeMultiplier={1.6}
         className="h-14 flex-1"
         style={{ color: colors.foreground, fontFamily: 'GeistMono_500Medium', fontSize: 24 }}

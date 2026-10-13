@@ -8,7 +8,7 @@ import { AnimatedView } from '@/lib/animated'
 import { cn } from '@/lib/cn'
 import { formatInteger } from '@/lib/format'
 import { haptics } from '@/lib/haptics'
-import { useTheme } from '@/theme/theme'
+import { alpha, useTheme } from '@/theme/theme'
 
 import { Text } from './text'
 
@@ -178,6 +178,8 @@ export function Stepper({
             keyboardType="number-pad"
             returnKeyType="done"
             selectTextOnFocus
+            selectionColor={alpha(colors.primary, 0.35)}
+            cursorColor={colors.primary}
             maxLength={String(max).length}
             className="h-14 w-full text-center"
             style={{ color: colors.foreground, fontFamily: 'GeistMono_500Medium', fontSize: 24 }}

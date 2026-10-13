@@ -53,7 +53,7 @@ export function StationScreen() {
                   tone={s.setup.searchable ? 'success' : 'warning'}
                 />
               </View>
-              <Section title={t.manager.station.setupSection}>
+              <Section title={t.manager.station.setupSection} bare>
                 <Card flush className="overflow-hidden">
                   <ListRow
                     testID="station-location"
@@ -84,8 +84,10 @@ export function StationScreen() {
                   )}
                 </Card>
               </Section>
-              <Section title={t.manager.station.profile}>
-                <StationForm station={station.data!} />
+              <Section title={t.manager.station.profile} bare>
+                <Card>
+                  <StationForm station={station.data!} />
+                </Card>
               </Section>
             </>
           )}

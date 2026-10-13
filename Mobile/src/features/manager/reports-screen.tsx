@@ -47,7 +47,7 @@ export function ReportsScreen() {
           {t.manager.reports.subtitle}
         </Text>
 
-        <Section title={t.manager.reports.effects}>
+        <Section title={t.manager.reports.effects} bare>
           {!page ? (
             <Skeleton height={72} />
           ) : page.flags.length === 0 ? (
@@ -85,7 +85,7 @@ export function ReportsScreen() {
           )}
         </Section>
 
-        <Section title={t.manager.reports.history}>
+        <Section title={t.manager.reports.history} bare>
           <View className="flex-row gap-2" accessibilityRole="radiogroup">
             <Chip label={t.manager.reports.open} selected={status === 'open'} onPress={() => setStatus('open')} />
             <Chip label={t.manager.reports.all} selected={status === 'all'} onPress={() => setStatus('all')} />

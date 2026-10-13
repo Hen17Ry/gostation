@@ -170,7 +170,7 @@ export function HoursScreen() {
               />
             ))}
 
-          <Section title={t.manager.hours.closures}>
+          <Section title={t.manager.hours.closures} bare>
             <Text variant="footnote" tone="muted">
               {t.manager.hours.closuresHint}
             </Text>

@@ -34,9 +34,12 @@ const SIZE: Record<Size, string> = {
   lg: 'h-14 px-6 rounded-xl',
 }
 
+const SQUARE: Record<Size, string> = { sm: 'w-10 px-0', md: 'w-12 px-0', lg: 'w-14 px-0' }
+
 /**
  * Bouton : variantes aux tokens, état de chargement (indicateur + occupé annoncé), désactivé
- * lisible, icône facultative. Le libellé visible est aussi le nom accessible.
+ * lisible, icône facultative. Le libellé visible est aussi le nom accessible ; `iconOnly` : bouton
+ * carré, icône seule, le libellé reste le nom lu par le lecteur d'écran.
  */
 export function Button({
   label,
@@ -44,6 +47,7 @@ export function Button({
   size = 'md',
   icon: Icon,
   loading = false,
+  iconOnly = false,
   disabled,
   className,
   ...props
@@ -54,6 +58,7 @@ export function Button({
   size?: Size
   icon?: LucideIcon
   loading?: boolean
+  iconOnly?: boolean
   className?: string
 }) {
   const { colors } = useTheme()
@@ -72,6 +77,7 @@ export function Button({
         'flex-row items-center justify-center gap-2',
         // Lien : aligné sur le texte voisin (pas de marge latérale), zone tactile élargie par hitSlop.
         variant === 'link' ? 'h-10 self-start px-0' : SIZE[size],
+        iconOnly && SQUARE[size],
         BOX[variant],
         inactive && !loading && 'opacity-50',
         className,
@@ -87,9 +93,11 @@ export function Button({
           </View>
         )
       )}
-      <Text variant={size === 'sm' ? 'subhead' : 'headline'} weight="semibold" tone={tone} numberOfLines={1}>
-        {label}
-      </Text>
+      {!iconOnly && (
+        <Text variant={size === 'sm' ? 'subhead' : 'headline'} weight="semibold" tone={tone} numberOfLines={1}>
+          {label}
+        </Text>
+      )}
     </PressableScale>
   )
 }
