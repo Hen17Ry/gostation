@@ -38,6 +38,13 @@ module.exports = defineConfig([
           selector: 'Literal[value=/\\b(?:bg|text|border)-\\[#[0-9a-fA-F]{3,8}\\]/]',
           message: 'Couleur brute interdite : utiliser une classe sémantique (docs/design-system.md).',
         },
+        {
+          // Police et couleur d'un <Text> : `weight` / `mono` et `tone`. Une classe concurrente en
+          // className ne l'emporte que selon l'ordre de la feuille générée (horaires en deux polices).
+          selector:
+            "JSXOpeningElement[name.name='Text'] > JSXAttribute[name.name='className'] Literal[value=/(^|\\s)(font-|text-(?!(center|left|right|display|title\\d|headline|body|callout|subhead|footnote|caption)(\\s|$)))/]",
+          message: 'Police ou couleur de <Text> : props weight, mono et tone (src/components/ui/text.tsx).',
+        },
       ],
     },
   },

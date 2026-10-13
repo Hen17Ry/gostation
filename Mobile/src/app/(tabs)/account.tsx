@@ -91,7 +91,7 @@ export default function Account() {
                 className="h-14 w-14 items-center justify-center rounded-full bg-primary-subtle"
                 accessibilityElementsHidden
               >
-                <Text variant="title3" className="text-primary-subtle-foreground">
+                <Text variant="title3" tone="onPrimarySubtle">
                   {`${me.firstName[0] ?? ''}${me.lastName[0] ?? ''}`.toUpperCase()}
                 </Text>
               </View>

@@ -229,16 +229,11 @@ function Hours({ s }: { s: PublicStation }) {
                 <Text
                   variant="subhead"
                   weight={isToday ? 'semibold' : 'regular'}
-                  className={isToday ? 'text-primary-subtle-foreground' : undefined}
+                  tone={isToday ? 'onPrimarySubtle' : 'default'}
                 >
                   {name}
                 </Text>
-                <Text
-                  variant="subhead"
-                  weight={isToday ? 'semibold' : 'regular'}
-                  tone={!day ? 'muted' : 'default'}
-                  className={cn('font-geist-mono', isToday && 'text-primary-subtle-foreground')}
-                >
+                <Text variant="subhead" mono tone={isToday ? 'onPrimarySubtle' : !day ? 'muted' : 'default'}>
                   {text}
                 </Text>
               </View>

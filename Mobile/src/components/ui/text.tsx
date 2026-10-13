@@ -4,7 +4,8 @@ import { cn } from '@/lib/cn'
 
 export type TextVariant =
   'display' | 'title1' | 'title2' | 'title3' | 'headline' | 'body' | 'callout' | 'subhead' | 'footnote' | 'caption'
-export type TextTone = 'default' | 'muted' | 'brand' | 'onPrimary' | 'destructive' | 'success' | 'warning' | 'info'
+export type TextTone =
+  'default' | 'muted' | 'brand' | 'onPrimary' | 'onPrimarySubtle' | 'destructive' | 'success' | 'warning' | 'info'
 export type TextWeight = 'regular' | 'medium' | 'semibold' | 'bold'
 
 const VARIANT: Record<TextVariant, { size: string; weight: TextWeight }> = {
@@ -34,29 +35,54 @@ const TONE: Record<TextTone, string> = {
   muted: 'text-muted-foreground',
   brand: 'text-brand-text',
   onPrimary: 'text-primary-foreground',
+  onPrimarySubtle: 'text-primary-subtle-foreground',
   destructive: 'text-destructive',
   success: 'text-success-subtle-foreground',
   warning: 'text-warning-subtle-foreground',
   info: 'text-info-subtle-foreground',
 }
 
+/** Geist Mono (chiffres alignés : horaires, code) n'est embarquée qu'en une graisse (500). */
+const MONO = 'font-geist-mono'
+
 /**
- * Texte aux tokens (Geist, une famille par graisse : Android ne synthétise pas les graisses des
- * polices embarquées). Taille dynamique respectée, plafonnée pour garder les écrans utilisables.
+ * Classes de taille, de famille et de couleur d'un texte : une seule de chaque. Deux classes de même
+ * propriété (famille ou couleur) ne se départagent que par leur ordre dans la feuille générée : la
+ * famille passe donc par `weight` / `mono` et la couleur par `tone`, jamais par `className`.
  */
-export function Text({
+export function textClasses({
   variant = 'body',
   tone = 'default',
   weight,
+  mono = false,
+}: {
+  variant?: TextVariant
+  tone?: TextTone
+  weight?: TextWeight
+  mono?: boolean
+}): string {
+  const v = VARIANT[variant]
+  return cn(v.size, mono ? MONO : WEIGHT[weight ?? v.weight], TONE[tone])
+}
+
+/**
+ * Texte aux tokens (Geist, une famille par graisse : Android ne synthétise pas les graisses des
+ * polices embarquées). Taille dynamique respectée, plafonnée pour garder les écrans utilisables.
+ * `className` sert à la mise en page (flex, marges, alignement), pas à la police ni à la couleur.
+ */
+export function Text({
+  variant,
+  tone,
+  weight,
+  mono,
   className,
   maxFontSizeMultiplier = 1.8,
   ...props
-}: TextProps & { variant?: TextVariant; tone?: TextTone; weight?: TextWeight; className?: string }) {
-  const v = VARIANT[variant]
+}: TextProps & { variant?: TextVariant; tone?: TextTone; weight?: TextWeight; mono?: boolean; className?: string }) {
   return (
     <RNText
       maxFontSizeMultiplier={maxFontSizeMultiplier}
-      className={cn(v.size, WEIGHT[weight ?? v.weight], TONE[tone], className)}
+      className={cn(textClasses({ variant, tone, weight, mono }), className)}
       {...props}
     />
   )

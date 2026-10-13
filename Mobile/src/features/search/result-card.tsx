@@ -131,7 +131,7 @@ export const ResultCard = memo(function ResultCard({
               className="h-10 flex-row items-center gap-1.5 overflow-hidden rounded-full bg-primary-subtle px-3.5"
             >
               <Navigation size={16} color={colors['primary-subtle-foreground']} strokeWidth={2.4} />
-              <Text variant="subhead" weight="semibold" className="text-primary-subtle-foreground">
+              <Text variant="subhead" weight="semibold" tone="onPrimarySubtle">
                 {t.station.route}
               </Text>
             </Pressable>

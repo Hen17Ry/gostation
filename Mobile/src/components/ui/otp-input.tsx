@@ -45,7 +45,7 @@ export function OtpInput({
               )}
               style={active && !error ? { borderWidth: 2 } : undefined}
             >
-              <Text variant="title2" weight="semibold" className="font-geist-mono">
+              <Text variant="title2" mono>
                 {value[i] ?? ''}
               </Text>
             </View>

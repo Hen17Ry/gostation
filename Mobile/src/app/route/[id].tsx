@@ -397,7 +397,7 @@ function NavigationPanel({
         accessible
         accessibilityLabel={`${t.route.eta} ${eta}, ${formatDuration(remainingS)}, ${formatDistance(remainingM)}`}
       >
-        <Text variant="title2" className="text-success-subtle-foreground">
+        <Text variant="title2" tone="success">
           {eta}
         </Text>
         <Text variant="subhead" tone="muted">
