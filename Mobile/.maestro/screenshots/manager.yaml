@@ -58,7 +58,12 @@ appId: bj.gostation.app
     id: manager-ifu
 - inputText: '32019123'
 - hideKeyboard
-# IFU incomplet : le compteur montre 8/13 pendant la saisie.
+# IFU incomplet : le compteur montre 8/13 pendant la saisie ; formulaire remonté en haut (étapes).
+- swipe:
+    start: 50%, 30%
+    end: 50%, 80%
+    duration: 400
+- waitForAnimationToEnd
 - takeScreenshot: 51-manager-sign-up-station-${THEME}
 - tapOn:
     id: manager-ifu
