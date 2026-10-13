@@ -18,4 +18,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return (resolveRequest ?? context.resolveRequest)(context, moduleName, platform)
 }
 
-module.exports = withNativeWind(config, { input: './src/global.css' })
+// 1 rem = 16 dp, comme sur le web : NativeWind compte 14 par défaut, ce qui réduisait toutes les
+// tailles en rem de 12,5 % (boutons icône de 42 dp au lieu de 48, marges de 17,5 dp au lieu de 20).
+module.exports = withNativeWind(config, { input: './src/global.css', inlineRem: 16 })

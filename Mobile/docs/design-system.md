@@ -75,7 +75,9 @@ feuille générée. ESLint refuse une classe `font-*` ou de couleur sur un `<Tex
 ## 3. Espacements, rayons, élévations
 
 - **Grille de 4 dp.** Marges d'écran 20 dp, marge interne des cartes 16 dp, écart entre blocs 20 dp,
-  entre éléments liés 8 à 12 dp.
+  entre éléments liés 8 à 12 dp. Les classes Tailwind valent ici ce qu'elles valent sur le web :
+  1 rem = 16 dp (`inlineRem` de NativeWind, 14 par défaut, fixé dans `metro.config.js`), donc
+  `p-4` = 16 dp et `h-12` = 48 dp.
 - **Rayons** : 4 (`xs`), 6 (`sm`), 10 (`md`), 12 (`lg`, champs et boutons), 16 (`xl`, cartes), 20
   (`2xl`), 28 (`3xl`, panneau d'itinéraire), plein (`full`, puces, boutons ronds). Le bottom sheet a
   des coins de 24 dp.
