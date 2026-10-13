@@ -1,0 +1,47 @@
+# Inscription d'un compte jetable puis saisie du code reçu dans Mailpit.
+appId: bj.gostation.app
+---
+- runScript:
+    file: ../scripts/new-email.js
+- tapOn:
+    id: tab-account
+- tapOn:
+    id: account-sign-up
+- tapOn:
+    id: sign-up-first-name
+- inputText: Ama
+- tapOn:
+    id: sign-up-last-name
+- inputText: Kossou
+- tapOn:
+    id: sign-up-email
+- inputText: ${output.email}
+# Sur un téléphone (police agrandie, clavier haut), le champ peut être sous le clavier.
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: sign-up-password
+    direction: DOWN
+- tapOn:
+    id: sign-up-password
+- inputText: Cotonou-Fidjrosse-2026
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: sign-up-policy
+    direction: DOWN
+- tapOn:
+    id: sign-up-policy
+- tapOn:
+    id: sign-up-submit
+- extendedWaitUntil:
+    visible: Vérifiez votre email
+    timeout: 15000
+- runScript:
+    file: ../scripts/mail-code.js
+    env:
+      EMAIL: ${output.email}
+- inputText: ${output.code}
+- extendedWaitUntil:
+    visible: Email vérifié
+    timeout: 10000

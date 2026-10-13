@@ -1,0 +1,23 @@
+# Favori : compte vérifié, ajout depuis la fiche, présence dans l'onglet Favoris.
+appId: bj.gostation.app
+name: Favori
+---
+- runFlow: common/start.yaml
+- runFlow: common/sign-up.yaml
+- tapOn:
+    id: tab-index
+- runFlow: common/search.yaml
+- tapOn:
+    id: result-1
+- extendedWaitUntil:
+    visible: Stocks
+    timeout: 10000
+- tapOn:
+    id: station-favorite
+- extendedWaitUntil:
+    visible: Ajoutée aux favoris
+    timeout: 10000
+- back
+- tapOn:
+    id: tab-favorites
+- assertVisible: Alertes

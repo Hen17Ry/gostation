@@ -1,0 +1,23 @@
+# Itinéraire : aperçu (durée, distance, arrivée), démarrage du guidage, arrêt.
+appId: bj.gostation.app
+name: Itinéraire
+---
+- runFlow: common/start.yaml
+- runFlow: common/search.yaml
+- tapOn:
+    id: result-1-route
+- extendedWaitUntil:
+    visible:
+      id: route-start
+    timeout: 20000
+- assertVisible: Arrivée.*
+- tapOn:
+    id: route-start
+- extendedWaitUntil:
+    visible:
+      id: route-stop
+    timeout: 10000
+- tapOn:
+    id: route-stop
+- assertVisible:
+    id: route-start

@@ -1,0 +1,9 @@
+# Prépare la capture de l'animation de rayon (le tap et l'enregistrement sont faits par states.sh).
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- tapOn:
+    id: kind-lpg
+- tapOn:
+    id: size-lpg_10kg
+- waitForAnimationToEnd

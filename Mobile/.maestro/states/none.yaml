@@ -1,0 +1,14 @@
+# Aucune station n'a le produit en stock (Gaz 7,5 kg, avant la mise en scène).
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- tapOn:
+    id: kind-lpg
+- tapOn: 7,5 kg
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible: .*ce produit en stock pour le moment.*
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 27-no-station-${THEME}

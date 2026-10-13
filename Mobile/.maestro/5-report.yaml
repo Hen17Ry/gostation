@@ -1,0 +1,25 @@
+# Signalement « station fermée » sur place (contrôle des 2 km par l'API).
+appId: bj.gostation.app
+name: Signalement
+---
+- runFlow: common/start.yaml
+- runFlow: common/sign-up.yaml
+- tapOn:
+    id: tab-index
+- runFlow: common/search.yaml
+- tapOn:
+    id: result-1
+- extendedWaitUntil:
+    visible:
+      id: station-report
+    timeout: 10000
+- tapOn:
+    id: station-report
+- tapOn:
+    id: report-reason-station_closed
+- assertVisible: .*moins de 2 km de la station.*
+- tapOn:
+    id: report-submit
+- extendedWaitUntil:
+    visible: Merci, votre signalement a été envoyé.
+    timeout: 15000

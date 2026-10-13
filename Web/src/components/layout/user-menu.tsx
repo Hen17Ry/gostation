@@ -2,6 +2,7 @@ import { LogOut, ShieldCheck } from 'lucide-react'
 
 import type { Profile } from '@/api/schemas'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,8 +15,15 @@ import { useSignOut } from '@/features/auth/use-sign-out'
 import { t } from '@/i18n'
 import { initials } from '@/lib/initials'
 
-export function UserMenu({ me }: { me: Profile }) {
+export function UserMenu({ me }: { me?: Profile }) {
   const { signOut, pending } = useSignOut()
+  // Profil en cours de vérification (coquille affichée sans attendre /me) : pastille neutre.
+  if (!me)
+    return (
+      <Button variant="ghost" size="icon" className="rounded-full" disabled aria-label={t.topbar.account}>
+        <Skeleton aria-hidden className="size-8 rounded-full" />
+      </Button>
+    )
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -41,7 +49,7 @@ export function UserMenu({ me }: { me: Profile }) {
           <span className="truncate text-xs text-muted-foreground">{me.email}</span>
           <span className="mt-1.5 inline-flex items-center gap-1 text-2xs text-success-subtle-foreground">
             <ShieldCheck className="size-3.5" aria-hidden />
-            Administrateur · 2FA active
+            {t.topbar.adminRole}
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

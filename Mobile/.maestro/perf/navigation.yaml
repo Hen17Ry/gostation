@@ -1,0 +1,38 @@
+# Mesure (Flashlight) : aperçu d'itinéraire puis guidage (carte suivie, bandeau de manœuvre).
+appId: bj.gostation.app
+---
+- launchApp:
+    stopApp: true
+    permissions:
+      location: allow
+- setLocation:
+    latitude: 6.3654
+    longitude: 2.4183
+- extendedWaitUntil:
+    visible:
+      id: search-submit
+    timeout: 20000
+- tapOn:
+    id: kind-petrol
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible:
+      id: result-1-route
+    timeout: 20000
+- tapOn:
+    id: result-1-route
+- extendedWaitUntil:
+    visible:
+      id: route-start
+    timeout: 20000
+- tapOn:
+    id: route-start
+- swipe:
+    start: 50%, 50%
+    end: 30%, 40%
+    duration: 500
+- waitForAnimationToEnd:
+    timeout: 8000
+- tapOn:
+    id: route-stop

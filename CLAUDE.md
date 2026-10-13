@@ -23,6 +23,13 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 
 ## Règles mobile
 
+- **Une seule app** (`bj.gostation.app`) pour les utilisateurs et les gérants, navigation selon le rôle ; Android d'abord, code compatible iOS (D49). Cible : Android d'entrée et de milieu de gamme (2 à 3 Go), data chère : 60 fps (listes, carte, animations), démarrage à froid < 2,5 s, requêtes et tuiles minimisées (D50).
+- **Position** (règle 2, D51) : en mémoire seulement (store non persisté) ; jamais dans une clé de requête, MMKV, les préférences ou une URL. Résultats de recherche et itinéraires en mémoire ; seules les requêtes `['public', …]` sont persistées (`src/test/privacy.test.ts`).
+- **Session** : refresh token dans expo-secure-store, access token en mémoire, refresh single-flight (`src/api/session.ts`) ; en-tête `X-Install-Id` (UUID tiré au premier lancement).
+- **Textes** : français, tous dans `src/i18n/` (`fr.ts`, `errors.ts` par code stable) ; aucun texte en dur dans un composant (hors `/design`).
+- **Design** : tokens générés depuis le web (`npm run gen:tokens`), classes sémantiques NativeWind ou `useTheme().colors` ; couleur brute refusée par ESLint (hors `src/theme`). Composant Reanimated avec classes : `AnimatedView` / `AnimatedPressable` de `src/lib/animated.tsx`, jamais `className` sur `Animated.View` (css-interop casserait le style animé). Cibles ≥ 48 dp, libellés pour lecteurs d'écran, police dynamique, contrastes AA. Documenté dans `Mobile/docs/design-system.md`, vitrine `/design` (dev seulement).
+- **Carte** : style OpenFreeMap recoloré (`npm run gen:map-styles`, sans sprite ni raster), marqueurs en couches natives regroupées (jamais une vue React par marqueur), caméra limitée au Bénin, cache ambiant 80 Mo. Crédits par `MapAttribution` (« © OpenStreetMap · OpenFreeMap », cible de 48 dp, toujours visible sur la carte), jamais le bouton ⓘ natif.
+- **Dev sur téléphone** : `adb reverse tcp:8080 tcp:8080` (API) et `tcp:8081` (Metro) ; URL de l'API dans `EXPO_PUBLIC_API_URL` (D55).
 - **Station fermée** : afficher clairement « Fermée · rouvre à HH:MM » (heure locale de `nextOpening`, jour en plus s'il ne s'agit pas d'aujourd'hui : « rouvre demain à 06:00 »).
 - **Itinéraire indisponible** (`/routes` → 503 `routing.unavailable`) : tracer une ligne droite vers la station et proposer « Ouvrir dans une autre app » (Android : intent `geo:lat,lng?q=lat,lng(Nom)` ; iOS : Apple Plans). Les 422 (`routing.no_route`, `search.out_of_coverage`) ont leur propre message.
 - **Étapes d'itinéraire** traduites en français avec `osrm-text-instructions` (règle 11).
@@ -57,7 +64,7 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 ```
 GoStation/
 ├── Backend/            API Go (cmd/api, internal/…, db/migrations, db/queries, sqlc.yaml)
-├── Mobile/             Expo React Native — app unique user + manager
+├── Mobile/             Expo React Native — app unique user + manager : src/{app,features,components,api,i18n,lib,map,stores,theme}, scripts/, docs/ (design-system.md, screenshots/), .maestro/
 ├── Web/                Admin React (Vite) : src/{routes,features,components,api,i18n,lib,styles}, e2e/, docs/ (design-system.md, screenshots/)
 ├── docs/               ARCHITECTURE.md
 ├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), e2e-stack.sh, _lib.sh
@@ -71,7 +78,7 @@ GoStation/
 - **Backend** : Go 1.27, chi v5, pgx v5 (pgxpool), sqlc, goose v3, go-redis v9, golang-jwt v5 (access 15 min signé en **EdDSA/Ed25519** avec `kid`), refresh tokens opaques rotatifs dans Redis, argon2id aux paramètres OWASP (`golang.org/x/crypto/argon2`), TOTP RFC 6238, SMTP via `net/smtp` (Mailpit en dev), asynq v0.26 (worker : emails, push Expo, rappels, stats, purges ; asynqmon 0.7 en dev), uber/h3-go v4, `log/slog`.
 - **Données** : PostgreSQL 18 + PostGIS 3.6 (`geography(Point,4326)`, index GiST, `uuidv7()` natif), Redis 8.10 (cache, refresh tokens, files asynq ; `maxmemory-policy noeviction`).
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
-- **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, Expo Router, Reanimated 4, FlashList 2, TanStack Query 5, Zustand 5, react-hook-form + zod 4, expo-secure-store, expo-location, expo-notifications. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
+- **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, React Compiler, Expo Router (routes typées), NativeWind 4 (Tailwind 3), Reanimated 4, Gesture Handler, @gorhom/bottom-sheet 5, FlashList 2, expo-image, expo-haptics, lucide-react-native, TanStack Query 5 (persisté dans MMKV v4), Zustand 5, react-hook-form + zod/mini, openapi-fetch, expo-secure-store, expo-location, expo-keep-awake, expo-speech, osrm-text-instructions, NetInfo, expo-notifications (9B). Tests : jest-expo + React Native Testing Library 14, Maestro, Flashlight. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
 - **Web** : Vite 8, React 19 (React Compiler), TypeScript strict, Tailwind CSS 4, shadcn/ui (Radix) + composants 21st.dev, TanStack Router (routes fichiers) + Query + Table, react-hook-form + zod/mini, openapi-typescript + openapi-fetch, Recharts via shadcn Chart, maplibre-gl, motion, lucide-react, polices Geist auto-hébergées. Tests : Vitest + Testing Library, Playwright.
 - **Outillage Go** (installé par `make tools`, versions figées dans le Makefile) : goose v3.28, sqlc v1.31, golangci-lint v2.14. Tests d'intégration avec testcontainers-go. Go 1.27 installé via snap (`/snap/bin/go`).
 - Les versions exactes sont figées par `go.mod` et les lockfiles. On reprend les versions fournies par les templates Expo et Vite à l'init.
@@ -119,6 +126,20 @@ npm run build && npm run check:bundle   # build de production + budget du JS ini
 npm run e2e         # Playwright sur le build (vite preview, 4173) et une pile isolée (make up suffit : base gostation_e2e, API 8095)
 npm run screenshots # captures de Web/docs/screenshots (chaque écran, clair/sombre, 1440 et 1024 px)
 ```
+
+# App mobile (dans Mobile/ ; téléphone en débogage USB, l'API doit tourner)
+npm install         # dépendances (versions figées par package-lock.json)
+npm run android     # compile et installe le dev build (expo run:android), puis Metro
+npm start           # Metro seul (dev build déjà installé)
+adb reverse tcp:8080 tcp:8080 && adb reverse tcp:8081 tcp:8081   # API et Metro vus du téléphone
+npm run gen:api | gen:tokens | gen:map-styles | gen:icons        # types d'API, tokens, styles de carte, icônes
+npm run lint        # ESLint + Prettier ;  npm run typecheck : tsc --noEmit
+npm test            # Jest (logique et composants)
+npm run e2e         # Maestro (.maestro/) contre la pile isolée (base gostation_e2e, API 8095) ; build release installé
+npm run screenshots # captures de docs/screenshots/ (chaque écran, clair et sombre)
+npm run perf        # Flashlight (FPS, CPU, RAM) : recherche + défilement, navigation → var/perf/
+npm run states      # états mis en scène sur la pile isolée (aucune station, fermée/signalée, hors connexion, localisation refusée, alerte de retour en stock, compte, guidage simulé, OSRM coupé) + captures
+npm run a11y        # audit d'accessibilité par écran (noms accessibles, cibles ≥ 48 dp) + captures en police ×1,5 → var/a11y/
 
 Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**), API E2E **8095** (worker **8096**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 

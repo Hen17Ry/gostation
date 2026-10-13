@@ -11,6 +11,8 @@
 !debug.keystore
 credentials.json
 service-account*.json
+# Réglages Claude Code personnels (autorisations locales)
+.claude/settings.local.json
 
 # ── Données locales ──────────────────────────────────────────────────────────
 .cache/

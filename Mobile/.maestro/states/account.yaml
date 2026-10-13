@@ -1,0 +1,91 @@
+# Écrans de gestion du compte (captures), avec un vrai changement de mot de passe et une réinitialisation.
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/sign-up.yaml
+- tapOn:
+    id: tab-account
+- scrollUntilVisible:
+    element:
+      id: account-password
+- tapOn:
+    id: account-password
+- tapOn:
+    id: current-password
+- inputText: Cotonou-Fidjrosse-2026
+- tapOn:
+    id: new-password
+- inputText: Ganvie-Lagune-2027
+- hideKeyboard
+- takeScreenshot: 37-change-password-${THEME}
+- tapOn:
+    id: password-submit
+- extendedWaitUntil:
+    visible: Mot de passe changé
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: account-sign-out
+- tapOn:
+    id: account-sign-out
+- extendedWaitUntil:
+    visible:
+      id: account-sign-in
+    timeout: 10000
+- tapOn:
+    id: account-sign-in
+- tapOn: Mot de passe oublié ?
+- tapOn:
+    id: forgot-email
+- inputText: ${output.email}
+- hideKeyboard
+- takeScreenshot: 38-forgot-password-${THEME}
+- tapOn:
+    id: forgot-submit
+- extendedWaitUntil:
+    visible: Nouveau mot de passe
+    timeout: 10000
+- runScript:
+    file: ../scripts/mail-code.js
+    env:
+      EMAIL: ${output.email}
+      SUBJECT: Réinitialisation
+- inputText: ${output.code}
+- tapOn:
+    id: reset-password
+- inputText: Porto-Novo-Ouidah-2028
+- hideKeyboard
+- takeScreenshot: 39-reset-password-${THEME}
+- tapOn:
+    id: reset-submit
+- extendedWaitUntil:
+    visible: Mot de passe changé. Connectez-vous.
+    timeout: 10000
+- tapOn:
+    id: sign-in-email
+- inputText: ${output.email}
+- tapOn:
+    id: sign-in-password
+- inputText: Porto-Novo-Ouidah-2028
+- hideKeyboard
+- tapOn:
+    id: sign-in-submit
+- extendedWaitUntil:
+    visible: Ama Kossou
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: account-delete
+- tapOn:
+    id: account-delete
+- tapOn:
+    id: delete-password
+- inputText: Porto-Novo-Ouidah-2028
+- hideKeyboard
+- takeScreenshot: 40-delete-account-${THEME}
+- tapOn:
+    id: delete-submit
+- extendedWaitUntil:
+    visible:
+      id: account-sign-up
+    timeout: 15000

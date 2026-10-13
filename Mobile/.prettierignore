@@ -1,0 +1,13 @@
+android
+ios
+.expo
+dist
+coverage
+node_modules
+package-lock.json
+assets
+src/api/schema.d.ts
+src/theme/tokens.generated.ts
+src/theme/tokens.cjs
+src/map/styles
+docs/screenshots

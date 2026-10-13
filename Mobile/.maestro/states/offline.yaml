@@ -1,0 +1,19 @@
+# Hors connexion : derniers résultats de la session, recherche désactivée.
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/search.yaml
+- setAirplaneMode: enabled
+- extendedWaitUntil:
+    visible: 'Derniers résultats de cette session.*'
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 32-offline-results-${THEME}
+- tapOn:
+    id: search-edit
+- waitForAnimationToEnd
+- takeScreenshot: 33-offline-search-${THEME}
+- setAirplaneMode: disabled
+- extendedWaitUntil:
+    notVisible: 'Hors connexion'
+    timeout: 30000

@@ -232,6 +232,7 @@ Blocs inspirés du catalogue 21st.dev (code récupéré via le MCP, puis réécr
 - Lighthouse (build de production, médiane de 3 passes, 12 octobre 2026) : desktop connexion 99,
   tableau de bord 97 ; mobile connexion 84, tableau de bord 60, mesurés sur une machine chargée
   (charge 4 à 7 sur 8 cœurs, indice CPU de Lighthouse ≈ 1 150). Accessibilité et bonnes pratiques
-  100 partout. Sur mobile, le tableau de bord attend la garde de session (`/me`) puis rend ses
-  sections sous CPU ×4 simulé (TBT ≈ 650 ms) : rendu optimiste de la coquille et allègement des
-  indicateurs sont les prochaines pistes.
+  100 partout. Depuis, la coquille s'affiche sans attendre `/me` quand le navigateur connaît la
+  session (vérification en parallèle, retour à la connexion si elle échoue) : tableau de bord
+  mobile **62** (médiane de 3 passes, charge 2 à 3). Le reste vient du rendu des sections sous CPU
+  ×4 simulé (TBT ≈ 650 ms) : l'allègement des indicateurs est la prochaine piste.

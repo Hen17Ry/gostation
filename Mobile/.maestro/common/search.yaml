@@ -1,0 +1,13 @@
+# Recherche de gaz 10 kg depuis la position courante.
+appId: bj.gostation.app
+---
+- tapOn:
+    id: kind-lpg
+- tapOn:
+    id: size-lpg_10kg
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible:
+      id: result-1
+    timeout: 20000
