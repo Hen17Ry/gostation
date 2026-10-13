@@ -63,6 +63,13 @@ describe('ResultCard', () => {
     expect(screen.getByText('Fermée · rouvre demain à 06:00')).toBeOnTheScreen()
   })
 
+  // Régression : la ligne partageait sa rangée avec « Itinéraire » sur une seule ligne et l'heure
+  // était tronquée (« rouvre demain à 00:… »).
+  it('ne tronque jamais l’heure de réouverture', async () => {
+    await renderCard({ isOpen: false, nextOpening: '2026-10-13T05:00:00Z' })
+    expect(screen.getByTestId('result-1-closed').props.numberOfLines).toBeUndefined()
+  })
+
   it('distances estimées : préfixe ≈', async () => {
     await renderCard({ routeDistanceM: null }, true)
     expect(screen.getByText(/≈ 1,2 km · ≈ 6 min/)).toBeOnTheScreen()

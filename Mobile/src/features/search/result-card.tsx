@@ -100,20 +100,27 @@ export const ResultCard = memo(function ResultCard({
             {r.stale && <Badge label={t.result.stale} tone="warning" icon={Clock3} />}
             {r.reported && <Badge label={t.result.reported} tone="danger" icon={Flag} />}
           </View>
-          <View className="mt-2 flex-row items-center justify-between gap-2">
-            <View className="flex-1 gap-0.5">
-              {closedText && (
-                <View className="flex-row items-center gap-1">
-                  <TriangleAlert size={14} color={colors['warning-subtle-foreground']} />
-                  <Text variant="footnote" weight="semibold" tone="warning" numberOfLines={1}>
-                    {closedText}
-                  </Text>
-                </View>
-              )}
-              <Text variant="caption" tone="muted" numberOfLines={1}>
-                {t.result.updated(formatAgo(r.updatedAgoS))}
+          {closedText && (
+            // Ligne entière : l'heure de réouverture ne doit jamais être tronquée.
+            <View className="mt-1.5 flex-row items-start gap-1">
+              <View className="pt-0.5">
+                <TriangleAlert size={14} color={colors['warning-subtle-foreground']} />
+              </View>
+              <Text
+                testID={`result-${rank}-closed`}
+                variant="footnote"
+                weight="semibold"
+                tone="warning"
+                className="flex-1"
+              >
+                {closedText}
               </Text>
             </View>
+          )}
+          <View className="mt-2 flex-row items-center justify-between gap-2">
+            <Text variant="caption" tone="muted" numberOfLines={1} className="flex-1">
+              {t.result.updated(formatAgo(r.updatedAgoS))}
+            </Text>
             <Pressable
               testID={`result-${rank}-route`}
               android_ripple={{ color: alpha(colors['primary-subtle-foreground'], 0.2), foreground: true }}
