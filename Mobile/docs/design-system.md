@@ -64,7 +64,12 @@ synthétise pas les graisses d'une police embarquée. Composant [`Text`](../src/
 | `caption`  | 12 / 16                  | 500     | « mis à jour il y a », badges (minimum)  |
 
 Taille dynamique respectée (`allowFontScaling`), plafonnée à ×1,8 (×1,6 dans les champs, ×1,3 dans la
-barre d'onglets) pour garder les écrans utilisables. Chiffres des horaires en Geist Mono.
+barre d'onglets) pour garder les écrans utilisables. Chiffres des horaires et du code en Geist Mono
+(prop `mono`).
+
+Police et couleur passent par les props de `Text` (`weight`, `mono`, `tone`), jamais par `className`,
+réservé à la mise en page : deux classes de même propriété ne se départagent que par l'ordre de la
+feuille générée. ESLint refuse une classe `font-*` ou de couleur sur un `<Text>`.
 
 ## 3. Espacements, rayons, élévations
 
