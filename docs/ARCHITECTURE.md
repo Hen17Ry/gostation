@@ -1188,7 +1188,7 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12)
+### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 : 2026-10-13)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1247,6 +1247,7 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D53 | Design system mobile | Tokens générés depuis `Web/src/styles/globals.css` (`npm run gen:tokens`, oklch → hex), exposés en variables NativeWind par thème (clair ou sombre selon le système) et en hex via `useTheme()` pour la carte et les icônes. Typographie Geist embarquée (une famille par graisse), corps 16 dp, cibles tactiles ≥ 48 dp, élévations natives, haptique parcimonieuse. Carte : style OpenFreeMap Positron recoloré aux tokens (`npm run gen:map-styles`), marqueurs en couches natives regroupées. Documentation : `Mobile/docs/design-system.md` ; vitrine `/design` en dev. |
 | D54 | Guidage | Étapes de l'API traduites sur l'appareil (osrm-text-instructions, `fr`), direction du départ calculée sur le tracé. Suivi par `watchPositionAsync` (précision navigation, 1 s / 3 m) ; recalcul au-delà de 50 m d'écart sur 2 mesures précises (≤ 40 m), au plus toutes les 20 s ; arrivée à 30 m. Annonces vocales facultatives (expo-speech) à 800, 200 et 40 m, une seule par seuil ; écran maintenu allumé pendant le guidage seulement. `/routes` en 503 ou réseau absent : ligne droite en pointillés et « Ouvrir dans une autre app » (intent `geo:` ou Apple Plans). |
 | D55 | Dev sur téléphone | L'API est jointe depuis le téléphone par `adb reverse tcp:8080 tcp:8080` (Metro : 8081) ; son URL est `EXPO_PUBLIC_API_URL` (`Mobile/.env`, `http://127.0.0.1:8080` par défaut). |
+| D56 | Correctifs Reanimated | `react-native-reanimated` 4.5.5 et `react-native-worklets` 0.10.4 au lieu des 4.5.1 / 0.10.1 de l'SDK 57 (exclus de `expo install --check`) : les correctifs 4.5.3 et 4.5.4 corrigent des crashs natifs du proxy d'animations de mise en page (délégué de montage Fabric), observés au rechargement du JS en dev build. À réaligner sur la version de l'SDK dès qu'elle les inclut. |
 
 ### Questions ouvertes
 
