@@ -6,6 +6,7 @@ import { Text } from 'react-native'
 
 import { meKeys } from '@/api/keys'
 import type { Profile } from '@/api/schemas'
+import TabsLayout from '@/app/(tabs)/_layout'
 import ManagerLayout from '@/app/manager/_layout'
 import { useAuth } from '@/stores/auth'
 import { usePrefs } from '@/stores/prefs'
@@ -38,8 +39,16 @@ const page = (label: string) =>
   function Page() {
     return <Text>{label}</Text>
   }
+// Recherche de l'espace utilisateur (carte et tuiles) : jamais rendue pour un gérant.
+const searchRendered = jest.fn()
+function SearchPage() {
+  searchRendered()
+  return <Text>écran recherche utilisateur</Text>
+}
 const routes = {
   _layout: () => <Stack screenOptions={{ headerShown: false }} />,
+  '(tabs)/_layout': TabsLayout,
+  '(tabs)/index': SearchPage,
   'manager/_layout': ManagerLayout,
   'manager/(tabs)/_layout': () => <Stack screenOptions={{ headerShown: false }} />,
   'manager/(tabs)/stocks': page('écran stocks'),
@@ -81,6 +90,18 @@ describe('espace gérant : écrans selon le statut de la station (D58, D61)', ()
   beforeEach(() => {
     useAuth.setState({ status: 'unknown' })
     usePrefs.getState().setSpace(null)
+    searchRendered.mockClear()
+  })
+
+  it('gérant ouvert sur « / » (lancement) : son accueil, sans rendre la recherche', async () => {
+    expect(await pathFor('approved', '/')).toBe('/manager/stocks')
+    expect(screen.getByText('écran stocks')).toBeTruthy()
+    expect(searchRendered).not.toHaveBeenCalled()
+  })
+
+  it('dossier en attente ouvert sur « / » : le statut, sans rendre la recherche', async () => {
+    expect(await pathFor('pending', '/')).toBe('/manager/status')
+    expect(searchRendered).not.toHaveBeenCalled()
   })
 
   it('station approuvée : les stocks sont l’accueil', async () => {

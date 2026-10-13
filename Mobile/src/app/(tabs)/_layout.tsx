@@ -1,13 +1,22 @@
 import { useQuery } from '@tanstack/react-query'
-import { Tabs } from 'expo-router'
+import { Redirect, Tabs } from 'expo-router'
 
 import { notificationsQuery } from '@/api/account'
 import { TabBar } from '@/components/tab-bar'
 import { useMe } from '@/features/auth/use-me'
+import { SPACE_HOME, useSpace } from '@/features/manager/space'
 
 export default function TabsLayout() {
   const { me } = useMe()
-  const inbox = useQuery({ ...notificationsQuery, enabled: !!me?.emailVerified, refetchInterval: 120_000 })
+  const space = useSpace()
+  const inbox = useQuery({
+    ...notificationsQuery,
+    enabled: !!me?.emailVerified && space === 'user',
+    refetchInterval: 120_000,
+  })
+  // Gérant ouvert sur « / » (lancement) : redirigé avant tout rendu, sans créer la carte de recherche
+  // ni charger ses tuiles (la garde de la pile racine ne s'applique qu'après ce premier rendu).
+  if (space !== 'user') return <Redirect href={SPACE_HOME[space]} />
   const unread = inbox.data?.unreadCount ?? 0
   return (
     <Tabs
