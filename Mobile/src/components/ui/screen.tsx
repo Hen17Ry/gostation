@@ -54,7 +54,15 @@ export function Screen({
   const compactStyle = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.value, [16, 40], [0, 1], Extrapolation.CLAMP),
   }))
-  const body = <View className={cn('gap-5 px-5 pb-6', !scroll && 'flex-1', className)}>{children}</View>
+  // Sans pied collant, le contenu finit au-dessus de la barre de navigation du système (edge-to-edge).
+  const body = (
+    <View
+      className={cn('gap-5 px-5 pb-6', !scroll && 'flex-1', className)}
+      style={footer ? undefined : { paddingBottom: 24 + insets.bottom }}
+    >
+      {children}
+    </View>
+  )
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-background"
