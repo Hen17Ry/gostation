@@ -22,6 +22,7 @@ import { searchOrigin, useLocation } from '@/features/location/location-store'
 import { t } from '@/i18n'
 import { AnimatedView } from '@/lib/animated'
 import { haptics } from '@/lib/haptics'
+import { splashReady } from '@/lib/splash'
 import { useOnline } from '@/lib/use-online'
 import { MapAttribution } from '@/map/attribution'
 import { StationsMap, type StationsMapHandle } from '@/map/stations-map'
@@ -36,6 +37,7 @@ import { SearchPulse } from './search-pulse'
 import { useSearch } from './search-store'
 
 const HANDLE_H = 24
+const onMapLoaded = () => splashReady('map')
 const NO_RESULTS: SearchResult[] = []
 
 /**
@@ -266,6 +268,7 @@ export function MapHome() {
         manual={loc.mode === 'manual' ? loc.manual : null}
         showUser={loc.permission === 'granted'}
         topInset={mapTop}
+        onLoaded={onMapLoaded}
         onSelect={onSelect}
         onPressMap={(p) => {
           if (!picking) return

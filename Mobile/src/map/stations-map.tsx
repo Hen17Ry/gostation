@@ -38,6 +38,8 @@ interface Props {
   /** Toucher la carte (hors marqueur) : choix du point de recherche si `picking`. */
   onPressMap?: (p: LatLng) => void
   onLongPressMap?: (p: LatLng) => void
+  /** Première image complète de la carte (style et tuiles visibles chargés). */
+  onLoaded?: () => void
   topInset: number
   children?: ReactNode
 }
@@ -50,7 +52,7 @@ type Pressed = NativeSyntheticEvent<{ lngLat: [number, number]; features?: GeoJS
  * numéro de rang, station sélectionnée mise en avant, position de l'appareil (puce native).
  */
 export const StationsMap = forwardRef<StationsMapHandle, Props>(function StationsMap(
-  { results, selectedId, manual, showUser, onSelect, onPressMap, onLongPressMap, topInset, children },
+  { results, selectedId, manual, showUser, onSelect, onPressMap, onLongPressMap, onLoaded, topInset, children },
   ref,
 ) {
   const { scheme, colors } = useTheme()
@@ -142,6 +144,7 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
       attribution={false}
       onPress={(e) => onPressMap?.({ lng: e.nativeEvent.lngLat[0], lat: e.nativeEvent.lngLat[1] })}
       onLongPress={(e) => onLongPressMap?.({ lng: e.nativeEvent.lngLat[0], lat: e.nativeEvent.lngLat[1] })}
+      onDidFinishLoadingMap={onLoaded}
     >
       <Camera
         ref={camera}

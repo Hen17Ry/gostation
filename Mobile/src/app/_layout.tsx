@@ -2,7 +2,7 @@ import '../global.css'
 
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
-import { Stack } from 'expo-router'
+import { Stack, usePathname } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect } from 'react'
@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ToastHost } from '@/components/ui/toast'
 import { useAuthBootstrap } from '@/features/auth/use-auth-bootstrap'
 import { bindQueryManagers, createQueryClient, persistOptions } from '@/lib/query-client'
+import { splashReady } from '@/lib/splash'
 import { configureMapCache } from '@/map/config'
 import { useAuth } from '@/stores/auth'
 import { usePrefs } from '@/stores/prefs'
@@ -44,10 +45,14 @@ function Root() {
   const { scheme, colors } = useTheme()
   const onboarded = usePrefs((s) => s.onboarded)
   const ready = useAuth((s) => s.status !== 'unknown')
+  const pathname = usePathname()
   useAuthBootstrap()
+  // Démarrage sur la carte : l'écran de démarrage attend aussi sa première image (src/lib/splash.ts).
   useEffect(() => {
-    if (ready) void SplashScreen.hideAsync()
-  }, [ready])
+    if (!ready) return
+    splashReady('session')
+    if (!onboarded || pathname !== '/') splashReady('map')
+  }, [ready, onboarded, pathname])
   if (!ready) return null
   return (
     <>
