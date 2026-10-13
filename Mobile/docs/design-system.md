@@ -145,8 +145,10 @@ variante `link` de `Button` (alignés sur le texte voisin, zone tactile élargie
   dédiée). Écussons de routes et pastilles de villes retirés : **pas de sprite**, pas de relief
   raster, donc moins de requêtes.
 - **Marqueurs** : couches natives d'une source GeoJSON regroupée (`cluster`, rayon 42 px) : pastille
-  orange avec le rang (ouverte), grise (fermée), halo sur la station choisie, nombre dans les
-  groupes. Aucune vue React par marqueur : la carte reste à 60 fps.
+  orange avec le rang (ouverte), grise (fermée), halo sur la station choisie. Un groupe s'affiche
+  en pile de pastilles portant le meilleur rang qu'il contient (un nombre de stations s'y lirait
+  comme un rang, cf. `src/map/markers.ts`) ; le toucher zoome dessus. Aucune vue React par
+  marqueur : la carte reste à 60 fps.
 - **Économie de data** : caméra limitée au Bénin et ses abords, zoom 5,5 à 18, cache ambiant de
   80 Mo réutilisé entre les sessions.
 - Rotation et inclinaison coupées pendant la recherche ; en navigation, la caméra suit la position

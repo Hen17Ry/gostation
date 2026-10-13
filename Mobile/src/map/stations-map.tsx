@@ -1,3 +1,4 @@
+import type { ExpressionSpecification } from '@maplibre/maplibre-gl-style-spec'
 import {
   Camera,
   type CameraRef,
@@ -18,6 +19,7 @@ import { closedMarker } from '@/theme/illustration'
 import { useTheme } from '@/theme/theme'
 
 import { DEFAULT_CENTER, DEFAULT_ZOOM, MAX_BOUNDS, MAX_ZOOM, MIN_ZOOM, mapStyles } from './config'
+import { clusterProperties, markerKey, markerOpen, markerRank } from './markers'
 
 export interface StationsMapHandle {
   /** Cadre les résultats et le point de départ, au-dessus du panneau (padding bas). */
@@ -93,7 +95,7 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
         type: 'Feature',
         id: i,
         geometry: { type: 'Point', coordinates: [r.station.location.lng, r.station.location.lat] },
-        properties: { id: r.station.id, rank: i + 1, open: r.isOpen ? 1 : 0 },
+        properties: { id: r.station.id, rank: i + 1, open: r.isOpen ? 1 : 0, key: markerKey(i + 1, r.isOpen) },
       })),
     }),
     [results],
@@ -123,7 +125,8 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
   }
 
   const ring = colors.surface
-  const closed = closedMarker[scheme].fill
+  const fill: ExpressionSpecification = ['case', markerOpen, colors.primary, closedMarker[scheme].fill]
+  const stack = { 'circle-radius': 12, 'circle-color': fill, 'circle-stroke-width': 3, 'circle-stroke-color': ring }
 
   return (
     <Map
@@ -176,32 +179,22 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
         cluster
         clusterRadius={42}
         clusterMaxZoom={13}
+        clusterProperties={clusterProperties}
         hitbox={{ top: 12, right: 12, bottom: 12, left: 12 }}
         onPress={onPressStations}
       >
-        {/* Groupe : pastille claire cerclée d'orange, distincte des stations (pleines et numérotées). */}
+        {/* Groupe : pastilles empilées derrière celle de sa meilleure station (cf. markers.ts). */}
         <Layer
-          id="clusters"
+          id="station-stack-far"
           type="circle"
-          filter={['has', 'point_count']}
-          paint={{
-            'circle-color': colors.popover,
-            'circle-radius': ['step', ['get', 'point_count'], 18, 10, 22, 50, 26],
-            'circle-stroke-width': 3,
-            'circle-stroke-color': colors.primary,
-          }}
+          filter={['>=', ['get', 'point_count'], 3]}
+          paint={{ ...stack, 'circle-translate': [10, -10] }}
         />
         <Layer
-          id="cluster-count"
-          type="symbol"
+          id="station-stack"
+          type="circle"
           filter={['has', 'point_count']}
-          layout={{
-            'text-field': ['get', 'point_count_abbreviated'],
-            'text-font': ['Noto Sans Bold'],
-            'text-size': 13,
-            'text-allow-overlap': true,
-          }}
-          paint={{ 'text-color': colors['brand-text'] }}
+          paint={{ ...stack, 'circle-translate': [5, -5] }}
         />
         <Layer
           id="station-selected"
@@ -212,9 +205,8 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
         <Layer
           id="station"
           type="circle"
-          filter={['!', ['has', 'point_count']]}
           paint={{
-            'circle-color': ['case', ['==', ['get', 'open'], 1], colors.primary, closed],
+            'circle-color': fill,
             'circle-radius': ['case', ['==', ['get', 'id'], selectedId ?? ''], 15, 12],
             'circle-stroke-width': 3,
             'circle-stroke-color': ring,
@@ -223,16 +215,15 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
         <Layer
           id="station-rank"
           type="symbol"
-          filter={['!', ['has', 'point_count']]}
           layout={{
-            'text-field': ['to-string', ['get', 'rank']],
+            'text-field': markerRank,
             'text-font': ['Noto Sans Bold'],
             'text-size': 12,
             'text-allow-overlap': true,
             'text-ignore-placement': true,
           }}
           paint={{
-            'text-color': ['case', ['==', ['get', 'open'], 1], colors['primary-foreground'], closedMarker[scheme].text],
+            'text-color': ['case', markerOpen, colors['primary-foreground'], closedMarker[scheme].text],
           }}
         />
       </GeoJSONSource>
