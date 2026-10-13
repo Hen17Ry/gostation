@@ -14,7 +14,8 @@ l'admin ([`Web/docs/design-system.md`](../../Web/docs/design-system.md)), établ
   typographie, composants, élévations, retours haptiques, dans le thème courant.
 - **Vérifications** : [`src/theme/tokens.test.ts`](../src/theme/tokens.test.ts) (52 contrastes WCAG
   AA, clair et sombre) ; ESLint refuse toute couleur brute hors de `src/theme`.
-- **Captures** : [`docs/screenshots/`](screenshots) (téléphone, clair et sombre).
+- **Captures** : [`docs/screenshots/`](screenshots) (clair et sombre ; index et régénération dans
+  [`screenshots/README.md`](screenshots/README.md)).
 
 ## 1. Tokens et thème
 
