@@ -6,12 +6,15 @@ import { api, unwrap } from './client'
 import { productKeys, stationKeys } from './keys'
 import { productListSchema, publicStationSchema, routeSchema, searchResponseSchema } from './schemas'
 
-/** Catalogue des produits actifs (rare à changer : 24 h, persisté pour l'usage hors ligne). */
+/**
+ * Catalogue des produits actifs : persisté pour l'usage hors ligne, relu au plus tard après 1 h
+ * (un produit ajouté ou désactivé par l'admin apparaît vite ; la réponse pèse moins d'1 Ko).
+ */
 export const productsQuery = queryOptions({
   queryKey: productKeys.all,
   queryFn: ({ signal }) => unwrap(api.GET('/api/v1/products', { signal }), productListSchema),
   select: (d) => d.items,
-  staleTime: 24 * 3600_000,
+  staleTime: 3600_000,
   gcTime: 7 * 24 * 3600_000,
 })
 
