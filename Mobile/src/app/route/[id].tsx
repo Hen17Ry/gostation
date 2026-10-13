@@ -240,15 +240,15 @@ export default function RouteScreen() {
               <Banner tone="warning" title={t.route.unavailable}>
                 {t.route.unavailableBody}
               </Banner>
-              <View className="flex-row gap-3">
-                <Button label={t.common.retry} variant="outline" className="flex-1" onPress={() => load(origin)} />
+              {/* L'un sous l'autre : « Ouvrir dans une autre app » ne doit pas être tronqué. */}
+              <View className="gap-3">
                 <Button
                   testID="route-external"
                   label={t.route.openExternal}
                   icon={ExternalLink}
-                  className="flex-[1.6]"
                   onPress={() => void openExternalNavigation(dest, name)}
                 />
+                <Button label={t.common.retry} variant="outline" onPress={() => load(origin)} />
               </View>
             </>
           )}
