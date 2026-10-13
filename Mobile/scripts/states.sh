@@ -88,10 +88,11 @@ PY
   "$ADB" shell input tap "$x" "$y"
   wait "$rec" || true
   "$ADB" pull -q /sdcard/radius.mp4 "$WORK/radius.mp4"
-  # Image retenue : pendant la recherche (bouton orange sous le choix du produit, pas encore de
-  # résultats), celle où les ondes changent le plus la carte par rapport à l'image d'avant l'appui.
+  # Image retenue : pendant la recherche (bouton orange, libellé « Recherche des stations… » au lieu
+  # de « Rechercher », pas encore de résultats), celle où les ondes changent le plus la carte par
+  # rapport à l'image d'avant l'appui. 30 images/s : une recherche servie vite ne dure que 200 ms.
   rm -rf "$WORK/frames" && mkdir -p "$WORK/frames"
-  ffmpeg -loglevel error -y -ss 1.4 -t 2 -i "$WORK/radius.mp4" -vf fps=15 "$WORK/frames/%03d.png"
+  ffmpeg -loglevel error -y -ss 1.4 -t 2 -i "$WORK/radius.mp4" -vf fps=30 "$WORK/frames/%03d.png"
   python3 - "$WORK/frames" "$SHOTS/05-searching-$t.png" "$y" "$("$ADB" shell wm size | tr -d '\r' | grep -oE '[0-9]+$' | tail -1)" <<'PY'
 import shutil, sys
 from pathlib import Path
@@ -105,12 +106,17 @@ def searching(im):
     w, h = im.size
     px = im.crop((int(w * 0.05), int(h * button) - 8, int(w * 0.18), int(h * button) + 8)).get_flattened_data()
     return sum(1 for r, g, b in px if r > 190 and b < 90 and r - b > 130) > 0.8 * len(px)
-def rings(im, ref):
-    w, h = im.size
-    box = (0, int(h * 0.1), w, int(h * 0.45))
+def diff(im, ref, box):
     return sum(ImageStat.Stat(ImageChops.difference(im.crop(box), ref.crop(box))).mean)
 ref = rgb(frames[0])
-best = max((f for f in frames if searching(rgb(f))), key=lambda f: rings(rgb(f), ref))
+w, h = ref.size
+label = (int(w * 0.25), int(h * button) - 20, int(w * 0.75), int(h * button) + 20)
+mapbox = (0, int(h * 0.1), w, int(h * 0.45))
+# Libellé du bouton changé (« Recherche des stations… ») et bouton encore orange : recherche en cours.
+during = [f for f in frames if searching(rgb(f)) and diff(rgb(f), ref, label) > 8]
+if not during:
+    sys.exit('aucune image pendant la recherche')
+best = max(during, key=lambda f: diff(rgb(f), ref, mapbox))
 shutil.copy(best, sys.argv[2])
 PY
 }
@@ -149,7 +155,15 @@ if step none; then
 fi
 if step radius; then
   echo "▶ animation de rayon"
-  for t in $THEMES; do theme "$t"; run .maestro/states/radius-prep.yaml "$t"; record_radius "$t"; done
+  for t in $THEMES; do
+    theme "$t"
+    for attempt in 1 2 3; do
+      run .maestro/states/radius-prep.yaml "$t"
+      record_radius "$t" && break
+      echo "    recherche trop brève pour être filmée, essai $attempt/3"
+      [[ $attempt == 3 ]] && exit 1
+    done
+  done
 fi
 if step closed; then
   echo "▶ station fermée aujourd'hui et signalée (seule à avoir du 7,5 kg)"
