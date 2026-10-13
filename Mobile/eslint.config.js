@@ -15,6 +15,18 @@ module.exports = defineConfig([
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
       ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react-native',
+              importNames: ['Image', 'ImageBackground'],
+              message: 'Images matricielles : expo-image (cache disque, décodage hors du thread JS).',
+            },
+          ],
+        },
+      ],
       'no-restricted-syntax': [
         'error',
         {
@@ -44,6 +56,11 @@ module.exports = defineConfig([
   {
     files: ['**/*.test.{ts,tsx}', 'src/test/**'],
     languageOptions: { globals: { jest: 'readonly' } },
+  },
+  {
+    // Fabriques de jest.mock : require() est la seule forme permise dans une fabrique hissée.
+    files: ['src/test/setup.ts'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   prettier,
 ])
