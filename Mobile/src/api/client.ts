@@ -15,9 +15,13 @@ export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://127.0.0.1:808
 
 /**
  * Identité lisible de l'app pour la liste « Appareils connectés » (sinon : « okhttp/4.x ») :
- * « GoStation/0.1.0 (Android 16; Pixel 7) ».
+ * « GoStation/0.1.0 (Android 12; SM-G973F) ». Version du système (`Device.osVersion`), pas le
+ * niveau d'API que donne `Platform.Version` sur Android (31 pour Android 12).
  */
-const USER_AGENT = `GoStation/${Constants.expoConfig?.version ?? '0'} (${Platform.OS === 'ios' ? 'iOS' : 'Android'} ${Platform.Version}; ${Device.modelName ?? 'appareil'})`
+export function userAgent(appVersion: string, os: string, osVersion: string | null, model: string | null) {
+  return `GoStation/${appVersion} (${os === 'ios' ? 'iOS' : 'Android'} ${osVersion ?? '?'}; ${model ?? 'appareil'})`
+}
+const USER_AGENT = userAgent(Constants.expoConfig?.version ?? '0', Platform.OS, Device.osVersion, Device.modelName)
 
 /** En-têtes de toutes les requêtes : installation (quotas, appareil push), langue, app. */
 const baseHeaders = () => ({ 'X-Install-Id': installId(), 'Accept-Language': 'fr', 'User-Agent': USER_AGENT })

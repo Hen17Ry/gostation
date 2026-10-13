@@ -1,4 +1,6 @@
-import { api, session, unwrap } from './client'
+import { deviceLabel } from '@/features/account/device-label'
+
+import { api, session, unwrap, userAgent } from './client'
 import { profileSchema } from './schemas'
 
 const json = (status: number, body: unknown) =>
@@ -71,5 +73,13 @@ describe('client API', () => {
       requestId: 'req-1',
       userMessage: 'Cette position est hors de la zone couverte (Bénin).',
     })
+  })
+})
+
+describe('userAgent', () => {
+  it('donne la version d’Android, pas le niveau d’API (« Android 31 » sur le Galaxy S10)', () => {
+    const ua = userAgent('0.1.0', 'android', '12', 'SM-G973F')
+    expect(ua).toBe('GoStation/0.1.0 (Android 12; SM-G973F)')
+    expect(deviceLabel({ client: 'mobile', userAgent: ua })).toBe('SM-G973F · Android 12')
   })
 })
