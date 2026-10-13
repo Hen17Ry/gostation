@@ -13,20 +13,24 @@ un Android de milieu de gamme ; requêtes et tuiles minimisées.
 - Démarrage à froid : `adb shell am start -W -n bj.gostation.app/.MainActivity` (`TotalTime`,
   médiane de 5 lancements après `force-stop`).
 
-## Relevé du 2026-10-13 — émulateur (le téléphone n'était pas branché)
+## Relevé du 2026-10-13 — build final, émulateur (le téléphone n'était pas branché)
 
-Émulateur Android 16 x86_64, 2 Go de RAM, GPU de l'hôte. **Ces chiffres ne remplacent pas une
-mesure sur un téléphone de milieu de gamme**, à refaire dès qu'il est branché.
+Émulateur Android 16 x86_64, 2 Go de RAM, GPU de l'hôte, build release final (1 rem = 16 dp, D57).
+**Ces chiffres ne remplacent pas une mesure sur un téléphone de milieu de gamme**, à refaire dès
+qu'il est branché. Trois itérations par scénario ; « hors lancement » écarte les 5 premières
+secondes (démarrage à froid, chargement du style de carte).
 
-| Scénario                             | FPS médian  | FPS moyen   | p5      | CPU moyen | RAM moyenne |
-| ------------------------------------ | ----------- | ----------- | ------- | --------- | ----------- |
-| Recherche + défilement des résultats | 58,5 à 59,5 | 54,7 à 55,3 | 38 à 40 | 66 à 72 % | 275 Mo      |
-| Itinéraire + navigation              | 59,8        | 55,7 à 56,6 | 38      | 83 %      | 277 Mo      |
+| Scénario                             | FPS médian  | FPS médian hors lancement | FPS moyen   | p5      | CPU moyen | RAM moyenne  |
+| ------------------------------------ | ----------- | ------------------------- | ----------- | ------- | --------- | ------------ |
+| Recherche + défilement des résultats | 58,2 à 58,4 | 58,4 à 59,1               | 53,5 à 53,9 | 31 à 33 | 71 à 74 % | 275 à 281 Mo |
+| Itinéraire + navigation              | 59,6 à 60   | 59,8 à 60                 | 54,0 à 56,4 | 29 à 40 | 79 à 83 % | 264 à 284 Mo |
 
-Démarrage à froid : médiane 1,52 s (5 lancements, 1,45 à 2,53 s).
+Démarrage à froid : médiane 1,55 s (5 lancements, 1,45 à 1,88 s).
 
-Les creux restants se situent au lancement (chargement du bundle et du style de carte), à l'arrivée
-des résultats et pendant les défilements rapides de la liste.
+Les creux restants (p5 autour de 30 FPS) se produisent au lancement, à l'arrivée des résultats et
+pendant les balayages rapides du scénario, qui peuvent aussi faire changer le panneau de cran. Sur
+l'émulateur, le rendu de la carte partage le GPU de l'hôte : la cible de 60 FPS reste à vérifier
+sur un téléphone de milieu de gamme avant de conclure.
 
 ## Corrections issues des mesures
 
