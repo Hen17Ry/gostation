@@ -50,6 +50,7 @@ export default function StationScreen() {
 
   return (
     <Screen
+      compactTitle={s?.name}
       headerRight={
         <IconButton
           testID="station-favorite"
