@@ -1,0 +1,39 @@
+# Guidage avec trajet GPS simulé : départ à l'écart (recalcul au-delà de 50 m), puis arrivée.
+# STATION_LAT / STATION_LNG : première station de la recherche, remplacées dans une copie du flux par
+# states.sh (Maestro ne résout pas les variables dans les points de `travel`).
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/search.yaml
+- tapOn:
+    id: result-1-route
+- extendedWaitUntil:
+    visible:
+      id: route-start
+    timeout: 20000
+- tapOn: Activer le guidage vocal
+- tapOn:
+    id: route-start
+- extendedWaitUntil:
+    visible:
+      id: route-stop
+    timeout: 15000
+# 25 s à l'écart du tracé (sud-est), au-delà de l'intervalle minimal de 20 s entre deux recalculs.
+- travel:
+    points:
+      - 6.3654,2.4183
+      - 6.3630,2.4215
+      - 6.3610,2.4245
+    speed: 12
+- waitForAnimationToEnd
+- takeScreenshot: 41-navigation-rerouted-${THEME}
+- travel:
+    points:
+      - 6.3610,2.4245
+      - ${STATION_LAT},${STATION_LNG}
+    speed: 15
+- extendedWaitUntil:
+    visible: Vous êtes arrivé
+    timeout: 240000
+- waitForAnimationToEnd
+- takeScreenshot: 42-navigation-arrived-${THEME}

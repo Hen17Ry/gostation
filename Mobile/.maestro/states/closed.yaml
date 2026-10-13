@@ -1,0 +1,24 @@
+# Repli : aucune station ouverte à 50 km ; station fermée aujourd'hui et signalée.
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- tapOn:
+    id: kind-lpg
+- tapOn: 7,5 kg
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible: .*Aucune station ouverte à moins de 50 km.*
+    timeout: 20000
+- assertVisible: .*Fermée · rouvre.*
+- assertVisible: Signalée
+- waitForAnimationToEnd
+- takeScreenshot: 28-closed-reported-${THEME}
+- tapOn:
+    id: result-1
+- extendedWaitUntil:
+    visible:
+      id: station-route
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 29-station-closed-${THEME}

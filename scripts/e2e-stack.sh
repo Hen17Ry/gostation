@@ -54,7 +54,7 @@ up() {
   # Surcharges de la configuration (le reste vient de .env via with-env.sh, sans écrasement).
   export DATABASE_URL="$db_url" REDIS_URL="$redis_url" HTTP_ADDR="$E2E_API_ADDR" \
     WORKER_HEALTH_ADDR="$E2E_WORKER_ADDR" DOCUMENTS_STORAGE_DIR="$E2E_DIR/documents" \
-    CORS_ALLOWED_ORIGINS="http://127.0.0.1:4173" LOG_LEVEL=warn
+    CORS_ALLOWED_ORIGINS="http://127.0.0.1:4173" LOG_LEVEL="${E2E_LOG_LEVEL:-warn}"
   # Les tests en ont besoin pour créer leurs admins avec la CLI sur la même base.
   printf '{"DATABASE_URL":"%s","REDIS_URL":"%s","DOCUMENTS_STORAGE_DIR":"%s"}\n' \
     "$db_url" "$redis_url" "$E2E_DIR/documents" > "$E2E_DIR/env.json"

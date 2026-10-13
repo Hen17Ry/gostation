@@ -1,0 +1,38 @@
+# Favori + alerte « de retour en stock » sur le gasoil (à 0) de la station de démo Cadjèhoun.
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/sign-up.yaml
+- tapOn:
+    id: tab-index
+- setLocation:
+    latitude: 6.3570
+    longitude: 2.3830
+- tapOn:
+    id: kind-petrol
+- tapOn:
+    id: search-submit
+- extendedWaitUntil:
+    visible: Station Cadjèhoun Aéroport
+    timeout: 20000
+- tapOn: Station Cadjèhoun Aéroport
+- extendedWaitUntil:
+    visible:
+      id: station-favorite
+    timeout: 15000
+- tapOn:
+    id: station-favorite
+- extendedWaitUntil:
+    visible: Ajoutée aux favoris
+    timeout: 10000
+- back
+- tapOn:
+    id: tab-favorites
+- tapOn: Alertes
+- extendedWaitUntil:
+    visible: Gasoil
+    timeout: 10000
+- tapOn: Gasoil
+- waitForAnimationToEnd
+- takeScreenshot: 34-alert-enabled-${THEME}
+- back

@@ -89,7 +89,8 @@
     "e2e": "bash scripts/e2e.sh",
     "build:apk": "cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64",
     "screenshots": "bash scripts/screenshots.sh",
-    "perf": "bash scripts/perf.sh"
+    "perf": "bash scripts/perf.sh",
+    "states": "bash scripts/states.sh"
   },
   "private": true,
   "overrides": {

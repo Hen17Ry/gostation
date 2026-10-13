@@ -1,0 +1,22 @@
+# OSRM indisponible : distances à vol d'oiseau, puis itinéraire en ligne droite + autre app.
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/search.yaml
+- assertVisible: .*Distances à vol d.oiseau.*
+- waitForAnimationToEnd
+- takeScreenshot: 43-approximate-${THEME}
+- tapOn:
+    id: result-1-route
+- extendedWaitUntil:
+    visible: Itinéraire indisponible pour le moment
+    timeout: 20000
+# Cadrage de la caméra sur la ligne droite.
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: 44-route-unavailable-${THEME}
+- tapOn:
+    id: route-external
+- waitForAnimationToEnd:
+    timeout: 6000
+- takeScreenshot: 45-external-app-${THEME}

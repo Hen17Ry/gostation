@@ -1,0 +1,24 @@
+# Le gérant a remis du gasoil : la notification arrive dans la boîte de réception.
+appId: bj.gostation.app
+---
+- tapOn:
+    id: tab-inbox
+- repeat:
+    while:
+      notVisible: .*est de retour en stock.*
+    times: 12
+    commands:
+      - swipe:
+          start: 50%, 25%
+          end: 50%, 75%
+          duration: 400
+      - waitForAnimationToEnd
+- assertVisible: .*Gasoil est de retour en stock à Station Cadjèhoun Aéroport.*
+- takeScreenshot: 35-inbox-back-in-stock-${THEME}
+- tapOn: .*est de retour en stock.*
+- extendedWaitUntil:
+    visible:
+      id: station-route
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 36-station-back-in-stock-${THEME}
