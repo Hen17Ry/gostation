@@ -54,7 +54,9 @@ export default function Account() {
 
   return (
     <TabScreen title={t.account.title}>
-      <ScrollView contentContainerClassName="gap-6 px-5 pb-10 pt-1">
+      {/* Recréée à la connexion et à la déconnexion : le défilement de l'autre état ne cache pas
+          le haut du nouveau (profil, ou invitation à se connecter). */}
+      <ScrollView key={signedIn ? 'in' : 'out'} contentContainerClassName="gap-6 px-5 pb-10 pt-1">
         {!signedIn ? (
           <Card className="gap-4">
             <View className="flex-row items-center gap-3">
