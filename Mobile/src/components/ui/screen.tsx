@@ -52,7 +52,7 @@ export function Screen({
     scrollY.value = e.contentOffset.y
   })
   const compactStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [32, 64], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(scrollY.value, [16, 40], [0, 1], Extrapolation.CLAMP),
   }))
   const body = <View className={cn('gap-5 px-5 pb-6', !scroll && 'flex-1', className)}>{children}</View>
   return (
