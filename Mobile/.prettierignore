@@ -11,3 +11,5 @@ src/theme/tokens.generated.ts
 src/theme/tokens.cjs
 src/map/styles
 docs/screenshots
+# Configuration Firebase générée (push, étape 9C) : jamais reformatée.
+google-services.json

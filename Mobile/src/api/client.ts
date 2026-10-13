@@ -47,6 +47,32 @@ async function authFetch(request: Request): Promise<Response> {
   return fetch(replay)
 }
 
+/**
+ * Envoi multipart (justificatif) : `fetch` reçoit directement le FormData. React Native ne lit un
+ * fichier désigné par son URI que sous cette forme (pas au travers d'un objet Request, ni d'un
+ * clone). Même jeton et même rejeu après un refresh que `authFetch`.
+ */
+export async function sendMultipart(path: string, form: FormData, headers: Record<string, string> = {}) {
+  const send = async () => {
+    const token = await session.accessToken()
+    return fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      body: form,
+      headers: {
+        ...baseHeaders(),
+        Accept: 'application/json',
+        ...headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    })
+  }
+  const sentAt = Date.now()
+  const res = await send()
+  if (res.status !== 401 || !(await session.accessToken())) return res
+  if (!(await session.refresh(sentAt))) return res
+  return send()
+}
+
 export const api = createClient<paths>({
   baseUrl: API_URL,
   headers: { Accept: 'application/json' },

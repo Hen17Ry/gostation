@@ -7,6 +7,7 @@ import { View } from 'react-native'
 import { resendVerification, verifyEmail } from '@/api/account'
 import { isApiError } from '@/api/errors'
 import { meKeys } from '@/api/keys'
+import type { Profile } from '@/api/schemas'
 import { Banner } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
 import { OtpInput } from '@/components/ui/otp-input'
@@ -14,7 +15,7 @@ import { Screen } from '@/components/ui/screen'
 import { toast } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { haptics } from '@/lib/haptics'
-import { useCloseFlow } from '@/lib/navigation'
+import { useLeaveAuth } from '@/lib/navigation'
 import { useTheme } from '@/theme/theme'
 
 const RESEND_DELAY_S = 60
@@ -24,7 +25,7 @@ const RESEND_DELAY_S = 60
  * renvoi possible après 60 s (réponse générique côté API).
  */
 export default function Verify() {
-  const closeFlow = useCloseFlow()
+  const leave = useLeaveAuth()
   const { email = '' } = useLocalSearchParams<{ email?: string }>()
   const qc = useQueryClient()
   const { colors } = useTheme()
@@ -48,7 +49,7 @@ export default function Verify() {
       haptics.success()
       await qc.invalidateQueries({ queryKey: meKeys.all })
       toast.success(t.auth.verified)
-      closeFlow()
+      leave(qc.getQueryData<Profile>(meKeys.profile()))
     } catch (e) {
       haptics.error()
       setCode('')
@@ -82,7 +83,11 @@ export default function Verify() {
             disabled={code.length !== 6}
             onPress={() => submit()}
           />
-          <Button label={t.auth.later} variant="ghost" onPress={() => closeFlow()} />
+          <Button
+            label={t.auth.later}
+            variant="ghost"
+            onPress={() => leave(qc.getQueryData<Profile>(meKeys.profile()))}
+          />
         </View>
       }
     >

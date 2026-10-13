@@ -81,6 +81,13 @@ export default function Account() {
                 onPress={() => router.push('/auth/sign-in')}
               />
             </View>
+            <Button
+              testID="account-sign-up-manager"
+              label={t.manager.signUpLink}
+              variant="link"
+              size="sm"
+              onPress={() => router.push('/auth/sign-up-manager')}
+            />
           </Card>
         ) : !me ? (
           <Skeleton height={96} className="rounded-xl" />

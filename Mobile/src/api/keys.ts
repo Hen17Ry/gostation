@@ -29,5 +29,15 @@ export const meKeys = {
   settings: () => ['me', 'notification-settings'] as const,
 }
 
+/** Espace gérant : en mémoire seulement (le brouillon de stock a son propre stockage, D60). */
+export const managerKeys = {
+  all: ['manager'] as const,
+  station: () => ['manager', 'station'] as const,
+  hours: () => ['manager', 'opening-hours'] as const,
+  products: () => ['manager', 'products'] as const,
+  stocks: () => ['manager', 'stocks'] as const,
+  reports: (status: 'open' | 'all') => ['manager', 'reports', status] as const,
+}
+
 /** Préfixe des requêtes dont le cache peut être écrit dans MMKV (données publiques). */
 export const PERSISTED_PREFIX = 'public'
