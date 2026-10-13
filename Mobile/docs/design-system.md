@@ -164,6 +164,13 @@ variante `link` de `Button` (alignés sur le texte voisin, zone tactile élargie
 
 ## 9. Accessibilité
 
+Vérification : `npm run a11y` ouvre chaque écran par lien profond, extrait son arbre
+d'accessibilité et signale tout élément actionnable sans nom ou de moins de 48 dp, puis capture les
+écrans principaux en police ×1,5 (`var/a11y/`). Dernier audit (2026-10-13, émulateur) : aucun
+élément sans nom ; les cibles signalées sous 48 dp (liens de 40 dp, puces de 44 dp, « Passer »)
+atteignent 48 dp avec leur `hitSlop`, que l'arbre n'indique pas. Seule exception : le bouton ⓘ
+d'attribution de la carte (21 dp), dessiné par MapLibre.
+
 Libellé sur chaque élément interactif (le libellé visible fait office de nom), rôles (`button`,
 `radio`, `tab`, `switch`, `header`), états annoncés (sélectionné, coché, occupé), carte de résultat
 résumée en une phrase (rang, nom, trajet, quantité, ouverture, fraîcheur, badges), changements

@@ -139,6 +139,7 @@ npm run e2e         # Maestro (.maestro/) contre la pile isolée (base gostation
 npm run screenshots # captures de docs/screenshots/ (chaque écran, clair et sombre)
 npm run perf        # Flashlight (FPS, CPU, RAM) : recherche + défilement, navigation → var/perf/
 npm run states      # états mis en scène sur la pile isolée (aucune station, fermée/signalée, hors connexion, localisation refusée, alerte de retour en stock, compte, guidage simulé, OSRM coupé) + captures
+npm run a11y        # audit d'accessibilité par écran (noms accessibles, cibles ≥ 48 dp) + captures en police ×1,5 → var/a11y/
 
 Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**), API E2E **8095** (worker **8096**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 

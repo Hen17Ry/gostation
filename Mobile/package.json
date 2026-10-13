@@ -90,7 +90,8 @@
     "build:apk": "cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64",
     "screenshots": "bash scripts/screenshots.sh",
     "perf": "bash scripts/perf.sh",
-    "states": "bash scripts/states.sh"
+    "states": "bash scripts/states.sh",
+    "a11y": "bash scripts/a11y.sh"
   },
   "private": true,
   "overrides": {
