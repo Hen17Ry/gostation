@@ -21,7 +21,6 @@ import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
 import { searchOrigin, useLocation } from '@/features/location/location-store'
 import { t } from '@/i18n'
-import { formatDistance } from '@/lib/format'
 import { AnimatedView } from '@/lib/animated'
 import { haptics } from '@/lib/haptics'
 import { useOnline } from '@/lib/use-online'
@@ -32,6 +31,7 @@ import { useTheme } from '@/theme/theme'
 
 import { ProductPicker, productLabel } from './product-picker'
 import { ResultCard } from './result-card'
+import { resultsSummary } from './results-summary'
 import { SearchPulse } from './search-pulse'
 import { useSearch } from './search-store'
 
@@ -204,8 +204,7 @@ export function MapHome() {
       ) : (
         <Summary
           label={product ? productLabel(product) : response.product.label}
-          count={results.length}
-          radiusM={response.strategy === 'radius' ? response.radiusM : null}
+          summary={resultsSummary(results)}
           onEdit={() => {
             setPickerOpen(true)
             sheet.current?.snapToIndex(0)
@@ -370,17 +369,7 @@ export function MapHome() {
   )
 }
 
-function Summary({
-  label,
-  count,
-  radiusM,
-  onEdit,
-}: {
-  label: string
-  count: number
-  radiusM: number | null
-  onEdit: () => void
-}) {
+function Summary({ label, summary, onEdit }: { label: string; summary: string; onEdit: () => void }) {
   const { colors } = useTheme()
   return (
     <View className="flex-row items-center gap-3">
@@ -392,9 +381,7 @@ function Summary({
           {label}
         </Text>
         <Text variant="footnote" tone="muted" numberOfLines={2} accessibilityLiveRegion="polite">
-          {[t.search.results(count), radiusM ? t.search.within(formatDistance(radiusM)) : null]
-            .filter(Boolean)
-            .join(' ')}
+          {summary}
         </Text>
       </View>
       <Button

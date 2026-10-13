@@ -80,7 +80,7 @@ export const fr = {
     again: 'Nouvelle recherche',
     edit: 'Modifier',
     results: (n: number) => `${n} ${plural(n, 'station', 'stations')}`,
-    within: (km: string) => `à moins de ${km}`,
+    nearest: (distance: string) => `la plus proche à ${distance}`,
     fallback: 'Aucune station ouverte à moins de 50 km : voici les plus proches, plus loin ou fermées.',
     none: 'Aucune station n’a ce produit en stock pour le moment',
     noneBody: 'Les stocks sont mis à jour par les gérants. Réessayez un peu plus tard ou choisissez un autre produit.',
