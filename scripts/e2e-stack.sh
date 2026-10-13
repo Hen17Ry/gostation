@@ -3,7 +3,8 @@
 #
 #   e2e-stack.sh up    recrée la base gostation_e2e (migrée), vide la base Redis 15, génère des
 #                      données de démo (stations, stats) et les fixtures des scénarios
-#                      (var/e2e/fixtures.json), puis lance le worker et l'API sur 127.0.0.1:8095
+#                      (var/e2e/fixtures.json), puis lance le pilotage des parcours mobiles
+#                      (e2efixtures serve, 127.0.0.1:8097), le worker et l'API sur 127.0.0.1:8095
 #                      (au premier plan : Playwright l'arrête à la fin des tests) ;
 #   e2e-stack.sh down  supprime la base gostation_e2e, vide la base Redis 15 et les justificatifs.
 #
@@ -21,6 +22,7 @@ E2E_REDIS_DB=15
 E2E_DIR="$ROOT_DIR/var/e2e"
 E2E_API_ADDR=127.0.0.1:8095
 E2E_WORKER_ADDR=127.0.0.1:8096
+E2E_CONTROL_ADDR=127.0.0.1:8097
 
 pg_user="$(env_get POSTGRES_USER)"
 base_db_url="$(env_get DATABASE_URL)"
@@ -64,10 +66,12 @@ up() {
   scripts/with-env.sh "$E2E_DIR/bin/seed" -count 1500 -stats-days 14 > "$E2E_DIR/seed.log" 2>&1
   scripts/with-env.sh "$E2E_DIR/bin/e2efixtures" > "$E2E_DIR/fixtures.json"
 
-  log "worker et API sur ${E2E_API_ADDR}"
+  log "pilotage des parcours mobiles sur ${E2E_CONTROL_ADDR}, worker et API sur ${E2E_API_ADDR}"
+  scripts/with-env.sh "$E2E_DIR/bin/e2efixtures" serve -addr "$E2E_CONTROL_ADDR" > "$E2E_DIR/control.log" 2>&1 &
+  control=$!
   scripts/with-env.sh "$E2E_DIR/bin/worker" > "$E2E_DIR/worker.log" 2>&1 &
   worker=$!
-  trap 'kill "$worker" 2> /dev/null || true' EXIT INT TERM
+  trap 'kill "$worker" "$control" 2> /dev/null || true' EXIT INT TERM
   scripts/with-env.sh "$E2E_DIR/bin/api" > "$E2E_DIR/api.log" 2>&1
 }
 
