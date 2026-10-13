@@ -96,7 +96,8 @@ export const RouteMap = forwardRef<
       compassPosition={{ top: topInset + 140, right: 12 }}
       touchRotate={follow}
       touchPitch={false}
-      attributionPosition={{ top: topInset + 4, right: 8 }}
+      // Crédits affichés par l'écran (MapAttribution, cible de 48 dp) à la place du bouton ⓘ natif.
+      attribution={false}
       onDidFinishLoadingMap={() => {
         loaded.current = true
         pendingFit.current?.()

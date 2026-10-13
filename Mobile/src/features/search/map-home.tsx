@@ -23,6 +23,7 @@ import { t } from '@/i18n'
 import { AnimatedView } from '@/lib/animated'
 import { haptics } from '@/lib/haptics'
 import { useOnline } from '@/lib/use-online'
+import { MapAttribution } from '@/map/attribution'
 import { StationsMap, type StationsMapHandle } from '@/map/stations-map'
 import { usePrefs } from '@/stores/prefs'
 import { elevation } from '@/theme/elevation'
@@ -305,6 +306,11 @@ export function MapHome() {
           }
         }}
       />
+
+      {/* Crédits de la carte : posés sur le panneau à gauche, comme « ma position » à droite. */}
+      <AnimatedView pointerEvents="box-none" className="absolute left-4 top-0" style={fabStyle}>
+        <MapAttribution />
+      </AnimatedView>
 
       <AnimatedView pointerEvents="box-none" className="absolute right-4 top-0" style={fabStyle}>
         <IconButton

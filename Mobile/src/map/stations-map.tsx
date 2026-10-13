@@ -138,8 +138,8 @@ export const StationsMap = forwardRef<StationsMapHandle, Props>(function Station
       compass={false}
       touchRotate={false}
       touchPitch={false}
-      attribution
-      attributionPosition={{ top: topInset + 4, right: 8 }}
+      // Crédits affichés par l'écran (MapAttribution, cible de 48 dp) à la place du bouton ⓘ natif.
+      attribution={false}
       onPress={(e) => onPressMap?.({ lng: e.nativeEvent.lngLat[0], lat: e.nativeEvent.lngLat[1] })}
       onLongPress={(e) => onLongPressMap?.({ lng: e.nativeEvent.lngLat[0], lat: e.nativeEvent.lngLat[1] })}
     >

@@ -371,6 +371,19 @@ export const fr = {
       },
     ],
   },
+  map: {
+    attribution: '© OpenStreetMap · OpenFreeMap',
+    attributionLabel: 'Sources de la carte : contributeurs OpenStreetMap et OpenFreeMap',
+    sourcesTitle: 'Sources de la carte',
+    sourcesBody:
+      'Données cartographiques © contributeurs OpenStreetMap, sous licence ODbL. Tuiles servies par OpenFreeMap, au schéma OpenMapTiles.',
+    osm: 'OpenStreetMap',
+    osmHint: 'Droits d’auteur et licence des données',
+    openFreeMap: 'OpenFreeMap',
+    openFreeMapHint: 'Service de tuiles',
+    openMapTiles: 'OpenMapTiles',
+    openMapTilesHint: 'Schéma des tuiles',
+  },
   a11y: {
     selected: 'sélectionné',
     close: 'Fermer',

@@ -37,6 +37,7 @@ import { openExternalNavigation } from '@/features/navigation/external'
 import { departBearing, instructionText, type ManeuverIcon, maneuverIcon } from '@/features/navigation/instructions'
 import { guidance as computeGuidance, prepareRoute, type PreparedRoute } from '@/features/navigation/progress'
 import { RouteMap, type RouteMapHandle } from '@/features/navigation/route-map'
+import { MapAttribution } from '@/map/attribution'
 import { bannerDistance, useGuidance } from '@/features/navigation/use-guidance'
 import { t } from '@/i18n'
 import { formatDistance, formatDuration, formatTime } from '@/lib/format'
@@ -200,6 +201,12 @@ export default function RouteScreen() {
       ) : (
         <View className="absolute left-4" style={{ top: insets.top + 8 }}>
           <IconButton floating icon={ArrowLeft} label={t.common.back} onPress={() => router.back()} />
+        </View>
+      )}
+
+      {dest && bottomH > 0 && (
+        <View pointerEvents="box-none" className="absolute left-4" style={{ bottom: bottomH }}>
+          <MapAttribution />
         </View>
       )}
 
