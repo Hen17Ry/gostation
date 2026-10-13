@@ -125,9 +125,10 @@ export function MapHome() {
       return
     }
     if (res.results.length === 0) {
-      // Message « aucune station » visible au-dessus du pli.
+      // Panneau ouvert en grand : le choix du produit reste en tête et le message « aucune
+      // station » est visible en entier sous lui.
       haptics.warning()
-      sheet.current?.snapToIndex(1)
+      sheet.current?.snapToIndex(2)
       return
     }
     haptics.success()
@@ -434,11 +435,12 @@ function TopBar({
             {mode === 'manual' && hasManual ? t.location.picked : denied ? t.location.denied : t.location.mine}
           </Text>
         </View>
-        {mode === 'manual' && permission === 'granted' && (
+        {/* Point choisi à la main : revenir à la position de l'appareil (ou l'autoriser). */}
+        {mode === 'manual' && (permission === 'granted' || hasManual) && (
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={t.location.useMine}
-            onPress={onUseDevice}
+            onPress={permission === 'granted' ? onUseDevice : onAllow}
             className="h-10 flex-row items-center gap-1.5 rounded-full bg-primary px-3.5"
             style={elevation(2)}
           >
@@ -460,7 +462,7 @@ function TopBar({
           </Text>
         </View>
       )}
-      {denied && (
+      {denied && !hasManual && (
         <View className="rounded-xl border border-border bg-popover p-3" style={elevation(2)}>
           <Text variant="footnote" tone="muted">
             {t.location.deniedBody}
