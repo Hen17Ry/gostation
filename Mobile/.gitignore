@@ -33,6 +33,10 @@ yarn-error.*
 # local env files
 .env*.local
 
+# Firebase (FCM) : fourni par une variable d'environnement EAS de type fichier (app.config.ts)
+google-services.json
+GoogleService-Info.plist
+
 # typescript
 *.tsbuildinfo
 

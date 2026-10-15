@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
 import type { ExpoConfig } from 'expo/config'
 
 /**
@@ -14,6 +17,13 @@ const FONTS = [
 ]
 
 const LOCAL_API = /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.EXPO_PUBLIC_API_URL ?? '')
+
+// Configuration Firebase (FCM, push Android), jamais commitée (Mobile/.gitignore). Build EAS : variable
+// d'environnement EAS de type fichier GOOGLE_SERVICES_JSON (EAS y met le chemin du fichier). En local :
+// Mobile/google-services.json, s'il existe ; sinon le build se fait sans Firebase.
+const LOCAL_GOOGLE_SERVICES = join(__dirname, 'google-services.json')
+const GOOGLE_SERVICES_FILE =
+  process.env.GOOGLE_SERVICES_JSON ?? (existsSync(LOCAL_GOOGLE_SERVICES) ? './google-services.json' : undefined)
 
 const config: ExpoConfig = {
   name: 'GoStation',
@@ -34,6 +44,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'bj.gostation.app',
+    ...(GOOGLE_SERVICES_FILE && { googleServicesFile: GOOGLE_SERVICES_FILE }),
     adaptiveIcon: {
       foregroundImage: './assets/images/android-icon-foreground.png',
       backgroundColor: '#d14200',
