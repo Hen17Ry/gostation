@@ -30,6 +30,8 @@ const GOOGLE_SERVICES_FILE =
 const config: ExpoConfig = {
   name: 'GoStation',
   slug: 'gostation',
+  // Projet EAS (builds, credentials FCM, EAS Update) : https://expo.dev/accounts/hen_ry/projects/gostation
+  owner: 'hen_ry',
   version: '0.1.0',
   orientation: 'portrait',
   scheme: 'gostation',
@@ -119,6 +121,7 @@ const config: ExpoConfig = {
   experiments: { typedRoutes: true, reactCompiler: true },
   extra: {
     router: {},
+    eas: { projectId: 'da725901-6ce3-49d5-bd36-5df2d9a716a1' },
   },
 }
 
