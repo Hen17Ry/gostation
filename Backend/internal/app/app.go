@@ -208,7 +208,10 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		Favorites: favorite.NewService(favorite.Config{Timezone: cfg.Timezone}, favorite.Deps{
 			Store: st, Notifier: notifSvc, Log: log, Clock: infra.Clock,
 		}),
-		Retention: retention.New(st, log),
+		Retention: retention.New(retention.Config{
+			Notifications: cfg.Retention.Notifications, BackInStockAlerts: cfg.Retention.BackInStockAlerts,
+			DeviceTokens: cfg.Retention.DeviceTokens,
+		}, st, log),
 		Analytics: analytics.New(analytics.Config{
 			Timezone: cfg.Timezone, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 		}, st, infra.Clock),

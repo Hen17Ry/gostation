@@ -1,8 +1,10 @@
 // Package retention applique les durées de conservation (ARCHITECTURE §8) : tâche quotidienne
 // retention:purge du worker (03:00, heure locale).
 //
-// Chaque règle est indépendante : l'échec de l'une n'empêche pas les suivantes. L'étape 9
-// (RGPD/APDP) ajoutera ici ses règles, à la suite de celles de l'étape 6 :
+// Chaque règle est indépendante : l'échec de l'une n'empêche pas les suivantes. Les durées viennent
+// de la configuration (variables RETENTION_*), en attendant leur validation par un juriste à
+// l'étape 10 (D69). L'étape 9 (RGPD/APDP) ajoutera ici ses règles, chacune avec sa variable, à la
+// suite de celles de l'étape 6 :
 //   - comptes supprimés : purge définitive 30 jours après la demande ;
 //   - comptes inactifs : relance à 24 mois, suppression à 36 mois ;
 //   - justificatifs : 12 mois après la fin d'activité, 90 jours après un rejet ;
@@ -23,12 +25,12 @@ import (
 	"gostation/backend/internal/store"
 )
 
-// Durées de conservation de l'étape 6.
-const (
-	NotificationsTTL = 30 * 24 * time.Hour // boîte de réception
-	AlertsLogTTL     = 30 * 24 * time.Hour // journal des alertes « de retour en stock »
-	DevicesTTL       = 90 * 24 * time.Hour // token push sans réenregistrement
-)
+// Config regroupe les durées de conservation de l'étape 6 (config.Retention).
+type Config struct {
+	Notifications     time.Duration // boîte de réception
+	BackInStockAlerts time.Duration // journal des alertes « de retour en stock »
+	DeviceTokens      time.Duration // token push sans réenregistrement
+}
 
 // Rule est une règle de purge : elle renvoie le nombre de lignes supprimées.
 type Rule struct {
@@ -44,16 +46,16 @@ type Purger struct {
 }
 
 // New construit le purgeur avec les règles en vigueur.
-func New(st *store.Store, log *slog.Logger) *Purger {
+func New(cfg Config, st *store.Store, log *slog.Logger) *Purger {
 	return &Purger{log: log, now: time.Now, rules: []Rule{
 		{Name: "notifications", Run: func(ctx context.Context, now time.Time) (int64, error) {
-			return st.DeleteNotificationsBefore(ctx, now.Add(-NotificationsTTL))
+			return st.DeleteNotificationsBefore(ctx, now.Add(-cfg.Notifications))
 		}},
 		{Name: "back_in_stock_alerts", Run: func(ctx context.Context, now time.Time) (int64, error) {
-			return st.DeleteBackInStockAlertsBefore(ctx, now.Add(-AlertsLogTTL))
+			return st.DeleteBackInStockAlertsBefore(ctx, now.Add(-cfg.BackInStockAlerts))
 		}},
 		{Name: "device_tokens", Run: func(ctx context.Context, now time.Time) (int64, error) {
-			return st.DeleteInactiveDevices(ctx, now.Add(-DevicesTTL))
+			return st.DeleteInactiveDevices(ctx, now.Add(-cfg.DeviceTokens))
 		}},
 	}}
 }

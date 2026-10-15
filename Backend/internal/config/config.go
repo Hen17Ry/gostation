@@ -44,6 +44,7 @@ type Config struct {
 	Jobs      Jobs
 	Push      Push
 	Reminders Reminders
+	Retention Retention
 }
 
 // Jobs regroupe les réglages du worker asynq (cmd/worker).
@@ -71,6 +72,14 @@ type Push struct {
 type Reminders struct {
 	// Interval : délai depuis la dernière mise à jour (ou le dernier rappel) avant un rappel.
 	Interval time.Duration
+}
+
+// Retention regroupe les durées de conservation appliquées par la purge quotidienne du worker
+// (ARCHITECTURE §8). Réglables en attendant leur validation par un juriste (étape 10, D69).
+type Retention struct {
+	Notifications     time.Duration // boîte de réception
+	BackInStockAlerts time.Duration // journal des alertes « de retour en stock »
+	DeviceTokens      time.Duration // token push sans réenregistrement
 }
 
 // Search regroupe les réglages de la recherche (ARCHITECTURE §4).
@@ -284,6 +293,11 @@ func Load(getenv func(string) string) (Config, error) {
 		ReceiptsDelay:   l.duration("PUSH_RECEIPTS_DELAY", 15*time.Minute),
 	}
 	c.Reminders = Reminders{Interval: l.duration("STOCK_REMINDER_INTERVAL", 4*time.Hour)}
+	c.Retention = Retention{
+		Notifications:     l.retention("RETENTION_NOTIFICATIONS", 30*24*time.Hour),
+		BackInStockAlerts: l.retention("RETENTION_BACK_IN_STOCK_ALERTS", 30*24*time.Hour),
+		DeviceTokens:      l.retention("RETENTION_DEVICE_TOKENS", 90*24*time.Hour),
+	}
 
 	if c.Search.MinResults > c.Search.MaxCandidates {
 		l.fail("SEARCH_MIN_RESULTS", "must not exceed SEARCH_MAX_CANDIDATES (%d)", c.Search.MaxCandidates)
@@ -424,6 +438,17 @@ func (l *loader) duration(key string, def time.Duration) time.Duration {
 	d, err := time.ParseDuration(v)
 	if err != nil || d <= 0 {
 		l.fail(key, "%q is not a positive duration (examples: 800ms, 15s, 1m)", v)
+		return def
+	}
+	return d
+}
+
+// retention lit une durée de conservation : 24 h au moins (purge quotidienne), pour qu'une unité
+// mal choisie (30m au lieu de 720h) ne vide pas une table à la purge suivante.
+func (l *loader) retention(key string, def time.Duration) time.Duration {
+	d := l.duration(key, def)
+	if d < 24*time.Hour {
+		l.fail(key, "%s is shorter than 24h (Go duration: 30 days = 720h)", d)
 		return def
 	}
 	return d
