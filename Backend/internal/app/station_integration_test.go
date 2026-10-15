@@ -77,10 +77,16 @@ func managerEmail(t *testing.T, stationID string) string {
 // pendingManager inscrit un gérant et vérifie son email (dossier visible chez l'admin).
 func pendingManager(t *testing.T) (*client, string, string) {
 	t.Helper()
+	return pendingManagerWithIFU(t, randomIFU())
+}
+
+// pendingManagerWithIFU est pendingManager avec un IFU choisi (réseau de stations : D66).
+func pendingManagerWithIFU(t *testing.T, ifu string) (*client, string, string) {
+	t.Helper()
 	c := newClient(t)
 	email := uniqueEmail("gerant")
 	fields := managerFields(email)
-	fields["ifu"] = randomIFU()
+	fields["ifu"] = ifu
 	r := c.multipart("/api/v1/auth/register/manager", fields, "ifu.pdf", []byte("%PDF-1.7 attestation"))
 	expect(t, r, http.StatusCreated, "")
 	var s session

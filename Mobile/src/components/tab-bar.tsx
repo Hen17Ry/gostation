@@ -1,5 +1,5 @@
 import type { Tabs } from 'expo-router'
-import { Bell, Heart, type LucideIcon, Map, UserRound } from 'lucide-react-native'
+import { Bell, Flag, Heart, type LucideIcon, Map, PackageCheck, Store, UserRound } from 'lucide-react-native'
 import { Pressable, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -13,18 +13,30 @@ import { Text } from './ui/text'
 /** Props de la barre d'onglets (type de React Navigation, embarqué par Expo Router). */
 type BottomTabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0]
 
-const ICONS: Record<string, LucideIcon> = { index: Map, favorites: Heart, inbox: Bell, account: UserRound }
+// Onglets des deux espaces (D58) : utilisateur (carte, favoris…) et gérant (stocks, station…).
+const ICONS: Record<string, LucideIcon> = {
+  index: Map,
+  favorites: Heart,
+  inbox: Bell,
+  account: UserRound,
+  stocks: PackageCheck,
+  station: Store,
+  reports: Flag,
+}
 const LABELS: Record<string, string> = {
   index: t.tabs.map,
   favorites: t.tabs.favorites,
   inbox: t.tabs.inbox,
   account: t.tabs.account,
+  stocks: t.manager.tabs.stocks,
+  station: t.manager.tabs.station,
+  reports: t.manager.tabs.reports,
 }
 
 export const TAB_BAR_HEIGHT = 64
 
 /**
- * Barre d'onglets (4 entrées, libellés toujours visibles) : indicateur en pastille derrière
+ * Barre d'onglets (4 ou 5 entrées, libellés toujours visibles) : indicateur en pastille derrière
  * l'icône active, cibles pleine hauteur, badge de non-lus annoncé avec le libellé.
  */
 export function TabBar({ state, navigation, badges }: BottomTabBarProps & { badges?: Record<string, number> }) {
@@ -82,6 +94,10 @@ export function TabBar({ state, navigation, badges }: BottomTabBarProps & { badg
               weight={focused ? 'semibold' : 'medium'}
               tone={focused ? 'brand' : 'muted'}
               maxFontSizeMultiplier={1.3}
+              // 5 onglets sur 360 dp : « Notifications » se réduit un peu plutôt que de déborder.
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
             >
               {label}
             </Text>

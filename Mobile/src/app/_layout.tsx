@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { ToastHost } from '@/components/ui/toast'
 import { useAuthBootstrap } from '@/features/auth/use-auth-bootstrap'
+import { useSpace } from '@/features/manager/space'
 import { bindQueryManagers, createQueryClient, persistOptions } from '@/lib/query-client'
 import { splashReady } from '@/lib/splash'
 import { configureMapCache } from '@/map/config'
@@ -46,6 +47,8 @@ function Root() {
   const onboarded = usePrefs((s) => s.onboarded)
   const ready = useAuth((s) => s.status !== 'unknown')
   const pathname = usePathname()
+  // Espace selon le compte (D58) : utilisateur (onglets de recherche) ou gérant (stocks, ou statut).
+  const space = useSpace()
   useAuthBootstrap()
   // Démarrage sur la carte : l'écran de démarrage attend aussi sa première image (src/lib/splash.ts).
   useEffect(() => {
@@ -68,7 +71,12 @@ function Root() {
           <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
         </Stack.Protected>
         <Stack.Protected guard={onboarded}>
-          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          <Stack.Protected guard={space === 'user'}>
+            <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          </Stack.Protected>
+          <Stack.Protected guard={space !== 'user'}>
+            <Stack.Screen name="manager" options={{ animation: 'fade' }} />
+          </Stack.Protected>
           <Stack.Screen name="station/[id]" />
           <Stack.Screen name="route/[id]" options={{ animation: 'fade_from_bottom', gestureEnabled: false }} />
           <Stack.Screen name="report/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />

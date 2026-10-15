@@ -157,6 +157,7 @@ export const ta = {
       statusReason: 'Dernier motif',
       lastStockUpdateAt: 'Dernière mise à jour des stocks',
     } as Record<string, string>,
+    ifuShared: (n: number) => `IFU déjà utilisé par ${plural(n, 'station', 'stations')}`,
     emailVerified: 'Email vérifié',
     emailNotVerified: 'Email non vérifié',
     noManager: 'Aucun gérant rattaché',

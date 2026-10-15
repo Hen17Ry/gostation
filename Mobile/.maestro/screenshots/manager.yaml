@@ -1,0 +1,317 @@
+# Captures de l'espace gérant (docs/screenshots/50 à 69), lancées par scripts/screenshots.sh pour
+# chaque thème (THEME), contre la pile E2E et son pilotage (e2efixtures serve). REPORTS_EMAIL et
+# REPORTS_PASSWORD : gérant de la station exclue des fixtures (signalements en cours). Jamais de
+# capture du sélecteur de fichiers (il montre les fichiers récents du téléphone).
+appId: bj.gostation.app
+---
+# --- Inscription et dossier en attente -------------------------------------------------------
+- runFlow: ../common/start.yaml
+- runScript:
+    file: ../scripts/new-email.js
+- tapOn:
+    id: tab-account
+- tapOn:
+    id: account-sign-up-manager
+- tapOn:
+    id: manager-first-name
+- inputText: Bio
+- hideKeyboard
+- tapOn:
+    id: manager-last-name
+- inputText: Tchane
+- hideKeyboard
+- tapOn:
+    id: manager-email
+- inputText: ${output.email}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-password
+    direction: DOWN
+- tapOn:
+    id: manager-password
+- inputText: Cotonou-Zongo-2026
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-policy
+    direction: DOWN
+- tapOn:
+    id: manager-policy
+- waitForAnimationToEnd
+- takeScreenshot: 50-manager-sign-up-account-${THEME}
+- tapOn:
+    id: manager-sign-up-next
+- extendedWaitUntil:
+    visible:
+      id: manager-station-name
+    timeout: 5000
+- tapOn:
+    id: manager-station-name
+- inputText: Station Dantokpa Nord
+- hideKeyboard
+- tapOn:
+    id: manager-brand
+- inputText: Oryx
+- hideKeyboard
+- tapOn:
+    id: manager-ifu
+- inputText: '32019123'
+- hideKeyboard
+# IFU incomplet : le compteur montre 8/13 pendant la saisie ; formulaire remonté en haut (étapes).
+- swipe:
+    start: 50%, 30%
+    end: 50%, 80%
+    duration: 400
+- waitForAnimationToEnd
+- takeScreenshot: 51-manager-sign-up-station-${THEME}
+- tapOn:
+    id: manager-ifu
+- inputText: '45678'
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-rccm
+    direction: DOWN
+- tapOn:
+    id: manager-rccm
+- inputText: RB/COT/26 B 4521
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-address
+    direction: DOWN
+- tapOn:
+    id: manager-address
+- inputText: Boulevard Saint-Michel, Dantokpa
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-phone
+    direction: DOWN
+- tapOn:
+    id: manager-phone
+- eraseText: 10
+- inputText: '+229 01 97 00 00 00'
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: manager-sign-up-next
+- extendedWaitUntil:
+    visible:
+      id: document-file
+    timeout: 5000
+- tapOn:
+    id: document-file
+- runFlow: ../common/pick-test-document.yaml
+- extendedWaitUntil:
+    visible:
+      id: document-preview
+    timeout: 15000
+- takeScreenshot: 52-manager-sign-up-document-${THEME}
+- tapOn:
+    id: manager-sign-up-submit
+- extendedWaitUntil:
+    visible: Vérifiez votre email
+    timeout: 20000
+- runScript:
+    file: ../scripts/mail-code.js
+    env:
+      EMAIL: ${output.email}
+- inputText: ${output.code}
+- runFlow: ../common/dismiss-autofill.yaml
+- extendedWaitUntil:
+    visible:
+      id: status-pending
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 53-manager-status-pending-${THEME}
+
+# --- Première configuration -----------------------------------------------------------------
+- runScript:
+    file: ../scripts/control.js
+    env:
+      ACTION: approve
+      EMAIL: ${output.email}
+- tapOn:
+    id: status-refresh
+- extendedWaitUntil:
+    visible:
+      id: setup-checklist
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 54-manager-setup-checklist-${THEME}
+- tapOn:
+    id: setup-location
+- extendedWaitUntil:
+    visible:
+      id: location-warning
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 6000
+- takeScreenshot: 55-manager-location-${THEME}
+- tapOn:
+    id: location-confirm
+- extendedWaitUntil:
+    visible:
+      id: setup-openingHours
+    timeout: 10000
+- tapOn:
+    id: setup-openingHours
+- tapOn:
+    id: hours-day-1-open
+- tapOn:
+    id: hours-day-1-copy
+- waitForAnimationToEnd
+- takeScreenshot: 56-manager-hours-${THEME}
+- tapOn:
+    id: hours-save
+- extendedWaitUntil:
+    visible:
+      id: setup-products
+    timeout: 10000
+- tapOn:
+    id: setup-products
+- tapOn:
+    id: product-lpg_10kg
+- tapOn:
+    id: product-petrol
+- waitForAnimationToEnd
+- takeScreenshot: 57-manager-products-${THEME}
+- tapOn:
+    id: products-save
+
+# --- Saisie des stocks -----------------------------------------------------------------------
+- extendedWaitUntil:
+    visible:
+      id: stock-lpg_10kg-qty-plus
+    timeout: 10000
+- repeat:
+    times: 12
+    commands:
+      - tapOn:
+          id: stock-lpg_10kg-qty-plus
+- scrollUntilVisible:
+    element:
+      id: stock-petrol-qty
+    direction: DOWN
+- tapOn:
+    id: stock-petrol-qty
+- inputText: '6000'
+- hideKeyboard
+- waitForAnimationToEnd
+- takeScreenshot: 58-manager-stocks-edited-${THEME}
+- tapOn:
+    id: stocks-submit
+- waitForAnimationToEnd
+- takeScreenshot: 59-manager-stocks-summary-${THEME}
+- tapOn:
+    id: stocks-send
+- extendedWaitUntil:
+    visible: 'Rien n’a changé'
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: 60-manager-stocks-${THEME}
+# Hors connexion : saisie gardée, envoi bloqué ; au retour du réseau, l'envoi est proposé.
+- setAirplaneMode: enabled
+- extendedWaitUntil:
+    visible: 'Hors connexion.*'
+    timeout: 15000
+- tapOn:
+    id: stock-lpg_10kg-qty-minus
+- waitForAnimationToEnd
+- takeScreenshot: 61-manager-stocks-offline-${THEME}
+- setAirplaneMode: disabled
+- extendedWaitUntil:
+    visible: 'Connexion rétablie.*'
+    timeout: 30000
+- takeScreenshot: 62-manager-stocks-back-online-${THEME}
+# Conflit : un autre appareil modifie les stocks pendant la saisie.
+- runScript:
+    file: ../scripts/control.js
+    env:
+      ACTION: bump-stocks
+      EMAIL: ${output.email}
+- tapOn:
+    id: stocks-submit
+- tapOn:
+    id: stocks-send
+- extendedWaitUntil:
+    visible: Les stocks ont changé entre-temps
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: 63-manager-stocks-conflict-${THEME}
+- tapOn:
+    id: stocks-reload
+- waitForAnimationToEnd
+- tapOn:
+    id: tab-station
+- waitForAnimationToEnd
+- takeScreenshot: 64-manager-station-${THEME}
+
+# --- Station suspendue ----------------------------------------------------------------------
+- runScript:
+    file: ../scripts/control.js
+    env:
+      ACTION: suspend
+      EMAIL: ${output.email}
+# Prochaine lecture refusée (station.not_approved) : GET /me relu, écran de statut.
+- tapOn:
+    id: station-products
+- extendedWaitUntil:
+    visible:
+      id: status-suspended
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 65-manager-status-suspended-${THEME}
+
+# --- Signalements en cours (station exclue des fixtures) ------------------------------------
+- runFlow:
+    file: ../common/manager-sign-in.yaml
+    env:
+      EMAIL: ${REPORTS_EMAIL}
+      PASSWORD: ${REPORTS_PASSWORD}
+- tapOn:
+    id: tab-reports
+- extendedWaitUntil:
+    visible:
+      id: report-flag-wrong_location
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 66-manager-reports-${THEME}
+
+# --- Dossier refusé ---------------------------------------------------------------------------
+- runFlow: ../common/start.yaml
+- runFlow: ../common/manager-sign-up.yaml
+- runScript:
+    file: ../scripts/control.js
+    env:
+      ACTION: reject
+      EMAIL: ${output.email}
+      REASON: Le justificatif est illisible. Envoyez une photo nette de l'attestation IFU.
+- tapOn:
+    id: status-refresh
+- extendedWaitUntil:
+    visible:
+      id: status-rejected
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 67-manager-status-rejected-${THEME}
+- tapOn:
+    id: status-edit
+- extendedWaitUntil:
+    visible:
+      id: station-name
+    timeout: 10000
+- takeScreenshot: 68-manager-edit-${THEME}
+- back
+- tapOn:
+    id: status-resubmit
+- tapOn:
+    id: document-file
+- runFlow: ../common/pick-test-document.yaml
+- extendedWaitUntil:
+    visible:
+      id: document-preview
+    timeout: 15000
+- takeScreenshot: 69-manager-resubmit-${THEME}

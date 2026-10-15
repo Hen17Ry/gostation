@@ -2164,6 +2164,8 @@ export interface components {
       name: string;
       brand: string | null;
       ifu: string;
+      /** @description Nombre d'autres stations déclarées avec le même IFU, tous statuts (un IFU peut couvrir un réseau de stations, D66) */
+      ifuSharedCount: number;
       rccm: string;
       address: string;
       city: string | null;

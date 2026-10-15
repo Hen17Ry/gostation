@@ -1,0 +1,43 @@
+# Mesure (Flashlight) : saisie rapide des stocks par un gérant connecté (préparé par perf.sh) :
+# appuis répétés, appui long qui accélère, litres au pavé numérique, rupture, récapitulatif.
+appId: bj.gostation.app
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible:
+      id: stock-lpg_10kg-qty-plus
+    timeout: 20000
+- repeat:
+    times: 6
+    commands:
+      - tapOn:
+          id: stock-lpg_10kg-qty-plus
+- longPressOn:
+    id: stock-lpg_10kg-qty-plus
+- repeat:
+    times: 4
+    commands:
+      - tapOn:
+          id: stock-lpg_10kg-qty-minus
+- tapOn:
+    id: stock-petrol-qty
+- inputText: '8250'
+- hideKeyboard
+- tapOn:
+    id: stock-diesel-out
+- swipe:
+    start: 50%, 70%
+    end: 50%, 30%
+    duration: 400
+- swipe:
+    start: 50%, 30%
+    end: 50%, 70%
+    duration: 400
+- tapOn:
+    id: stocks-submit
+- waitForAnimationToEnd:
+    timeout: 3000
+- back
+- waitForAnimationToEnd:
+    timeout: 3000

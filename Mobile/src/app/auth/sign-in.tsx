@@ -17,7 +17,7 @@ import { toast } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { applyApiErrors } from '@/lib/form-errors'
 import { haptics } from '@/lib/haptics'
-import { useCloseFlow } from '@/lib/navigation'
+import { useLeaveAuth } from '@/lib/navigation'
 import { emailField, passwordField } from '@/lib/validation'
 
 const schema = z.object({ email: emailField, password: passwordField })
@@ -25,7 +25,7 @@ type Values = z.infer<typeof schema>
 
 /** Connexion (réponse générique en cas d'échec : anti-énumération côté API). */
 export default function SignIn() {
-  const closeFlow = useCloseFlow()
+  const leave = useLeaveAuth()
   const { reason } = useLocalSearchParams<{ reason?: string }>()
   const qc = useQueryClient()
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +42,7 @@ export default function SignIn() {
         return
       }
       toast.success(t.auth.welcome(me.firstName))
-      closeFlow()
+      leave(me)
     } catch (e) {
       haptics.error()
       setError(applyApiErrors(e, form.setError, ['email', 'password']))

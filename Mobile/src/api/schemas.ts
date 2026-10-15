@@ -206,3 +206,137 @@ export const sessionListSchema = z.object({
   ),
 }) satisfies z.ZodMiniType<Schemas['SessionList']>
 export type SessionInfo = z.infer<typeof sessionListSchema>['items'][number]
+
+// --- Espace gérant ------------------------------------------------------------------------------
+
+const stationStatus = z.enum(['pending', 'approved', 'rejected', 'suspended'])
+
+export const stationSetupSchema = z.object({
+  location: z.boolean(),
+  openingHours: z.boolean(),
+  products: z.boolean(),
+  stocks: z.boolean(),
+  searchable: z.boolean(),
+  missing: z.array(z.enum(['approval', 'location', 'opening_hours', 'products', 'stock'])),
+}) satisfies z.ZodMiniType<Schemas['StationSetup']>
+export type StationSetup = z.infer<typeof stationSetupSchema>
+
+export const managerStationSchema = z.object({
+  id: z.string(),
+  status: stationStatus,
+  statusReason: nullableString,
+  version: z.int(),
+  name: z.string(),
+  brand: nullableString,
+  ifu: z.string(),
+  rccm: z.string(),
+  address: z.string(),
+  city: nullableString,
+  phone: z.string(),
+  location: z.nullable(latLng),
+  locationSetAt: z.nullable(isoDate),
+  locationFlag: z.nullable(z.object({ distanceM: z.int(), accuracyM: z.nullable(z.int()), flaggedAt: isoDate })),
+  pendingMove: z.nullable(
+    z.object({
+      id: z.string(),
+      location: latLng,
+      distanceM: z.int(),
+      deviceDistanceM: z.nullable(z.int()),
+      deviceAccuracyM: z.nullable(z.int()),
+      createdAt: isoDate,
+    }),
+  ),
+  setup: stationSetupSchema,
+  lastStockUpdateAt: z.nullable(isoDate),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+}) satisfies z.ZodMiniType<Schemas['ManagerStation']>
+export type ManagerStation = z.infer<typeof managerStationSchema>
+
+export const setLocationResponseSchema = z.object({
+  outcome: z.enum(['set', 'corrected', 'move_requested']),
+  flagged: z.boolean(),
+  station: managerStationSchema,
+}) satisfies z.ZodMiniType<Schemas['SetLocationResponse']>
+export type SetLocationResponse = z.infer<typeof setLocationResponseSchema>
+
+const timeRange = z.object({ opens: z.string(), closes: z.string() })
+export const closureSchema = z.object({
+  id: z.string(),
+  date: z.string(),
+  reason: nullableString,
+  createdAt: isoDate,
+}) satisfies z.ZodMiniType<Schemas['Closure']>
+export type Closure = z.infer<typeof closureSchema>
+
+export const openingHoursSchema = z.object({
+  timezone: z.string(),
+  isOpenNow: z.boolean(),
+  nextOpening: z.nullable(isoDate),
+  days: z.array(z.object({ weekday: z.int(), is24h: z.boolean(), ranges: z.array(timeRange) })),
+  closures: z.array(closureSchema),
+}) satisfies z.ZodMiniType<Schemas['OpeningHours']>
+export type OpeningHours = z.infer<typeof openingHoursSchema>
+
+export const stationProductSchema = z.object({
+  id: z.int(),
+  code: z.string(),
+  kind: z.enum(['lpg', 'petrol', 'diesel']),
+  unit: z.enum(['cylinder', 'liter']),
+  sizeKg: z.nullable(z.number()),
+  label: z.string(),
+  sold: z.boolean(),
+}) satisfies z.ZodMiniType<Schemas['StationProduct']>
+export type StationProduct = z.infer<typeof stationProductSchema>
+export const stationProductListSchema = z.object({ items: z.array(stationProductSchema) }) satisfies z.ZodMiniType<
+  Schemas['StationProductList']
+>
+
+export const stockSchema = z.object({
+  productId: z.int(),
+  code: z.string(),
+  label: z.string(),
+  unit: z.enum(['cylinder', 'liter']),
+  sizeKg: z.nullable(z.number()),
+  quantity: z.int(),
+  maxQuantity: z.int(),
+  updatedAt: isoDate,
+  lastConfirmedAt: isoDate,
+  freshAt: isoDate,
+  freshness: z.enum(['fresh', 'stale', 'expired']),
+}) satisfies z.ZodMiniType<Schemas['Stock']>
+export type Stock = z.infer<typeof stockSchema>
+export const stockListSchema = z.object({
+  lastActivityAt: z.nullable(isoDate),
+  items: z.array(stockSchema),
+}) satisfies z.ZodMiniType<Schemas['StockList']>
+export type StockList = z.infer<typeof stockListSchema>
+
+const reportReason = z.enum(['out_of_stock', 'station_closed', 'wrong_location', 'other'])
+const productRef = z.nullable(z.object({ id: z.int(), label: z.string() }))
+export const managerReportPageSchema = z.object({
+  flags: z.array(
+    z.object({
+      reason: reportReason,
+      product: productRef,
+      reporters: z.int(),
+      level: z.enum(['flagged', 'excluded']),
+      flaggedAt: isoDate,
+      excludedAt: z.nullable(isoDate),
+    }),
+  ),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      reason: reportReason,
+      product: productRef,
+      status: z.enum(['open', 'resolved', 'dismissed']),
+      createdAt: isoDate,
+      resolvedAt: z.nullable(isoDate),
+    }),
+  ),
+  nextCursor: nullableString,
+}) satisfies z.ZodMiniType<Schemas['ManagerReportPage']>
+export type ManagerReportPage = z.infer<typeof managerReportPageSchema>
+
+export const muteResponseSchema = z.object({ mutedUntil: isoDate }) satisfies z.ZodMiniType<Schemas['MuteResponse']>

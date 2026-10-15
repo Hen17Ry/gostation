@@ -1,0 +1,89 @@
+# Gérant : inscription en 3 étapes (justificatif de test), code, approbation par script, puis
+# première configuration (épinglage, horaires, produits, stocks) et « Rien n'a changé ».
+appId: bj.gostation.app
+name: Gérant, de l'inscription aux stocks
+---
+- runFlow: common/start.yaml
+- runFlow: common/manager-sign-up.yaml
+- runScript:
+    file: scripts/control.js
+    env:
+      ACTION: approve
+      EMAIL: ${output.email}
+- tapOn:
+    id: status-refresh
+- extendedWaitUntil:
+    visible:
+      id: setup-checklist
+    timeout: 15000
+# Épinglage : la carte s'ouvre sur la position du téléphone, l'épingle reste au centre.
+- tapOn:
+    id: setup-location
+- extendedWaitUntil:
+    visible:
+      id: location-warning
+    timeout: 10000
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    id: location-confirm
+- extendedWaitUntil:
+    visible:
+      id: setup-checklist
+    timeout: 10000
+# Horaires : 24 h/24 toute la semaine.
+- tapOn:
+    id: setup-openingHours
+- tapOn:
+    id: hours-all-week
+- tapOn:
+    id: hours-save
+# Produits : gaz 10 kg et essence.
+- extendedWaitUntil:
+    visible:
+      id: setup-products
+    timeout: 10000
+- tapOn:
+    id: setup-products
+- tapOn:
+    id: product-lpg_10kg
+- tapOn:
+    id: product-petrol
+- tapOn:
+    id: products-save
+# Stocks : 3 bouteilles, 4 000 L, récapitulatif, envoi.
+- extendedWaitUntil:
+    visible:
+      id: stock-lpg_10kg-qty-plus
+    timeout: 10000
+- tapOn:
+    id: stock-lpg_10kg-qty-plus
+- tapOn:
+    id: stock-lpg_10kg-qty-plus
+- tapOn:
+    id: stock-lpg_10kg-qty-plus
+- scrollUntilVisible:
+    element:
+      id: stock-petrol-qty
+    direction: DOWN
+- tapOn:
+    id: stock-petrol-qty
+- inputText: '4000'
+- hideKeyboard
+- waitForAnimationToEnd
+- assertVisible: 'Enregistrer · 2 changements'
+- tapOn:
+    id: stocks-submit
+- tapOn:
+    id: stocks-send
+- extendedWaitUntil:
+    visible: 'Rien n’a changé'
+    timeout: 10000
+# Station complète : la checklist disparaît.
+- assertNotVisible:
+    id: setup-checklist
+- tapOn:
+    id: stocks-submit
+- extendedWaitUntil:
+    visible: Stocks confirmés
+    timeout: 10000

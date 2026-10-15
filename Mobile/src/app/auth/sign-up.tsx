@@ -1,25 +1,23 @@
 import { zodResolver } from '@/lib/zod-resolver'
 import { useQueryClient } from '@tanstack/react-query'
 import { router } from 'expo-router'
-import { Check, UserPlus } from 'lucide-react-native'
+import { UserPlus } from 'lucide-react-native'
 import { useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
-import { Pressable, View } from 'react-native'
+import { useForm } from 'react-hook-form'
+import { View } from 'react-native'
 import * as z from 'zod/mini'
 
 import { register } from '@/api/account'
 import { meKeys } from '@/api/keys'
 import { FormField } from '@/components/form/form-field'
+import { PolicyField } from '@/components/form/policy-field'
 import { Banner } from '@/components/ui/banner'
 import { Button } from '@/components/ui/button'
 import { Screen } from '@/components/ui/screen'
-import { Text } from '@/components/ui/text'
 import { t } from '@/i18n'
-import { cn } from '@/lib/cn'
 import { applyApiErrors } from '@/lib/form-errors'
 import { haptics } from '@/lib/haptics'
 import { emailField, nameField, newPasswordField } from '@/lib/validation'
-import { useTheme } from '@/theme/theme'
 
 const schema = z.object({
   firstName: nameField,
@@ -33,7 +31,6 @@ type Values = z.infer<typeof schema>
 /** Inscription : prénom, nom, email, mot de passe, acceptation de la politique v1.0 ; puis code. */
 export default function SignUp() {
   const qc = useQueryClient()
-  const { colors } = useTheme()
   const [error, setError] = useState<string | null>(null)
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -109,56 +106,21 @@ export default function SignUp() {
         autoComplete="new-password"
         textContentType="newPassword"
       />
-      <Controller
-        control={form.control}
-        name="policy"
-        render={({ field, fieldState }) => (
-          <View className="gap-1.5">
-            <Pressable
-              testID="sign-up-policy"
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: field.value }}
-              accessibilityLabel={t.auth.acceptPolicy}
-              onPress={() => {
-                haptics.selection()
-                field.onChange(!field.value)
-              }}
-              className="min-h-12 flex-row items-center gap-3"
-            >
-              <View
-                className={cn(
-                  'h-6 w-6 items-center justify-center rounded-xs border-2',
-                  field.value ? 'border-primary bg-primary' : fieldState.error ? 'border-destructive' : 'border-input',
-                )}
-              >
-                {field.value && <Check size={16} color={colors['primary-foreground']} strokeWidth={3} />}
-              </View>
-              <Text variant="subhead" className="flex-1">
-                {t.auth.acceptPolicy}
-              </Text>
-            </Pressable>
-            {fieldState.error && (
-              <Text variant="footnote" tone="destructive" accessibilityRole="alert">
-                {fieldState.error.message}
-              </Text>
-            )}
-            <View className="flex-row">
-              <Button
-                label={t.auth.readPolicy}
-                variant="link"
-                size="sm"
-                onPress={() => router.push('/legal/privacy')}
-              />
-            </View>
-          </View>
-        )}
-      />
+      <PolicyField testID="sign-up-policy" control={form.control} name="policy" />
       <Button
         label={t.auth.haveAccount}
         variant="link"
         size="sm"
         className="self-start"
         onPress={() => router.replace('/auth/sign-in')}
+      />
+      <Button
+        testID="sign-up-manager-link"
+        label={t.manager.signUpLink}
+        variant="link"
+        size="sm"
+        className="self-start"
+        onPress={() => router.replace('/auth/sign-up-manager')}
       />
     </Screen>
   )

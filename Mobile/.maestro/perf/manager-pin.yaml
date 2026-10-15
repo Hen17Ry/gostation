@@ -1,0 +1,34 @@
+# Mesure (Flashlight) : épinglage de la station, carte déplacée sous l'épingle fixe (gérant
+# connecté, préparé par perf.sh).
+appId: bj.gostation.app
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible:
+      id: tab-station
+    timeout: 20000
+- tapOn:
+    id: tab-station
+- tapOn:
+    id: station-location
+- extendedWaitUntil:
+    visible:
+      id: location-warning
+    timeout: 10000
+- repeat:
+    times: 3
+    commands:
+      - swipe:
+          start: 30%, 60%
+          end: 70%, 40%
+          duration: 500
+      - swipe:
+          start: 70%, 40%
+          end: 30%, 60%
+          duration: 500
+      - swipe:
+          start: 50%, 65%
+          end: 50%, 35%
+          duration: 350
+- back

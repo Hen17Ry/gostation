@@ -2,7 +2,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
 import { session } from '@/api/client'
-import { meKeys } from '@/api/keys'
+import { managerKeys, meKeys } from '@/api/keys'
+import { useStockDraft } from '@/features/manager/stock-draft'
 import { useAuth } from '@/stores/auth'
 
 /**
@@ -18,7 +19,12 @@ export function useAuthBootstrap() {
     void session.load().then((has) => alive && setStatus(has ? 'signedIn' : 'signedOut'))
     const off = session.onChange((signedIn) => {
       setStatus(signedIn ? 'signedIn' : 'signedOut')
-      if (!signedIn) qc.removeQueries({ queryKey: meKeys.all })
+      if (!signedIn) {
+        qc.removeQueries({ queryKey: meKeys.all })
+        qc.removeQueries({ queryKey: managerKeys.all })
+        // Brouillon de stock du compte qui part : un autre compte peut utiliser le téléphone.
+        useStockDraft.getState().clear()
+      }
     })
     return () => {
       alive = false

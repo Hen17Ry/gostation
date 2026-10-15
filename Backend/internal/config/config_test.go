@@ -71,6 +71,9 @@ func TestLoadDefaults(t *testing.T) {
 		{"Push.ExpoURL", cfg.Push.ExpoURL, "https://exp.host"},
 		{"Push.ReceiptsDelay", cfg.Push.ReceiptsDelay, 15 * time.Minute},
 		{"Reminders.Interval", cfg.Reminders.Interval, 4 * time.Hour},
+		{"Retention.Notifications", cfg.Retention.Notifications, 30 * 24 * time.Hour},
+		{"Retention.BackInStockAlerts", cfg.Retention.BackInStockAlerts, 30 * 24 * time.Hour},
+		{"Retention.DeviceTokens", cfg.Retention.DeviceTokens, 90 * 24 * time.Hour},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -148,6 +151,8 @@ func TestLoadInvalid(t *testing.T) {
 		{"EXPO_PUSH_URL", "ftp://exp.host"},
 		{"PUSH_RECEIPTS_DELAY", "soon"},
 		{"STOCK_REMINDER_INTERVAL", "0s"},
+		{"RETENTION_NOTIFICATIONS", "30d"},
+		{"RETENTION_DEVICE_TOKENS", "30m"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {

@@ -11,6 +11,8 @@
 !debug.keystore
 credentials.json
 service-account*.json
+# Clé de compte de service Firebase (nom par défaut de la console)
+*firebase-adminsdk*.json
 # Réglages Claude Code personnels (autorisations locales)
 .claude/settings.local.json
 

@@ -1,0 +1,8 @@
+# Sélecteur de fichiers du système : le justificatif de test, poussé dans Téléchargements par
+# scripts/e2e.sh (jamais de capture ici : l'écran montre aussi les fichiers récents du téléphone).
+appId: bj.gostation.app
+---
+- extendedWaitUntil:
+    visible: 'gostation-justi.*'
+    timeout: 10000
+- tapOn: 'gostation-justi.*'

@@ -41,7 +41,12 @@ appId: bj.gostation.app
     file: ../scripts/mail-code.js
     env:
       EMAIL: ${output.email}
-- inputText: ${output.code}
-- extendedWaitUntil:
-    visible: Email vérifié
-    timeout: 10000
+# Le clavier Samsung perd parfois la saisie (cases vides, aucun envoi) : un nouvel essai. Si la
+# première a réussi, le second échoue aussi (écran quitté) : un vrai échec n'est pas masqué.
+- retry:
+    maxRetries: 1
+    commands:
+      - inputText: ${output.code}
+      - extendedWaitUntil:
+          visible: Email vérifié
+          timeout: 10000

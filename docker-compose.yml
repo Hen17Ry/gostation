@@ -32,12 +32,21 @@ services:
     restart: unless-stopped
     # noeviction : Redis porte aussi les refresh tokens et les files asynq, qui ne doivent
     # jamais être évincés. Les clés de cache ont toutes un TTL explicite.
+    # Arrêt brutal : l'AOF peut finir sur une écriture incomplète. Fichier coupé net :
+    # aof-load-truncated l'ignore. Fin illisible (octets écrits sans être synchronisés,
+    # appendfsync everysec, soit environ une seconde d'écritures) : tronquée au démarrage
+    # si elle fait au plus 64 Kio, au lieu d'un redémarrage en boucle. Au-delà, Redis
+    # refuse de démarrer : sauvegarder appendonlydir puis redis-check-aof --fix.
     command:
       - redis-server
       - --requirepass
       - ${REDIS_PASSWORD:?REDIS_PASSWORD manquant dans .env}
       - --appendonly
       - "yes"
+      - --aof-load-truncated
+      - "yes"
+      - --aof-load-corrupt-tail-max-size
+      - "65536"
       - --maxmemory
       - ${REDIS_MAXMEMORY:-256mb}
       - --maxmemory-policy

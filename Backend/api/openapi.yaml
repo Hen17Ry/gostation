@@ -2813,7 +2813,7 @@ components:
         emailVerified: { type: boolean }
     AdminStation:
       type: object
-      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, statusChangedAt, createdAt, updatedAt, openingHours, stocks]
+      required: [id, status, statusReason, reviewedAt, version, name, brand, ifu, ifuSharedCount, rccm, address, city, phone, location, locationSetAt, locationFlag, pendingMove, documentMime, manager, lastStockUpdateAt, statusChangedAt, createdAt, updatedAt, openingHours, stocks]
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending, approved, rejected, suspended] }
@@ -2823,6 +2823,10 @@ components:
         name: { type: string }
         brand: { type: [string, "null"] }
         ifu: { type: string }
+        ifuSharedCount:
+          type: integer
+          minimum: 0
+          description: Nombre d'autres stations déclarées avec le même IFU, tous statuts (un IFU peut couvrir un réseau de stations, D66)
         rccm: { type: string }
         address: { type: string }
         city: { type: [string, "null"] }

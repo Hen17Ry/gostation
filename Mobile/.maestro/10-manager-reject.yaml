@@ -1,0 +1,59 @@
+# Gérant : dossier refusé par script, correction des informations, nouveau justificatif, retour
+# en vérification.
+appId: bj.gostation.app
+name: Gérant, refus puis renvoi
+---
+- runFlow: common/start.yaml
+- runFlow: common/manager-sign-up.yaml
+- runScript:
+    file: scripts/control.js
+    env:
+      ACTION: reject
+      EMAIL: ${output.email}
+      REASON: Justificatif illisible, envoyez une photo nette.
+- tapOn:
+    id: status-refresh
+- extendedWaitUntil:
+    visible:
+      id: status-rejected
+    timeout: 15000
+- assertVisible: Justificatif illisible, envoyez une photo nette.
+- tapOn:
+    id: status-edit
+- extendedWaitUntil:
+    visible:
+      id: station-name
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: station-city
+    direction: DOWN
+- tapOn:
+    id: station-city
+- inputText: Cotonou
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: station-save
+    direction: DOWN
+- tapOn:
+    id: station-save
+- extendedWaitUntil:
+    visible:
+      id: status-resubmit
+    timeout: 10000
+- tapOn:
+    id: status-resubmit
+- tapOn:
+    id: document-file
+- runFlow: common/pick-test-document.yaml
+- extendedWaitUntil:
+    visible:
+      id: document-preview
+    timeout: 15000
+- tapOn:
+    id: resubmit-send
+- extendedWaitUntil:
+    visible:
+      id: status-pending
+    timeout: 15000

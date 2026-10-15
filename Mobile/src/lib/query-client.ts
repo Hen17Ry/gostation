@@ -1,9 +1,9 @@
 import NetInfo from '@react-native-community/netinfo'
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister'
-import { focusManager, onlineManager, QueryClient } from '@tanstack/react-query'
+import { focusManager, onlineManager, QueryCache, QueryClient } from '@tanstack/react-query'
 import { AppState, type AppStateStatus } from 'react-native'
 
-import { PERSISTED_PREFIX } from '@/api/keys'
+import { meKeys, PERSISTED_PREFIX } from '@/api/keys'
 import { isApiError } from '@/api/errors'
 
 import { storage } from './storage'
@@ -14,7 +14,16 @@ import { storage } from './storage'
  * demandent), état réseau suivi par NetInfo.
  */
 export function createQueryClient() {
-  return new QueryClient({
+  const client: QueryClient = new QueryClient({
+    // Station du gérant suspendue, ou renvoyée en vérification, pendant l'utilisation : GET /me
+    // est relu et l'app rejoint l'écran de statut (D58).
+    queryCache: new QueryCache({
+      onError: (error) => {
+        if (isApiError(error) && error.code === 'station.not_approved') {
+          void client.invalidateQueries({ queryKey: meKeys.profile() })
+        }
+      },
+    }),
     defaultOptions: {
       queries: {
         retry: (count, error) => count < 2 && (!isApiError(error) || error.isRetryable),
@@ -27,6 +36,7 @@ export function createQueryClient() {
       mutations: { retry: false, networkMode: 'online' },
     },
   })
+  return client
 }
 
 /** Cache persisté (MMKV) : uniquement les requêtes publiques réussies (catalogue, fiches). */

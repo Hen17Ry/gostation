@@ -1,0 +1,39 @@
+# Gérant : changement d'IFU sur une station approuvée → dialogue d'avertissement, retour en
+# vérification (écran de statut).
+appId: bj.gostation.app
+name: Gérant, IFU modifié
+---
+- runScript:
+    file: scripts/control.js
+    env:
+      ACTION: operational
+- runFlow:
+    file: common/manager-sign-in.yaml
+    env:
+      EMAIL: ${output.email}
+      PASSWORD: ${output.password}
+- tapOn:
+    id: tab-station
+- scrollUntilVisible:
+    element:
+      id: station-ifu
+    direction: DOWN
+- tapOn:
+    id: station-ifu
+- eraseText: 20
+- inputText: '3209876543210'
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: station-save
+    direction: DOWN
+- tapOn:
+    id: station-save
+- extendedWaitUntil:
+    visible: Votre station repassera en vérification
+    timeout: 5000
+- tapOn: ENREGISTRER QUAND MÊME|Enregistrer quand même
+- extendedWaitUntil:
+    visible:
+      id: status-pending
+    timeout: 15000

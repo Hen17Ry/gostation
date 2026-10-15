@@ -9,6 +9,9 @@
 // justificatif chiffré, validation admin, épinglage, horaires, produits, stocks, signalements).
 //
 // Usage : e2efixtures > fixtures.json
+//
+//	e2efixtures serve [-addr 127.0.0.1:8097] : pilotage des parcours Maestro de l'app mobile
+//	(approbation, rejet, station prête, saisie concurrente), cf. serve.go.
 package main
 
 import (
@@ -44,7 +47,13 @@ import (
 )
 
 func main() {
-	if err := run(context.Background(), os.Getenv, os.Stdout); err != nil {
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		err = serve(context.Background(), os.Getenv, os.Args[2:])
+	} else {
+		err = run(context.Background(), os.Getenv, os.Stdout)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "e2efixtures:", err)
 		os.Exit(1)
 	}
@@ -89,47 +98,69 @@ type fixer struct {
 	seq   int
 }
 
-func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
+// setup ouvre les connexions et les services de l'application sur la base E2E (garde-fou
+// compris), et crée l'admin qui prend les décisions des scénarios.
+func setup(ctx context.Context, getenv func(string) string) (*fixer, func(), error) {
 	cfg, err := config.Load(getenv)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := guard(cfg); err != nil {
-		return err
+		return nil, nil, err
 	}
 	pool, err := postgres.Connect(ctx, postgres.Options{URL: cfg.Postgres.URL, AppName: "gostation-e2efixtures"})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	defer pool.Close()
 	rdb, err := redis.Connect(ctx, cfg.Redis.URL)
 	if err != nil {
-		return err
+		pool.Close()
+		return nil, nil, err
 	}
-	defer func() { _ = rdb.Close() }()
+	closeAll := func() {
+		_ = rdb.Close()
+		pool.Close()
+	}
 	osrmClient, err := osrm.New(cfg.OSRM.URL, cfg.OSRM.Timeout)
 	if err != nil {
-		return err
+		closeAll()
+		return nil, nil, err
 	}
 	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
 	if err != nil {
-		return err
+		closeAll()
+		return nil, nil, err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Storage: docs, OSRM: osrmClient}, log)
 	if err != nil {
-		return err
+		closeAll()
+		return nil, nil, err
 	}
-	defer func() { _ = svc.Jobs.Close() }()
-
 	b := make([]byte, 3)
 	_, _ = rand.Read(b)
 	f := &fixer{ctx: ctx, pool: pool, svc: svc, run: hex.EncodeToString(b)}
 	adminID, err := svc.Auth.CreateAdmin(ctx, f.email("fixtures"), "Fixtures", "E2E", "Lagune-"+f.run+"-Ouidah")
 	if err != nil {
-		return fmt.Errorf("fixtures admin: %w", err)
+		_ = svc.Jobs.Close()
+		closeAll()
+		return nil, nil, fmt.Errorf("fixtures admin: %w", err)
 	}
 	f.admin = station.Actor{UserID: adminID, Role: "admin"}
+	return f, func() {
+		_ = svc.Jobs.Close()
+		closeAll()
+	}, nil
+}
+
+func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
+	f, done, err := setup(ctx, getenv)
+	if err != nil {
+		return err
+	}
+	defer done()
+	svc := f.svc
+	adminID := f.admin.UserID
 
 	var fx Fixtures
 	fx.Run = f.run

@@ -64,7 +64,9 @@ export function SwitchRow({
   value,
   onValueChange,
   disabled,
+  testID,
 }: {
+  testID?: string
   title: string
   subtitle?: string
   value: boolean
@@ -74,6 +76,7 @@ export function SwitchRow({
   const { colors } = useTheme()
   return (
     <Pressable
+      testID={testID}
       accessibilityRole="switch"
       accessibilityLabel={title}
       accessibilityHint={subtitle}

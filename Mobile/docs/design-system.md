@@ -135,14 +135,16 @@ Jamais à chaque toucher.
 ## 7. Composants
 
 Dans [`src/components/ui/`](../src/components/ui) : `Text`, `Button` (primaire, secondaire,
-contour, fantôme, destructif ; 3 tailles), `IconButton` (posé sur la carte : `floating`),
+contour, fantôme, destructif ; 3 tailles ; `iconOnly` : carré, libellé lu par le lecteur d'écran), `IconButton` (posé sur la carte : `floating`),
 `PressableScale`, `Spinner`, `ChoiceTile` et `Chip` (choix radio), `TextField` (libellé visible, aide, erreur,
 afficher/masquer le mot de passe), `OtpInput` (6 cases, un seul champ natif : saisie automatique et
-collage), `Badge`, `Banner`, `Card`, `Section`, `ListRow`, `SwitchRow`, `Skeleton`, `EmptyState` et
-ses illustrations, `Toast`, `Screen` (zones sûres, en-tête, pied collant, clavier), `TabScreen`.
+collage), `Badge`, `Banner`, `Card`, `Section` (lignes sur une carte ; `bare` : intitulé seul au-dessus de cartes, filtres ou texte), `ListRow`, `SwitchRow`, `Skeleton`, `EmptyState` et
+ses illustrations, `Toast`, `Screen` (zones sûres, en-tête, pied collant, clavier ; sans pied, le
+contenu finit au-dessus de la barre de navigation du système), `TabScreen`, `Stepper` (compteur
++/−), `SegmentedProgress` (formulaire en étapes), `TimeField` et `DateField` (sélecteurs natifs).
 Domaine : `ResultCard`, `ResultsList` (cartes montées par étapes : deux avec les résultats, les
 autres une par image après l'ouverture du panneau, puis plus de recyclage pendant le défilement),
-`ProductPicker`, `SearchPulse`, `StationsMap`, `RouteMap`, `MapAttribution`.
+`ProductPicker`, `SearchPulse`, `StationsMap`, `RouteMap`, `MapAttribution`. Espace gérant (section 11) : `StockRow`, `SetupChecklist`, `DocumentField`, `StationForm`.
 
 **Composants animés et classes.** NativeWind (css-interop) ne doit jamais recevoir un style
 Reanimated : il l'aplatirait en objet ordinaire (valeurs lues pendant le rendu, classes et animation
@@ -199,3 +201,42 @@ de 120 dp sur `background` (clair `#fbfaf9`, sombre `#0b0a09`), masquée quand l
 est lue (aucun appel réseau avant le premier affichage) et, si l'app s'ouvre sur la carte, après sa
 première image complète, 2,5 s au plus ([`src/lib/splash.ts`](../src/lib/splash.ts)) : le creux
 d'images du lancement (création de la carte) reste sous l'écran de démarrage.
+
+## 11. Espace gérant
+
+Même design system, d'autres usages : un gérant met ses stocks à jour debout, entre deux clients,
+souvent d'une main. Captures 50 à 69 ([`screenshots/`](screenshots)).
+
+- **Navigation** (D58) : station approuvée, 5 onglets (Stocks, Ma station, Signalements,
+  Notifications, Compte ; libellés réduits jusqu'à 80 % plutôt que tronqués sur 360 dp) ; dossier
+  en attente, refusé ou suspendu, un seul écran de statut (icône et couleur d'état doublées d'un
+  titre, motif en carte, actions en boutons pleine largeur).
+- **Saisie des stocks** (D59) : une carte par produit. Bouteilles : [`Stepper`](../src/components/ui/stepper.tsx),
+  − et + de 56 dp aux bords (pouces), nombre en Geist Mono 24 au centre, modifiable au toucher
+  (pavé numérique) ; appui long : 1, puis 5, puis 10 par pas ; en butée (0, plafond), tremblement
+  de 4 × 50 ms et retour haptique « warning ». Litres : champ au pavé numérique, séparateurs de
+  milliers pendant la saisie. Un produit modifié prend un contour `primary` et un fond
+  `primary-subtle` : on voit d'un coup d'œil ce qui partira. « Rupture » en pastille de 40 dp
+  (48 dp avec `hitSlop`). Bouton principal collant : « Rien n'a changé » sans modification,
+  « Enregistrer · N changements » sinon, qui ouvre le récapitulatif (avant → après, sur deux lignes
+  pour les écrans étroits). Lecteur d'écran : le compteur est un élément réglable (glisser vers le
+  haut ou le bas), le double toucher ouvre la saisie directe.
+- **Conflit (412)** : feuille « Les stocks ont changé entre-temps », trois cases par produit
+  (Avant, Maintenant, Votre saisie, la saisie en `brand-text`), un seul bouton « Recharger en
+  gardant ma saisie ».
+- **Hors connexion** (D60) : bandeau d'information, ligne « Changements non envoyés gardés » au-dessus
+  du bouton désactivé ; au retour du réseau, bandeau de succès avec « Vérifier et envoyer ».
+- **Épinglage** (D64) : carte plein écran, épingle `primary` de 48 dp fixe au centre (sa pointe
+  est le point envoyé), avertissement toujours visible en haut (« Placez l'épingle sur la station,
+  pas sur vous »), panneau du bas avec un seul bouton ; position active en point gris, déplacement
+  demandé en anneau `primary`.
+- **Formulaires** : [`SegmentedProgress`](../src/components/ui/segmented-progress.tsx) (« Étape 2
+  sur 3 » et un segment par étape), titre d'étape qui reçoit le focus du lecteur d'écran, retour
+  d'Android vers l'étape précédente ; compteur de chiffres dans l'aide de l'IFU (« 8/13 ») ;
+  justificatif en zone pointillée puis aperçu (image, ou fiche du PDF), boutons photo et fichier
+  empilés en pleine largeur ; pied « ← » (icône seule, « Précédent » pour le lecteur d'écran) et
+  « Suivant » ou « Envoyer mon dossier » ; dialogue natif avant un
+  changement d'IFU ou de RCCM et avant toute suppression.
+- **Horaires** : une carte par jour (interrupteur ouvert/fermé, 24 h/24, plages en `TimeField`
+  côte à côte, « le lendemain » sous une plage qui passe minuit), « Copier sur tous les jours »
+  en bouton fantôme ; fermetures en liste avec suppression confirmée.

@@ -1,0 +1,108 @@
+# Inscription d'un gérant (3 étapes, justificatif PDF de test choisi dans Téléchargements), puis
+# code à 6 chiffres (Mailpit). Sortie : output.email ; arrivée sur l'écran de statut.
+# hideKeyboard seulement juste après une saisie (clavier fermé : il enverrait « retour »).
+appId: bj.gostation.app
+---
+- runScript:
+    file: ../scripts/new-email.js
+- tapOn:
+    id: tab-account
+- tapOn:
+    id: account-sign-up-manager
+# Étape 1 : compte.
+- tapOn:
+    id: manager-first-name
+- inputText: Bio
+- hideKeyboard
+- tapOn:
+    id: manager-last-name
+- inputText: Tchane
+- hideKeyboard
+- tapOn:
+    id: manager-email
+- inputText: ${output.email}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-password
+    direction: DOWN
+- tapOn:
+    id: manager-password
+- inputText: Cotonou-Zongo-2026
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-policy
+    direction: DOWN
+- tapOn:
+    id: manager-policy
+- tapOn:
+    id: manager-sign-up-next
+# Étape 2 : station.
+- extendedWaitUntil:
+    visible:
+      id: manager-station-name
+    timeout: 5000
+- tapOn:
+    id: manager-station-name
+- inputText: Station Dantokpa Nord
+- hideKeyboard
+- tapOn:
+    id: manager-ifu
+- inputText: '3201912345678'
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-rccm
+    direction: DOWN
+- tapOn:
+    id: manager-rccm
+- inputText: RB/COT/26 B 4521
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-address
+    direction: DOWN
+- tapOn:
+    id: manager-address
+- inputText: Boulevard Saint-Michel, Dantokpa
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: manager-phone
+    direction: DOWN
+- tapOn:
+    id: manager-phone
+- eraseText: 10
+- inputText: '+229 01 97 00 00 00'
+- hideKeyboard
+- waitForAnimationToEnd
+- tapOn:
+    id: manager-sign-up-next
+# Étape 3 : justificatif (fichier de test poussé dans Téléchargements par scripts/e2e.sh).
+- extendedWaitUntil:
+    visible:
+      id: document-file
+    timeout: 5000
+- tapOn:
+    id: document-file
+- runFlow: pick-test-document.yaml
+- extendedWaitUntil:
+    visible:
+      id: document-preview
+    timeout: 15000
+- tapOn:
+    id: manager-sign-up-submit
+- extendedWaitUntil:
+    visible: Vérifiez votre email
+    timeout: 20000
+- runScript:
+    file: ../scripts/mail-code.js
+    env:
+      EMAIL: ${output.email}
+- inputText: ${output.code}
+- runFlow: dismiss-autofill.yaml
+- extendedWaitUntil:
+    visible:
+      id: status-pending
+    timeout: 15000

@@ -70,6 +70,33 @@ cache Fresco vide), ni celui des tuiles : préchargement (4 niveaux de zoom) et 
 mémoire de MapLibre coupés pour l'essai (patch temporaire), tas natif 72 à 76 Mo contre 75, PSS
 inchangé ; ils restent aux valeurs par défaut. Le cache ambiant de 80 Mo est sur le disque.
 
+## Espace gérant — 2026-10-13 (nuit), Galaxy S10
+
+Scénarios `.maestro/perf/manager-stocks.yaml` (appuis répétés sur +, appui long qui accélère, −,
+litres au pavé numérique, « Rupture », défilement, récapitulatif) et `manager-pin.yaml` (Ma station →
+position, carte déplacée sous l'épingle fixe, 9 glissements). `npm run perf` les joue contre la pile
+E2E : le pilotage (`e2efixtures serve`) crée une station prête (approuvée, épinglée, horaires,
+produits, stocks), le script connecte son gérant, puis Flashlight relance l'app à chaque itération.
+
+| Scénario (`speed-profile`) | FPS médian  | min hors lancement | FPS moyen   | p5      | CPU moyen | RAM moyenne  |
+| -------------------------- | ----------- | ------------------ | ----------- | ------- | --------- | ------------ |
+| Saisie des stocks          | 60          | 42 à 43            | 58,8 à 59,0 | 47 à 53 | 27 %      | 323 à 335 Mo |
+| Épinglage (carte déplacée) | 59,8 à 59,9 | 41 à 43            | 56,8 à 57,1 | 42 à 46 | 44 à 45 % | 352 à 396 Mo |
+
+Même mesure en `verify` (JIT, `var/perf/manager-*-jit.json`) : saisie p5 43 à 49, minimum 35 à 36 ;
+épinglage p5 37 à 40, minimum 37 à 40. Le profil de référence vaut donc 4 à 6 FPS sur les creux.
+
+- **Saisie des stocks** : les seuls échantillons sous 50 tombent à la saisie des litres (≈ 26 à
+  29 s), à l'ouverture et à la fermeture du clavier. Tracé avec atrace sur le même scénario : 4 159
+  images, 11 au-delà de 16,7 ms (dont 4 au-delà de 33 ms) : au lancement, puis deux de 25 ms en fin
+  de scénario, aucune pendant la saisie au clavier. Cause probable : l'animation du clavier
+  (fenêtre de l'IME, redimensionnement de la fenêtre de l'app) compte des images que l'app ne
+  produit pas ; rien à corriger côté JS. Appuis et appui long restent à 60.
+- **Épinglage** : la carte se dessine dans sa propre surface (MapLibre, GL) ; Flashlight compte les
+  images de la fenêtre de l'app, qui en produit moins pendant un déplacement de carte sans
+  changement d'interface, ce qui peut faire baisser le compte sans saccade réelle. Non vérifié :
+  à mesurer avec le compteur d'images de MapLibre.
+
 ## Relevé du 2026-10-13 (matin) — Galaxy S10, avant corrections
 
 Samsung Galaxy S10 (SM-G973F, Exynos 9820, 8 Go de RAM, Android 12, 1080 × 2280), build release

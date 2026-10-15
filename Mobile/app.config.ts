@@ -1,3 +1,8 @@
+/// <reference types="node" />
+// Lu par Node (Expo CLI, Gradle, EAS), jamais embarqué dans l'app : types Node pour ce seul fichier.
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
 import type { ExpoConfig } from 'expo/config'
 
 /**
@@ -14,6 +19,13 @@ const FONTS = [
 ]
 
 const LOCAL_API = /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.EXPO_PUBLIC_API_URL ?? '')
+
+// Configuration Firebase (FCM, push Android), jamais commitée (Mobile/.gitignore). Build EAS : variable
+// d'environnement EAS de type fichier GOOGLE_SERVICES_JSON (EAS y met le chemin du fichier). En local :
+// Mobile/google-services.json, s'il existe ; sinon le build se fait sans Firebase.
+const LOCAL_GOOGLE_SERVICES = join(__dirname, 'google-services.json')
+const GOOGLE_SERVICES_FILE =
+  process.env.GOOGLE_SERVICES_JSON ?? (existsSync(LOCAL_GOOGLE_SERVICES) ? './google-services.json' : undefined)
 
 const config: ExpoConfig = {
   name: 'GoStation',
@@ -34,13 +46,15 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'bj.gostation.app',
+    ...(GOOGLE_SERVICES_FILE && { googleServicesFile: GOOGLE_SERVICES_FILE }),
     adaptiveIcon: {
       foregroundImage: './assets/images/android-icon-foreground.png',
       backgroundColor: '#d14200',
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
-    // Seules les permissions utiles : position (premier plan), réseau. Pas de stockage ni de micro.
-    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION'],
+    // Seules les permissions utiles : position (premier plan), réseau, appareil photo (justificatif du
+    // gérant). Pas de stockage (fichiers par le sélecteur du système) ni de micro.
+    permissions: ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'CAMERA'],
     blockedPermissions: [
       'android.permission.RECORD_AUDIO',
       'android.permission.READ_EXTERNAL_STORAGE',
@@ -73,6 +87,19 @@ const config: ExpoConfig = {
       },
     ],
     '@maplibre/maplibre-react-native',
+    // Justificatif du gérant : photo prise avec l'appareil (les fichiers passent par le sélecteur
+    // du système, sans permission de stockage).
+    [
+      'expo-image-picker',
+      {
+        cameraPermission:
+          'GoStation utilise l’appareil photo pour photographier le justificatif de votre station (IFU, RCCM).',
+        photosPermission: false,
+        microphonePermission: false,
+      },
+    ],
+    // Heures et dates des horaires (sélecteurs natifs).
+    '@react-native-community/datetimepicker',
     // Méthodes Java/Kotlin du parcours principal précompilées à l'installation (images perdues sinon).
     './plugins/with-baseline-profile',
     [

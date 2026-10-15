@@ -102,6 +102,7 @@ export const stationSchema = z.object({
   name: z.string(),
   brand: nullableString,
   ifu: z.string(),
+  ifuSharedCount: z.int().check(z.nonnegative()),
   rccm: z.string(),
   address: z.string(),
   city: nullableString,
