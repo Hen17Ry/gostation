@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CalendarOff, Mail, MailCheck, Phone } from 'lucide-react'
+import { CalendarOff, Mail, MailCheck, Network, Phone } from 'lucide-react'
 
 import { reportsQuery, stationTimelineQuery } from '@/api/admin'
 import type { OpeningHours, Station, Stock } from '@/api/admin-schemas'
@@ -28,7 +28,7 @@ export function InfoCard({ s }: { s: Station }) {
           items={[
             { label: f.name!, value: s.name },
             { label: f.brand!, value: s.brand ?? ta.common.none },
-            { label: f.ifu!, value: <span className="font-mono">{s.ifu}</span> },
+            { label: f.ifu!, value: <IfuValue ifu={s.ifu} sharedCount={s.ifuSharedCount} /> },
             { label: f.rccm!, value: <span className="font-mono">{s.rccm}</span> },
             { label: f.address!, value: s.address, wide: true },
             { label: f.city!, value: s.city ?? ta.common.none },
@@ -83,6 +83,26 @@ export function InfoCard({ s }: { s: Station }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * IFU de la station et, s'il est déclaré par d'autres stations (un IFU peut couvrir un réseau, D66),
+ * un lien vers la liste de toutes les stations qui le déclarent. Information neutre, pas une alerte.
+ */
+export function IfuValue({ ifu, sharedCount }: { ifu: string; sharedCount: number }) {
+  return (
+    <span className="flex flex-col items-start gap-0.5">
+      <span className="font-mono">{ifu}</span>
+      {sharedCount > 0 && (
+        <Button asChild variant="link" size="sm" className="h-auto px-0 text-xs">
+          <Link to="/stations" search={{ status: 'all', q: ifu }}>
+            <Network aria-hidden />
+            {ta.station.ifuShared(sharedCount)}
+          </Link>
+        </Button>
+      )}
+    </span>
   )
 }
 
