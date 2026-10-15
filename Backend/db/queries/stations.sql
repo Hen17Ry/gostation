@@ -185,7 +185,9 @@ SELECT s.id, s.status, s.version, s.name, s.brand, s.ifu, s.rccm, s.address, s.c
        s.lat, s.lng, s.h3_r8, s.location_set_at, s.location_flagged_at, s.location_flag_distance_m, s.location_flag_accuracy_m,
        s.status_reason, s.reviewed_by, s.reviewed_at, s.last_stock_update_at, s.document_mime, s.created_at, s.updated_at,
        s.status_changed_at, u.id AS manager_id, u.first_name AS manager_first_name, u.last_name AS manager_last_name,
-       u.email AS manager_email, u.email_verified_at AS manager_email_verified_at
+       u.email AS manager_email, u.email_verified_at AS manager_email_verified_at,
+       -- Autres stations déclarées avec le même IFU (un IFU peut couvrir un réseau : D66), tous statuts.
+       (SELECT count(*) FROM stations o WHERE o.ifu = s.ifu AND o.id <> s.id)::int AS ifu_shared_count
 FROM stations s
 LEFT JOIN users u ON u.id = s.manager_id
 WHERE s.id = @id;

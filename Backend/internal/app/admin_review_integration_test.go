@@ -155,3 +155,43 @@ func TestAdminStationDetailShowsHoursAndStocks(t *testing.T) {
 		t.Fatalf("pending station detail: %s", body)
 	}
 }
+
+// Un même IFU peut couvrir plusieurs stations (D66) : aucune contrainte d'unicité, et la fiche admin
+// indique combien d'autres stations le déclarent, à jour après une correction.
+func TestAdminStationSharedIFU(t *testing.T) {
+	admin := adminClient(t)
+	ifu := randomIFU()
+	ids := make([]string, 3)
+	for i := range ids {
+		_, _, ids[i] = pendingManagerWithIFU(t, ifu)
+	}
+	_, _, alone := pendingManager(t)
+	shared := func(id string) int {
+		t.Helper()
+		var d struct {
+			IFUSharedCount *int `json:"ifuSharedCount"`
+		}
+		r := admin.do(http.MethodGet, "/api/v1/admin/stations/"+id, nil)
+		expect(t, r, http.StatusOK, "")
+		r.decode(t, &d)
+		if d.IFUSharedCount == nil {
+			t.Fatalf("station %s: ifuSharedCount missing", id)
+		}
+		return *d.IFUSharedCount
+	}
+	for _, id := range ids {
+		if got := shared(id); got != 2 {
+			t.Errorf("station %s: ifuSharedCount = %d, want 2", id, got)
+		}
+	}
+	if got := shared(alone); got != 0 {
+		t.Errorf("station with its own IFU: ifuSharedCount = %d, want 0", got)
+	}
+
+	path := "/api/v1/admin/stations/" + ids[2]
+	expect(t, admin.doIf(http.MethodPatch, path, etag(t, admin, path),
+		map[string]any{"ifu": randomIFU(), "reason": "IFU corrigé d'après l'attestation"}), http.StatusOK, "")
+	if got, solo := shared(ids[0]), shared(ids[2]); got != 1 || solo != 0 {
+		t.Errorf("after correction: ifuSharedCount = %d and %d, want 1 and 0", got, solo)
+	}
+}

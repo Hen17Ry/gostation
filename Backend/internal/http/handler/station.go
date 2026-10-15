@@ -754,6 +754,7 @@ type adminStationDTO struct {
 	Name              string           `json:"name"`
 	Brand             *string          `json:"brand"`
 	IFU               string           `json:"ifu"`
+	IFUSharedCount    int32            `json:"ifuSharedCount"`
 	RCCM              string           `json:"rccm"`
 	Address           string           `json:"address"`
 	City              *string          `json:"city"`
@@ -775,7 +776,7 @@ type adminStationDTO struct {
 func (h *Stations) writeAdminStation(w http.ResponseWriter, r *http.Request, st station.AdminStation) {
 	d := adminStationDTO{
 		ID: st.ID.String(), Status: string(st.Status), StatusReason: st.StatusReason, ReviewedAt: st.ReviewedAt,
-		Version: st.Version, Name: st.Name, Brand: st.Brand, IFU: st.Ifu, RCCM: st.Rccm, Address: st.Address,
+		Version: st.Version, Name: st.Name, Brand: st.Brand, IFU: st.Ifu, IFUSharedCount: st.IfuSharedCount, RCCM: st.Rccm, Address: st.Address,
 		City: st.City, Phone: st.Phone, Location: latLng(st.Lat, st.Lng), LocationSetAt: st.LocationSetAt,
 		LocationFlag: locationFlag(st.LocationFlaggedAt, st.LocationFlagDistanceM, st.LocationFlagAccuracyM),
 		PendingMove:  moveRequest(st.PendingMove), DocumentMime: st.DocumentMime,
