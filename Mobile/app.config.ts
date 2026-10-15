@@ -1,3 +1,5 @@
+/// <reference types="node" />
+// Lu par Node (Expo CLI, Gradle, EAS), jamais embarqué dans l'app : types Node pour ce seul fichier.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
