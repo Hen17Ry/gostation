@@ -102,6 +102,7 @@ fixtures="$ROOT/var/e2e/fixtures.json"
 reports_email=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["excluded"]["managerEmail"])' "$fixtures")
 reports_password=$(python3 -c 'import json,sys; print("Lagune-" + json.load(open(sys.argv[1]))["run"] + "-Porto")' "$fixtures")
 "$ADB" push .maestro/assets/gostation-justificatif-e2e.pdf "$TEST_DOC" > /dev/null
+"$ADB" shell touch "$TEST_DOC" # en tête des « Fichiers récents » du sélecteur (voir e2e.sh)
 media_scan
 
 # capture <flux> <thème> [-e VAR=valeur…] : exécute un flux de captures et les recopie à plat.

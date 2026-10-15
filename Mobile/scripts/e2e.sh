@@ -48,6 +48,9 @@ trap cleanup EXIT INT TERM
 
 "$ADB" reverse tcp:8080 tcp:8095 > /dev/null
 "$ADB" push .maestro/assets/gostation-justificatif-e2e.pdf "$TEST_DOC" > /dev/null
+# adb push garde la date du fichier de l'hôte : redaté, il passe en tête des « Fichiers récents »
+# du sélecteur, devant les fichiers du téléphone créés depuis (sinon hors de l'écran).
+"$ADB" shell touch "$TEST_DOC"
 media_scan
 echo "▶ Maestro (.maestro/)"
 # shellcheck disable=SC2086
