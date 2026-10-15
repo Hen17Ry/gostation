@@ -347,7 +347,7 @@ CREATE TABLE stations (
 CREATE INDEX idx_stations_location_approved ON stations USING gist (location)
   WHERE status = 'approved' AND location IS NOT NULL;
 CREATE INDEX idx_stations_status  ON stations (status, created_at DESC);
-CREATE INDEX idx_stations_ifu     ON stations (ifu);           -- non unique : un IFU peut couvrir un réseau (§9)
+CREATE INDEX idx_stations_ifu     ON stations (ifu);           -- non unique : un IFU peut couvrir un réseau (D66)
 -- Données périmées (admin) et rappels : stations approuvées triées par fraîcheur.
 CREATE INDEX idx_stations_last_stock_update ON stations (last_stock_update_at)
   WHERE status = 'approved';
@@ -975,7 +975,7 @@ Toutes les routes `/admin/*` exigent la session web (cookie `__Host-gs_at`, clai
 | GET | `/admin/stats/shortages?period&from&to&productId&onlyShortages` | ✅ GeoJSON des cellules H3 res 7 avec leur taux ; cellules de moins de 5 recherches masquées (`maskedCells`) (D34) |
 | GET | `/admin/stations?status&q&needsReview&freshness&managerInactive&noHours&reported&excluded&cursor&limit` | ✅ Stations d'un statut (défaut `pending`, `all` = tous), recherche par nom ou préfixe d'IFU ; filtres : `needsReview` (épingle signalée ou déplacement en attente), `freshness=stale` (8 à 24 h) ou `expired` (plus de 24 h ou jamais), gérant inactif, sans horaires, signalée, exclue (seuil de 5 signalements atteint, produit ou station) (D35). Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié (D5) |
 | GET | `/admin/stations/map?status` | ✅ GeoJSON léger de toutes les stations épinglées (statut, fraîcheur, signalée), regroupement côté client |
-| GET | `/admin/stations/{id}` | ✅ Détail : gérant, justificatif, signalement, demande de déplacement, `statusChangedAt`, horaires et fermetures à venir, stocks et leur fraîcheur (lecture seule) ; `ETag` |
+| GET | `/admin/stations/{id}` | ✅ Détail : gérant, justificatif, signalement, demande de déplacement, `statusChangedAt`, horaires et fermetures à venir, stocks et leur fraîcheur (lecture seule), `ifuSharedCount` (autres stations au même IFU, D66) ; `ETag` |
 | PATCH | `/admin/stations/{id}` | ✅ Correction (nom, marque, adresse, ville, téléphone, IFU, RCCM) avec `reason` obligatoire, `If-Match`, audit avant/après, email au gérant ; statut inchangé ; aucune modification des stocks |
 | GET | `/admin/stations/{id}/document` | ✅ Justificatif déchiffré (téléchargement forcé, `Cache-Control: no-store`, CSP `sandbox`, audité) |
 | POST | `/admin/stations/{id}/approve` | ✅ `pending → approved` (email du gérant vérifié requis) ; email au gérant |
@@ -1184,11 +1184,11 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | Demandes d'exercice des droits | Preuve de conformité | 3 ans après clôture |
 | Logs applicatifs (sans position ni token) | Sécurité | 30 j |
 
-\* Durées à valider avec un juriste ou DPO au regard du Code du numérique (Livre V) et des délibérations de l'APDP.
+\* Durées à valider avec un juriste ou DPO au regard du Code du numérique (Livre V) et des délibérations de l'APDP, à l'étape 10 (D69). D'ici là, les durées appliquées par la purge sont réglables (`RETENTION_*`).
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13)
+### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D69 : 2026-10-15)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1257,9 +1257,11 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D63 | Statuts du gérant | `pending` : ce qui va se passer et délai indicatif (2 jours ouvrés), rappel de vérifier l'email (dossier invisible pour l'admin sinon). `rejected` : motif, correction des informations (`PATCH /manager/station`), nouveau justificatif (`POST …/resubmission`) → `pending`. `suspended` : motif et moyen de contact (répondre à l'email de suspension ; bouton d'email si `EXPO_PUBLIC_SUPPORT_EMAIL` est défini). Première configuration : checklist tirée de `setup` (position, horaires, produits, stocks) avec ce qui manque pour apparaître dans la recherche. |
 | D64 | Position, horaires, produits (gérant) | Épinglage sur carte plein écran centrée sur le téléphone, épingle fixe au centre (on déplace la carte dessous), avertissement « Placez l'épingle sur la station, pas sur vous » avec le conseil de le faire depuis la station ; position et précision GPS de l'appareil envoyées avec la requête, jamais stockées dans l'app. Hors Bénin : message ; déplacement de plus de 200 m : « demande en attente », l'ancienne position restant affichée comme active. Horaires : 2 plages par jour au plus, 24 h/24 par jour ou pour la semaine, « Copier sur tous les jours », fermetures exceptionnelles (date, motif facultatif), heures et dates par les sélecteurs natifs (`@react-native-community/datetimepicker`). Produits vendus : interrupteurs alimentés par le catalogue de l'API. Ma station : un changement d'IFU ou de RCCM est précédé d'un dialogue (retour en vérification, station absente de la recherche jusqu'à la validation). Signalements reçus : par motif et produit, sans auteurs, seuils expliqués (badge à 3, exclusion à 5, clôture par mise à jour ou confirmation). |
 | D65 | Hors périmètre de 9B | Prévus à l'étape 9C : enregistrement push (`POST /me/devices`), permission des notifications, catégorie `stock_reminder` et ses actions, build EAS. |
+| D66 | IFU partagé | Un même IFU peut couvrir plusieurs stations (une société en possède souvent plusieurs) : aucune contrainte d'unicité, index simple `idx_stations_ifu`. La fiche admin indique « IFU déjà utilisé par N stations » (`ifuSharedCount` de `GET /admin/stations/{id}` : autres stations au même IFU, tous statuts), avec un lien vers la liste des stations filtrée sur cet IFU. |
+| D67 | Un compte gérant, une station | V1 : un compte gérant gère une seule station. Plusieurs stations par compte et comptes employés : V2. |
+| D68 | Prix | Prix des carburants et du gaz : hors V1. |
+| D69 | Délais APDP et conservation | Le délai de réponse aux demandes APDP et les durées de conservation (§8) seront fixés à l'étape 10 avec un juriste. D'ici là, les durées sont réglables par variables d'environnement (`RETENTION_NOTIFICATIONS`, `RETENTION_BACK_IN_STOCK_ALERTS`, `RETENTION_DEVICE_TOKENS` ; 24 h au moins) ; chaque règle de purge ajoutée à l'étape 9 aura la sienne. |
 
 ### Questions ouvertes
 
-1. **Réseaux de stations** : un gérant peut-il gérer plusieurs stations, et plusieurs stations peuvent-elles partager un même IFU ? (Le modèle actuel suppose un gérant = une station et ne rend pas l'IFU unique.)
-2. **Délais légaux** : délai de réponse aux demandes APDP et durées de conservation (§8), à confirmer.
-3. **Prix** des carburants et du gaz : hors périmètre V1 ?
+Aucune pour l'instant : réseaux de stations, délais légaux et prix sont tranchés par D66 à D69 (2026-10-15).
