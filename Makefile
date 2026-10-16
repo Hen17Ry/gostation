@@ -27,7 +27,7 @@ WITH_ENV_IF_ANY := if [ -f .env ]; then set -a && . ./.env && set +a; fi &&
 GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATION_DIR=$(MIGRATIONS)
 
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
-	tools run worker-run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
+	tools run worker-run build legal-html purge-dry-run test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
 	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats dev-remind dev-notify dev-decide
 
 help: ## Affiche cette aide
@@ -85,6 +85,12 @@ worker-run: .env ## Lance le worker asynq sur l'hôte (tâches + scheduler, une 
 build: ## Compile Backend/bin/api et Backend/bin/worker
 	cd $(BACKEND) && CGO_ENABLED=1 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/api ./cmd/api
 	cd $(BACKEND) && CGO_ENABLED=1 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/worker ./cmd/worker
+
+legal-html: ## Rendu HTML statique des textes légaux (docs/legal/*.md → var/legal/)
+	@cd Mobile && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/gen-legal.mts --html ../var/legal
+
+purge-dry-run: .env ## Simule les purges de conservation : lignes que chaque règle traiterait maintenant, sans rien modifier
+	@$(WITH_ENV) cd $(BACKEND) && go run ./cmd/worker purge-dry-run
 
 test: ## Tests unitaires + intégration (testcontainers, Docker requis), avec -race
 	@$(WITH_ENV_IF_ANY) cd $(BACKEND) && go test -race -count=1 -tags integration ./...

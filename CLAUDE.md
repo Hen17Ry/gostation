@@ -75,7 +75,7 @@ GoStation/
 ├── Backend/            API Go (cmd/api, internal/…, db/migrations, db/queries, sqlc.yaml)
 ├── Mobile/             Expo React Native — app unique user + manager : src/{app,features,components,api,i18n,lib,map,stores,theme}, scripts/, docs/ (design-system.md, screenshots/), .maestro/
 ├── Web/                Admin React (Vite) : src/{routes,features,components,api,i18n,lib,styles}, e2e/, docs/ (design-system.md, screenshots/)
-├── docs/               ARCHITECTURE.md
+├── docs/               ARCHITECTURE.md, legal/ (inventaire, politique, CGU, registre, APDP, Play, questions au juriste : source unique des textes)
 ├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), e2e-stack.sh, _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
 ├── Makefile            make help
@@ -118,6 +118,8 @@ make admin-create email=… first=… last=…   # crée un admin (mot de passe 
 make admin-reset-2fa email=…               # réinitialise la 2FA d'un admin
 
 # Recherche et stats admin
+make purge-dry-run  # simule les purges de conservation : lignes que chaque règle traiterait maintenant, sans rien modifier
+make legal-html     # HTML statique des textes légaux (docs/legal/*.md → var/legal/)
 make seed-dev       # remplace les stations fictives (5 000 au Bénin, is_demo) et 30 jours de stats de recherche (dev uniquement ; RESET=1 pour supprimer)
 make explain-search # EXPLAIN ANALYZE des requêtes de recherche, vérifie l'index GiST
 make bench          # k6 (Docker) sur /search, 5 zones : p50/p95/p99 hors cache / avec cache / OSRM, taux de cache
@@ -141,7 +143,7 @@ npm install         # dépendances (versions figées par package-lock.json)
 npm run android     # compile et installe le dev build (expo run:android), puis Metro
 npm start           # Metro seul (dev build déjà installé)
 adb reverse tcp:8080 tcp:8080 && adb reverse tcp:8081 tcp:8081   # API et Metro vus du téléphone
-npm run gen:api | gen:tokens | gen:map-styles | gen:icons        # types d'API, tokens, styles de carte, icônes
+npm run gen:api | gen:tokens | gen:map-styles | gen:icons | gen:legal   # types d'API, tokens, styles de carte, icônes, textes légaux
 npm run lint        # ESLint + Prettier ;  npm run typecheck : tsc --noEmit
 npm test            # Jest (logique et composants)
 npm run e2e         # Maestro (.maestro/) contre la pile isolée (base gostation_e2e, API 8095) ; build release installé
@@ -218,6 +220,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 - **Mobile** : jest-expo + React Native Testing Library ; E2E Maestro (recherche → itinéraire, mise à jour de stock par le gérant).
 - **Web** : Vitest + Testing Library ; E2E Playwright (décisions sur les stations, déplacement, correction en conflit 412, signalements, comptes, catalogue, exports, CSRF après rechargement, accessibilité axe-core).
 - Tout correctif de bug s'accompagne d'un test de régression. Lint : golangci-lint, ESLint + Prettier, `tsc --noEmit`.
+- **Base de dev** : aucune donnée de test (comptes, stations, signalements, emails Mailpit, fichiers, sessions) ne doit y rester à la fin d'une étape. Les essais sur téléphone utilisent des comptes synthétiques, supprimés avec leurs données liées avant la clôture.
 
 ### Variables d'environnement
 - `.env.example` (racine) est la source de vérité pour l'infra et le backend. Toute nouvelle variable y est ajoutée avec un commentaire et une valeur sûre par défaut.
@@ -235,7 +238,10 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 - **Minimisation** : on ne collecte que les champs listés ci-dessus.
 - **Position** : utilisée en mémoire le temps de la requête, puis oubliée. Le cache est indexé par cellule H3 res 8 (≈ 0,74 km²), jamais par coordonnées. Les stats sont agrégées par cellule H3 res 7 et par heure (plus des agrégats par jour et tous lieux confondus), affichées et exportées seulement au-delà de k ≥ 5 recherches sur l'agrégat affiché.
 - **Consentement** : écran explicatif avant la permission système. L'app reste utilisable sans localisation (choix d'un point sur la carte).
-- **Suppression de compte** depuis l'app (`DELETE /me`) : désactivation immédiate, purge sous 30 jours.
+- **Inventaire** : `docs/legal/inventaire-donnees.md`, établi à partir du code. Toute nouvelle donnée personnelle (colonne, clé Redis, champ de log, fichier, stockage local, service tiers) y est ajoutée dans le même commit, avec sa finalité, sa base légale, sa durée et sa règle de purge ; la politique de confidentialité suit si l'information des personnes change.
+- **Droits des personnes** (D80 à D83) : Compte › Mes données (copie JSON de 24 h, demandes, suppression) ; admin « Demandes de données ». Rien n'est traité pour une demande reçue par email avant le code de confirmation envoyé à l'adresse du compte. L'admin ne voit jamais le contenu d'une copie.
+- **Suppression de compte** (`DELETE /me`, ou demande confirmée) : anonymisation immédiate (D83), sessions et appareils révoqués ; station du gérant suspendue, justificatif conservé selon sa durée.
 - **Justificatifs IFU** chiffrés (AES-256-GCM, chiffrement par enveloppe) ; chaque consultation par un admin est auditée.
-- **Durées de conservation** : voir ARCHITECTURE §8. Délai de réponse APDP et durées fixés à l'étape 10 avec un juriste ou DPO (D69) ; d'ici là, durées réglables par variables d'environnement (`RETENTION_*`, jamais en dur) ; purge par job planifié.
-- Déclaration du traitement auprès de l'APDP avant la prod. Politique de confidentialité versionnée, acceptée à l'inscription.
+- **Durées de conservation** : ARCHITECTURE §8 ; valeurs par défaut à valider par un juriste (`docs/legal/questions-juriste.md`, D69), réglables par variables d'environnement (`RETENTION_*`, `PRIVACY_*`, jamais en dur). Une tâche asynq par règle (`retention:<règle>`), par lots, idempotente, qui ne journalise que des compteurs ; toute nouvelle règle a son `Count` (simulation, `make purge-dry-run`) et son test à horloge injectée.
+- **Textes légaux** : source unique `docs/legal/*.md` (marqués « PROJET » tant qu'ils ne sont pas validés) ; après modification, `npm run gen:legal` (Mobile) et `make legal-html`. Une nouvelle version de la politique change son en-tête `version` et `PRIVACY_POLICY_VERSION` : l'app exige la réacceptation (D87).
+- Formalités APDP avant la prod : `docs/legal/apdp.md`. Fiche Play « Sécurité des données » : `docs/legal/play-securite-donnees.md`, à revoir à chaque changement de collecte.

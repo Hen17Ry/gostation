@@ -77,6 +77,8 @@ erDiagram
   users ||--o{ device_tokens : "possède"
   users ||--o{ reports : "signale"
   users ||--o{ data_requests : "demande"
+  users ||--o{ personal_exports : "copie de ses données"
+  data_requests ||--o| personal_exports : "génère"
   users ||--o{ audit_logs : "agit"
   users ||--o{ favorites : "met en favori"
   users ||--o{ admin_recovery_codes : "secours 2FA"
@@ -207,6 +209,15 @@ erDiagram
     uuid user_id FK
     data_request_type type
     data_request_status status
+    data_request_source source
+    timestamptz due_at
+  }
+  personal_exports {
+    uuid id PK
+    uuid user_id FK
+    uuid request_id FK
+    personal_export_status status
+    timestamptz expires_at
   }
   search_stats {
     timestamptz bucket PK
@@ -450,17 +461,16 @@ CREATE TABLE audit_logs (
 CREATE INDEX idx_audit_logs_entity ON audit_logs (entity_type, entity_id, created_at DESC);
 CREATE INDEX idx_audit_logs_actor  ON audit_logs (actor_id, created_at DESC);
 
--- Demandes d'exercice des droits (APDP / RGPD).
+-- Demandes d'exercice des droits (APDP), forme de l'étape 10A : voir l'ajout plus bas.
 CREATE TABLE data_requests (
   id                 uuid PRIMARY KEY DEFAULT uuidv7(),
   user_id            uuid REFERENCES users(id) ON DELETE SET NULL,
   type               data_request_type   NOT NULL,
   status             data_request_status NOT NULL DEFAULT 'pending',
   details            text,
-  due_at             timestamptz NOT NULL,           -- échéance légale (délai à confirmer, §9)
+  due_at             timestamptz NOT NULL,           -- échéance (PRIVACY_REQUEST_DEADLINE, 30 j provisoires)
   handled_by         uuid REFERENCES users(id) ON DELETE SET NULL,
-  response_note      text,
-  export_object_key  text,                           -- archive chiffrée, lien expirant
+  response_note      text,                           -- réponse ou motif du refus, envoyé par email
   created_at         timestamptz NOT NULL DEFAULT now(),
   completed_at       timestamptz
 );
@@ -689,6 +699,46 @@ CREATE TABLE exports (
 -- Journal d'audit : lecture admin par période et par action (curseur created_at, id).
 CREATE INDEX idx_audit_logs_created ON audit_logs (created_at DESC, id DESC);
 CREATE INDEX idx_audit_logs_action  ON audit_logs (action, created_at DESC);
+
+-- Ajout 10A : droits des personnes et conservation (migration privacy_rights_retention).
+ALTER TYPE data_request_type ADD VALUE 'other';          -- access, export, rectification, deletion, opposition, other
+ALTER TYPE export_dataset ADD VALUE 'data_requests';      -- export admin : le suivi, jamais le contenu
+CREATE TYPE data_request_source AS ENUM ('app', 'email');
+CREATE TYPE personal_export_status AS ENUM ('pending', 'ready', 'failed');
+ALTER TABLE data_requests
+  DROP COLUMN export_object_key,                          -- la copie a sa table
+  ADD COLUMN source      data_request_source NOT NULL DEFAULT 'app',
+  ADD COLUMN verified_at timestamptz,                     -- app : à la création ; email : code confirmé
+  ADD COLUMN updated_at  timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN version     integer NOT NULL DEFAULT 1,      -- If-Match des actions de l'admin
+  ADD CONSTRAINT ck_data_requests_rejected_note CHECK (status <> 'rejected' OR char_length(response_note) >= 3),
+  ADD CONSTRAINT ck_data_requests_closed_at CHECK ((status IN ('completed', 'rejected')) = (completed_at IS NOT NULL));
+-- Copie des données (« Télécharger mes données ») : JSON chiffré (enveloppe), 24 h, la personne seule.
+CREATE TABLE personal_exports (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  request_id  uuid REFERENCES data_requests(id) ON DELETE SET NULL,
+  status      personal_export_status NOT NULL DEFAULT 'pending',
+  object_key  text, wrapped_key bytea, sha256 bytea, size_bytes bigint,
+  error       text, created_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, expires_at timestamptz
+);
+ALTER TABLE users
+  ADD COLUMN last_active_at       timestamptz NOT NULL DEFAULT now(), -- connexion ou renouvellement de session (au plus 1 écriture/h)
+  ADD COLUMN inactivity_warned_at timestamptz;                        -- email « compte inactif » envoyé
+ALTER TABLE reports
+  ADD COLUMN reporter_pseudonym text,                     -- « u_ » + HMAC (clé export-pseudonym), à 90 j ou à la suppression
+  ADD COLUMN pseudonymized_at   timestamptz,
+  ADD CONSTRAINT ck_reports_pseudonym CHECK (reporter_pseudonym IS NULL OR reporter_id IS NULL);
+ALTER TABLE stations
+  ADD COLUMN manager_deleted_at  timestamptz,             -- compte du gérant supprimé : départ des 12 mois du justificatif
+  ADD COLUMN document_deleted_at timestamptz;             -- justificatif purgé
+-- Historique des stocks au-delà de 12 mois : agrégat quotidien, sans l'auteur des saisies.
+CREATE TABLE stock_history_daily (
+  day date, station_id uuid REFERENCES stations(id) ON DELETE CASCADE, product_id smallint REFERENCES products(id),
+  changes integer NOT NULL, min_quantity integer NOT NULL, max_quantity integer NOT NULL,
+  last_quantity integer NOT NULL, last_at timestamptz NOT NULL,
+  PRIMARY KEY (day, station_id, product_id)
+);
 ```
 
 **Colonnes `lat` / `lng` générées** : l'application ne lit jamais le type `geography`. Elle écrit `location` à partir de `lat`/`lng` (`ST_MakePoint(lng, lat)`) et lit les colonnes générées, que sqlc type correctement en `*float64` nullables. Une expression `ST_Y(...)` dans un SELECT serait typée non nullable par sqlc. `STORED` est imposé : PostgreSQL 18 interdit les fonctions d'extension dans une colonne virtuelle.
@@ -915,13 +965,15 @@ En-têtes sur toutes les réponses : `X-Request-ID` (repris du client s'il est v
 |---|---|---|
 | GET | `/me` | ✅ Profil, `emailVerified`, `privacyPolicy.reacceptRequired`, station (gérant : statut et motif) |
 | PATCH | `/me` | ✅ Prénom, nom |
-| DELETE | `/me` | ✅ `{ password }` : anonymisation, révocation de toutes les sessions ; station du gérant suspendue (RGPD complet : étape 9) |
+| DELETE | `/me` | ✅ `{ password }` : anonymisation immédiate (motifs de l'admin compris), sessions et appareils révoqués, favoris, alertes et notifications supprimés, signalements pseudonymisés ; station du gérant (approuvée ou en attente) suspendue ; tracée par une demande `deletion` close ; email de confirmation |
 | POST | `/me/change-password` | ✅ `{ currentPassword, newPassword }` ; révoque les autres sessions, email de notification |
 | POST | `/me/accept-privacy-policy` | ✅ `{ version }` : accepte la version courante |
 | GET | `/me/sessions` | ✅ Sessions actives (client, user agent, dates, `current`) |
 | DELETE | `/me/sessions/{id}` | ✅ Révoque une de ses sessions (404 pour celle d'un autre compte) |
 | POST | `/auth/logout-all` | ✅ Révoque toutes ses sessions |
-| POST / GET | `/me/data-requests` | Exercice des droits : accès, export, rectification, opposition ; suivi |
+| POST / GET | `/me/data-requests` | ✅ Demande `{ type: access\|rectification\|opposition\|deletion\|other, details? }` (précisions exigées pour rectification et other ; 5 ouvertes au plus), accusé de réception par email ; suivi (50 dernières). Email vérifié non exigé |
+| POST / GET | `/me/data-export` | ✅ Copie des données : 202, génération par le worker (`privacy:export`), réutilisée si en cours ou prête ; statut et lien signé de 15 min (`no-store`) |
+| GET | `/me/data-export/{id}/download?expires&signature` | ✅ JSON déchiffré, pièce jointe : lien signé **et** session de la personne (404 pour un autre compte, 403 lien altéré, 410 lien ou copie expirés), intégrité SHA-256, audité |
 | DELETE | `/me/devices/{id}` | ✅ Désenregistre un appareil (404 pour celui d'un autre compte ; email vérifié non exigé) |
 
 ### Recherche et itinéraire : publics, connexion facultative
@@ -970,7 +1022,7 @@ Toutes les routes `/admin/*` exigent la session web (cookie `__Host-gs_at`, clai
 | Méthode | Route | Description |
 |---|---|---|
 | GET | `/admin/dashboard?period&from&to` | ✅ Tableau de bord en un appel (D33) : stations par statut, dossiers en attente et ancienneté du plus vieux, fraîcheur des stocks, gérants inactifs, recherches (total, par produit, part sans station ouverte à 5 km), top des zones en pénurie, signalements et alertes ouverts, inscriptions ; évolution sur la période précédente ; séries (recherches par tranche et par produit, fraîcheur moyenne) |
-| GET | `/admin/counters` | ✅ Badges de la barre latérale : dossiers en attente (email vérifié), signalements et alertes ouverts, épingles à vérifier ; `no-store`, interrogé toutes les 60 s |
+| GET | `/admin/counters` | ✅ Badges de la barre latérale : dossiers en attente (email vérifié), signalements et alertes ouverts, épingles à vérifier, demandes de données (`dataRequests` : ouvertes, à échéance sous 7 jours, en retard) ; `no-store`, interrogé toutes les 60 s |
 | GET | `/admin/stats/searches?period&from&to&productId` | ✅ Séries des recherches et répartition par heure de la journée, tous lieux confondus (D34) |
 | GET | `/admin/stats/shortages?period&from&to&productId&onlyShortages` | ✅ GeoJSON des cellules H3 res 7 avec leur taux ; cellules de moins de 5 recherches masquées (`maskedCells`) (D34) |
 | GET | `/admin/stations?status&q&needsReview&freshness&managerInactive&noHours&reported&excluded&cursor&limit` | ✅ Stations d'un statut (défaut `pending`, `all` = tous), recherche par nom ou préfixe d'IFU ; filtres : `needsReview` (épingle signalée ou déplacement en attente), `freshness=stale` (8 à 24 h) ou `expired` (plus de 24 h ou jamais), gérant inactif, sans horaires, signalée, exclue (seuil de 5 signalements atteint, produit ou station) (D35). Un dossier `pending` n'apparaît qu'une fois l'email du gérant vérifié (D5) |
@@ -1004,8 +1056,10 @@ Toutes les routes `/admin/*` exigent la session web (cookie `__Host-gs_at`, clai
 | GET / POST | `/admin/exports` | ✅ Exports récents / lance un export `{ dataset, format?, from?, to?, productId? }` → 202 (D39) |
 | GET | `/admin/exports/{id}` | ✅ Statut et lien de téléchargement signé valable 1 h |
 | GET | `/admin/exports/{id}/download?expires&signature` | ✅ Fichier déchiffré (lien signé + session admin, pièce jointe, audité) ; 410 si le lien ou le fichier a expiré |
-| GET | `/admin/data-requests?status` | Demandes APDP (étape 9) |
-| PATCH | `/admin/data-requests/{id}` | Traitement (statut, note, génération d'export) (étape 9) |
+| GET / POST | `/admin/data-requests?type&status&overdue&cursor&limit` | ✅ Demandes de données (plus récentes d'abord ; `status=open` : reçues et en cours) / enregistre une demande reçue par email `{ email, type, details? }` → 201 et code de confirmation envoyé à l'adresse du compte |
+| GET | `/admin/data-requests/{id}` | ✅ Détail : compte visé, échéance, retard, `codePending`, actions possibles ; ETag |
+| POST | `/admin/data-requests/{id}/code` | ✅ Nouveau code (l'ancien ne vaut plus) |
+| POST | `/admin/data-requests/{id}/verify\|start\|export\|delete-account\|close` | ✅ `If-Match` : code saisi (7 j, 5 essais) ; prise en charge ; copie générée pour la personne (202, l'admin n'en voit rien) ; suppression du compte (demande `deletion` confirmée) ; clôture `{ outcome: completed\|rejected, response }` envoyée par email. Rien avant la confirmation de l'identité ; tout est audité |
 
 Les comptes admin se créent uniquement via la CLI `cmd/admin` (`make admin-create`) : aucune route publique. Toutes les routes admin exigent une session web ouverte après 2FA (claim `mfa`), par cookie (`RequireCookieSession`).
 
@@ -1148,8 +1202,8 @@ L'API ne fait que mettre en file (`jobs.Client`) : une panne SMTP ou Expo ne ral
 | `stats:freshness` | `0 * * * *` | low | ✅ Relevé de la fraîcheur des stocks par produit (frais, stale, exclus) dans `stock_freshness_stats` (séries du tableau de bord) |
 | `export:generate` | À la demande (`POST /admin/exports`) | default | ✅ Lit le jeu de données, écrit le CSV (BOM, « ; ») ou le JSON, chiffre (enveloppe), stocke, marque l'export prêt (fichier supprimé à +24 h). 3 retries ; au dernier échec, ou au-delà de 200 000 lignes, l'export est marqué échoué |
 | `export:purge` | `*/15 * * * *` | low | ✅ Supprime les fichiers d'export de 24 h ou plus (statut `expired`) et déclare échouées les demandes en attente depuis plus d'une heure |
-| `retention:purge` | `0 3 * * *` | low | ✅ Règles de l'étape 6 (notifications et journal des alertes à 30 j, tokens push sans réenregistrement à 90 j) ; emplacement prêt pour les règles de l'étape 9 (§8) |
-| `data-requests:export` | À la demande | — | Étape 9 : archive JSON des données d'un utilisateur, chiffrée, lien valable 7 j |
+| `retention:<règle>` | Une tâche par règle, chaque nuit entre 3 h 00 et 3 h 12 (`personal_exports` : `*/15 * * * *`) | low | ✅ 14 règles de conservation (§8) : par lots de 500, idempotentes, horloge injectable ; ne journalisent que des compteurs. `make purge-dry-run` affiche ce que chaque règle traiterait, sans rien modifier |
+| `privacy:export` | À la demande (`POST /me/data-export`, ou l'admin pour une demande confirmée) | default | ✅ Copie des données de la personne : JSON lisible (explications en français, ce qui n'est pas conservé), chiffrée (enveloppe), disponible 24 h ; email « copie prête » ; une demande d'export faite depuis l'app est close |
 
 Les horaires du scheduler sont en heure locale (`Africa/Porto-Novo`). **Retries** : backoff exponentiel `JOBS_RETRY_BASE_DELAY × 2^n` (± 25 %), plafonné à `JOBS_RETRY_MAX_DELAY` ; une charge utile illisible part aux archives sans retry. Les tâches périodiques portent une clé d'unicité (pas d'empilement si le worker prend du retard) et peu de retries (la suivante repasse). Files pondérées `critical` 6, `default` 3, `low` 1. Les tâches réussies ne sont pas conservées ; les archivées (échec définitif) le sont par asynq (90 j au plus), sans donnée personnelle en clair.
 
@@ -1157,38 +1211,37 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 
 ## 8. Données personnelles et conservation
 
-| Donnée | Base légale / finalité | Conservation proposée* |
-|---|---|---|
-| Position de l'utilisateur | Exécution du service (recherche, itinéraire) | **Aucune** : traitée en mémoire, jamais journalisée |
-| Position de l'appareil du gérant à l'épinglage | Contrôle de vraisemblance (D13) | **Aucune** : seules la distance à l'épingle et la précision GPS sont conservées (signalement, demande de déplacement) |
-| Stats de recherche (H3 res 7, par heure) et leurs agrégats (par jour ; tous lieux par heure) | Intérêt légitime (pénuries) | 24 mois, déjà anonymes ; affichées et exportées seulement au-delà de k ≥ 5 recherches |
-| Relevés de fraîcheur des stocks | Intérêt légitime (fiabilité) | 24 mois (aucune donnée personnelle) |
-| Fichiers d'export admin | Pilotage, conformité | **24 h** après la génération (purge toutes les 15 min) ; chiffrés ; auteurs des signalements pseudonymisés, jamais d'email ; jamais la liste des utilisateurs |
-| Demandes d'export (métadonnées) | Responsabilité | 12 mois (étape 9) |
-| Compte utilisateur | Contrat | Durée du compte ; purge 30 j après la demande de suppression |
-| Comptes inactifs | Minimisation | Relance à 24 mois, suppression à 36 mois |
-| Justificatif IFU d'une station approuvée | Obligation de vérification | Tant que la station est active + 12 mois |
-| Justificatif d'une demande rejetée | Idem | 90 j après le rejet |
-| Refresh tokens et sessions | Sécurité | 30 j glissants (12 h pour les admins), TTL Redis ; supprimés au logout et à la révocation |
-| Codes à 6 chiffres, défis 2FA | Sécurité | 15 min / 5 min (TTL Redis), détruits après usage ou 5 échecs |
-| Codes de secours 2FA | Sécurité | Jusqu'à usage, remplacement ou reset ; supprimés avec le compte |
-| Tokens push | Exécution du service | Jusqu'à la révocation de leur session (logout, révocation, changement ou réinitialisation du mot de passe, suppression du compte), `DeviceNotRegistered`, ou 90 j sans réenregistrement (purge quotidienne) |
-| Boîte de réception (notifications) | Exécution du service | 30 j (purge quotidienne) ; supprimée avec le compte |
-| Préférences de notification | Exécution du service | Durée du compte |
-| Journal des alertes « de retour en stock » | Limites de fréquence | 30 j |
-| Position de l'auteur d'un signalement | Contrôle de vraisemblance (2 km) | **Aucune** : traitée en mémoire, jamais journalisée |
-| Alertes admin | Modération | 12 mois après résolution (étape 9) |
-| Historique des stocks | Intérêt légitime (fiabilité, stats) | 24 mois, puis agrégé |
-| Signalements | Modération | 12 mois après résolution ; `reporter_id` mis à NULL à la suppression du compte. Le gérant ne voit jamais l'auteur ni le commentaire |
-| Journal d'audit | Sécurité, responsabilité | 12 mois |
-| Demandes d'exercice des droits | Preuve de conformité | 3 ans après clôture |
-| Logs applicatifs (sans position ni token) | Sécurité | 30 j |
+Source détaillée : [`docs/legal/inventaire-donnees.md`](legal/inventaire-donnees.md) (établi à partir du code, avec les écarts constatés), [`registre-traitements.md`](legal/registre-traitements.md) et les textes publics (`politique-confidentialite.md`, `cgu.md`, version 1.0, rendus dans l'app et par `make legal-html`). **Toutes les durées sont des valeurs par défaut à valider par un juriste** ([questions](legal/questions-juriste.md)) ; chacune est réglable sans changer le code.
 
-\* Durées à valider avec un juriste ou DPO au regard du Code du numérique (Livre V) et des délibérations de l'APDP, à l'étape 10 (D69). D'ici là, les durées appliquées par la purge sont réglables (`RETENTION_*`).
+| Donnée | Conservation | Variable | Règle de purge (`retention:<règle>`) |
+|---|---|---|---|
+| Position (utilisateur, appareil du gérant, auteur d'un signalement) | **Aucune** : traitée en mémoire, jamais journalisée | — | — |
+| Compte | Durée du compte. Suppression (app, ou demande confirmée) : anonymisation immédiate | — | — |
+| Compte inactif (ni connexion ni renouvellement de session) | Email d'avertissement 30 j avant ; suppression (anonymisation) à 24 mois | `RETENTION_INACTIVE_ACCOUNTS`, `RETENTION_INACTIVITY_WARNING` | `inactive_accounts_warning`, `inactive_accounts` |
+| Tokens push | Session ; 90 j sans réenregistrement | `RETENTION_DEVICE_TOKENS` | `device_tokens` |
+| Boîte de réception | 30 j | `RETENTION_NOTIFICATIONS` | `notifications` |
+| Journal des alertes « de retour en stock » | 30 j (hors alertes en attente) | `RETENTION_BACK_IN_STOCK_ALERTS` | `back_in_stock_alerts` |
+| Signalements | Auteur pseudonymisé à 90 j (ou à la suppression du compte) ; suppression à 12 mois | `RETENTION_REPORT_AUTHORS`, `RETENTION_REPORTS` | `report_authors`, `reports` |
+| Journal d'audit | 12 mois | `RETENTION_AUDIT_LOGS` | `audit_logs` |
+| Justificatif IFU / RCCM | Station active ; 6 mois après un refus sans renvoi ; 12 mois après la suppression du compte du gérant | `RETENTION_REJECTED_DOCUMENTS`, `RETENTION_DELETED_STATION_DOCUMENTS` | `station_documents` |
+| Historique des stocks | 12 mois, puis agrégé par jour sans lien avec le gérant (`stock_history_daily`) | `RETENTION_STOCK_HISTORY` | `stock_history` |
+| Demandes d'exercice des droits | 3 ans après la clôture | `RETENTION_DATA_REQUESTS` | `data_requests` |
+| Alertes de modération | 12 mois après la résolution | `RETENTION_ADMIN_ALERTS` | `admin_alerts` |
+| Exports admin : fichiers / métadonnées | 24 h / 12 mois | — / `RETENTION_EXPORT_RECORDS` | `export:purge` / `export_records` |
+| Copie « Mes données » | 24 h | — | `personal_exports` (toutes les 15 min) |
+| Statistiques H3 (recherches, fraîcheur) | Sans limite : anonymes (k ≥ 5 à l'affichage et à l'export) | — | — |
+| Sessions, refresh tokens | 30 j glissants (12 h admin), TTL Redis | `JWT_REFRESH_TTL`, `ADMIN_REFRESH_TTL` | — |
+| Codes à 6 chiffres, défis 2FA, codes de confirmation des demandes | 15 min, 5 min, 7 j (TTL Redis), détruits après usage ou 5 échecs | — | — |
+| Limiteurs (empreintes d'IP, de compte, d'installation) | 1 min à 1 h (TTL Redis) | — | — |
+| Logs applicatifs (sans IP, position, email ni token) | 30 j, chez l'hébergeur | 10C | — |
+
+Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire) ; alerte de l'admin `PRIVACY_REQUEST_DUE_SOON` (168 h) ; contact indiqué dans les emails : `PRIVACY_CONTACT_EMAIL`.
+
+**Purges** : une tâche asynq quotidienne par règle (D82), par lots, idempotente, qui ne journalise que des compteurs ; `make purge-dry-run` simule. **Sauvegardes** : une donnée purgée disparaît des sauvegardes à l'expiration de la dernière sauvegarde qui la contient ; la rotation (et donc ce délai maximal) est fixée à l'étape 10C et indiquée dans la politique.
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D79 : 2026-10-15)
+### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D79 : 2026-10-15 ; D80 à D89 : 2026-10-16)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1260,7 +1313,7 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D66 | IFU partagé | Un même IFU peut couvrir plusieurs stations (une société en possède souvent plusieurs) : aucune contrainte d'unicité, index simple `idx_stations_ifu`. La fiche admin indique « IFU déjà utilisé par N stations » (`ifuSharedCount` de `GET /admin/stations/{id}` : autres stations au même IFU, tous statuts), avec un lien vers la liste des stations filtrée sur cet IFU. |
 | D67 | Un compte gérant, une station | V1 : un compte gérant gère une seule station. Plusieurs stations par compte et comptes employés : V2. |
 | D68 | Prix | Prix des carburants et du gaz : hors V1. |
-| D69 | Délais APDP et conservation | Le délai de réponse aux demandes APDP et les durées de conservation (§8) seront fixés à l'étape 10 avec un juriste. D'ici là, les durées sont réglables par variables d'environnement (`RETENTION_NOTIFICATIONS`, `RETENTION_BACK_IN_STOCK_ALERTS`, `RETENTION_DEVICE_TOKENS` ; 24 h au moins) ; chaque règle de purge ajoutée à l'étape 9 aura la sienne. |
+| D69 | Délais APDP et conservation | Le délai de réponse aux demandes APDP et les durées de conservation (§8) seront fixés avec un juriste (questions en `docs/legal/questions-juriste.md`, étape 10A). D'ici là, ce sont des valeurs par défaut réglables par variables d'environnement (`RETENTION_*`, `PRIVACY_REQUEST_DEADLINE` ; 24 h au moins), une par règle de purge (§8). |
 | D70 | Autorisation des notifications | Jamais au premier lancement. Gérant : écran d'explication des rappels juste après la validation de sa station (pourquoi, quand et à quelle fréquence, comment répondre ou les couper), une fois par installation, puis la demande du système ; sur Android 12 et moins (autorisation d'office), l'écran informe seulement. Utilisateur : demande à l'activation de sa première alerte « de retour en stock ». Refus : bandeau discret avec « Ouvrir les réglages » dans Stocks (gérant) et dans Favoris (utilisateur ayant une alerte active), toast si une alerte est activée malgré le refus. Autorisation relue au retour au premier plan. Android 13+ répond « refusée » avant toute demande : l'app retient (MMKV) qu'elle a demandé, et l'autorisation n'est refusée qu'après sa demande ou quand le système ne la montrera plus. |
 | D71 | Enregistrement de l'appareil | `POST /me/devices` (token Expo, plateforme, `installId` = `X-Install-Id`, langue) à chaque lancement d'un compte vérifié dont l'autorisation est accordée, et à chaque changement de token. Le token est lié à la session : logout, révocation de la session (ou de toutes), changement de mot de passe et désactivation le suppriment côté serveur (`TestDevicesFollowSessions`) ; rien à faire dans l'app. |
 | D72 | Canaux Android | Créés au démarrage : `stock-reminders` (importance haute), `stock-alerts`, `reports`, `account` (par défaut, aussi canal du manifeste), plus `stock-confirmations` (basse, sans son) pour la confirmation locale de « Rien n'a changé ». Le backend choisit le canal de chaque push d'après son type : `channelId` du push sur iOS, `data.channelId` du message de données sur Android, où l'app présente la notification (D75 ; `TestChannelPerType`, `TestAndroidMessagesAreDataOnly`). Écran verrouillé : contenu masqué (`PRIVATE`). |
@@ -1270,8 +1323,18 @@ Emails de statut de station (D16 + étape 5) : décisions de l'admin (validation
 | D76 | Icône de notification | Silhouette blanche monochrome du logo (épingle et éclair, `assets/brand/notification.svg` → `assets/images/notification-icon.png` par `npm run gen:icons`), teinte d'accent orange brand 600 (`#d14200`). |
 | D77 | Build EAS | Profils `development` (dev client, APK), `preview` (APK interne, canal EAS Update `preview`) et `production` (AAB, canal `production`), `versionCode` incrémenté par EAS (`appVersionSource: remote`, `autoIncrement`). `runtimeVersion` par empreinte (`fingerprint`). Firebase : variable EAS de type fichier `GOOGLE_SERVICES_JSON` (visibilité « sensible ») dans les trois environnements, copiée vers `Mobile/google-services.json` avant l'installation et le prebuild (`eas-build-pre-install`, `scripts/eas-google-services.mjs` ; `eas-build-post-install` passerait après le prebuild, sans Firebase), seul chemin lu par `app.config.ts` ; le fichier est exclu de l'empreinte (`.fingerprintignore`), sinon la machine qui lance le build et EAS calculeraient deux `runtimeVersion` différentes et le build échouerait. Build local (`eas build --local`) : EAS n'y fournit pas les variables de type fichier, `GOOGLE_SERVICES_JSON=$PWD/google-services.json` se passe dans le shell. APK `preview` limité à arm64-v8a et x86_64 (téléphones récents et émulateurs) ; l'AAB garde toutes les architectures (Play ne livre que la bonne). R8 et réduction des ressources en release. `development` et `preview` joignent l'API par `adb reverse` (`http://127.0.0.1:8080`) jusqu'à l'étape 10, qui fixera l'URL de production. Cette URL est aussi une variable EAS en clair des environnements `development` et `preview` : `eas update` ne lit ni le profil de build ni `Mobile/.env`, et une autre valeur changerait la configuration, donc l'empreinte (la mise à jour ne viserait aucun build). `eas.json` fait partie de l'empreinte : le modifier demande un nouveau build. Le profil `production` ne lit jamais le `.env` de la machine qui lance le build (`EXPO_NO_DOTENV=1`) : EAS évalue la configuration sans lui, et une URL d'API locale y autoriserait le HTTP en clair (empreintes différentes, build refusé). |
 | D78 | Outils de test des notifications | `make dev-remind station=…` (vieillit la dernière mise à jour et lance la tâche des rappels), `make dev-notify type=… user=…` (notification d'un type à un compte), `make dev-decide station=… action=…` (décision d'admin par le service, push de décision compris) ; `cmd/devtools` refuse tout `APP_ENV` autre que `development`. Heures calmes et plafonds : tests d'intégration à horloge injectée. |
-| D79 | Données des essais sur téléphone | Les essais de push sur un vrai téléphone passent par l'API de dev (jeton Expo réel) ; leurs comptes sont synthétiques (`push-*-9c@example.bj`), créés par l'API réelle. |
+| D79 | Données des essais sur téléphone | Les essais sur un vrai téléphone passent par l'API de dev (jeton Expo réel) avec des comptes synthétiques créés par l'API réelle, supprimés avec leurs données liées (base, sessions, emails, fichiers) avant la fin de l'étape : aucune donnée de test ne reste dans la base de dev (CLAUDE.md, Tests). |
+| D80 | Copie des données | `POST /me/data-export` met en file `privacy:export` : JSON lisible (rubriques de l'inventaire, explications en français, ce qui n'est pas conservé ; jeton push tronqué ; justificatif en base64 pour un gérant ; sessions Redis), chiffré comme les justificatifs, **24 h**. Téléchargement : lien signé (HMAC, sous-clé `privacy-export-link`, 15 min) **et** session de la personne ; l'app l'enregistre dans son cache, ouvre la feuille de partage (`expo-sharing`) puis supprime le fichier. L'admin peut la générer pour une demande confirmée ; il n'en voit jamais le contenu. Une demande `export` est tracée et close à la génération. |
+| D81 | Demandes de données | `data_requests` : depuis l'app (authentifiée, vérifiée d'office) ou reçues par email et saisies par l'admin, alors confirmées par un code à 6 chiffres envoyé à l'adresse du compte (HMAC dans Redis, sous-clé `privacy-request-code`, 7 j, 5 essais) : aucune action avant. Statuts reçue → en cours → traitée / refusée (réponse ou motif de 3 à 2 000 caractères, envoyé par email), échéance à 30 j (provisoire), accusé de réception avec une référence `DR-XXXXXXXX`, 5 demandes ouvertes au plus par compte, actions admin avec `If-Match` et auditées. Alerte par les compteurs (`/admin/counters`, badge, bandeau du tableau de bord et de l'écran) plutôt que par `admin_alerts` (liées à une station). |
+| D82 | Purges | Une tâche par règle (`retention:<règle>`), planifiées de 3 h 00 à 3 h 12 (une minute d'écart), clé d'unicité de 23 h ; `personal_exports` toutes les 15 min. Chaque règle a un `Count` (simulation) et un `Batch` (lot de 500, au plus 2 000 lots), à horloge injectable ; `TestRetentionPurges` vieillit des lignes et vérifie chaque règle, la simulation sans effet et l'idempotence. |
+| D83 | Suppression du compte | Anonymisation immédiate dans une transaction (identité, mot de passe, 2FA, motifs libres de l'admin et désactivation), suppression des appareils, favoris, notifications, préférences, alertes et copies, signalements pseudonymisés ; puis révocation des sessions, invalidation du cache de recherche, audit (`cause` : self, request, inactivity) et email de confirmation. Gérant : station approuvée **ou en attente** suspendue avec le motif « Compte du gérant supprimé. », `manager_id` effacé, `manager_deleted_at` posé (départ des 12 mois du justificatif). |
+| D84 | Activité du compte | `last_active_at` : connexion, ou renouvellement de session (au plus une écriture par heure, aussitôt si le compte avait été prévenu) ; une connexion efface l'avertissement d'inactivité. Les admins et les comptes désactivés ne sont pas concernés par la purge d'inactivité. |
+| D85 | Pseudonymes | `pseudonym.Of` : « u_ » + 16 hex de HMAC-SHA256 (sous-clé `export-pseudonym`), le même dans les exports admin et dans `reports.reporter_pseudonym` : les signalements d'un même auteur restent rapprochables sans l'identifier. |
+| D86 | Textes légaux | Source unique `docs/legal/*.md` (en-tête `version`, `updated`) : `npm run gen:legal` (Mobile) produit `content.generated.ts`, rendu par l'app (titres, listes, tableaux en cartes, liens internes) ; `make legal-html` écrit `var/legal/*.html`. Un test Jest échoue si le contenu généré ne correspond plus au Markdown. La version acceptée à l'inscription vient de cet en-tête. |
+| D87 | Réacceptation | Quand le serveur publie une version (`PRIVACY_POLICY_VERSION`) que le compte n'a pas acceptée, l'app n'ouvre plus que l'écran `policy-update` (lire, accepter, se déconnecter, supprimer le compte). Si l'app ne contient pas cette version, elle demande d'être mise à jour au lieu de faire accepter un texte qu'elle ne montre pas. Testé avec une version 1.1 fictive (`TestPrivacyPolicyNewVersion`, `policy-gate.test.ts`). |
+| D88 | Écran « Mes données » | Compte › Mes données (et l'écran de statut d'un gérant non approuvé) : copie (préparer, suivi toutes les 3 s, partager, nouvelle copie), rectifier (profil), faire une demande (type et précisions), mes demandes (statut, échéance, réponse), supprimer le compte (ce qui est supprimé, conservé et pourquoi ; variante gérant). |
+| D89 | Admin « Demandes de données » | Section des opérations : liste filtrable (À traiter, Traitées, Refusées, Toutes ; type ; en retard), échéance et retard en texte et badge, panneau de détail (personne, précisions, vérification d'identité avec saisie du code, réponse) et actions (prendre en charge, générer la copie, supprimer le compte, clore, refuser) ; enregistrement d'une demande reçue par email. Badge : demandes ouvertes. Jeu d'export `data_requests` : le suivi seulement (type, origine, statut, dates, vérifiée, retard). |
 
 ### Questions ouvertes
 
-Aucune pour l'instant : réseaux de stations, délais légaux et prix sont tranchés par D66 à D69 (2026-10-15).
+Questions juridiques (formalités APDP, transferts, durées, textes) : [`docs/legal/questions-juriste.md`](legal/questions-juriste.md). Les durées et le délai de réponse restent des valeurs par défaut réglables jusqu'à l'avis du juriste (D69).
