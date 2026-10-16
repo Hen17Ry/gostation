@@ -22,6 +22,14 @@ export interface Fixtures {
   excluded: StationFixture
   user: { id: string; email: string; name: string }
   product: { id: number; label: string; stations: number }
+  dataRequest: RequestFixture
+  lateRequest: RequestFixture
+}
+
+export interface RequestFixture {
+  id: string
+  reference: string
+  email: string
 }
 
 export const fixtures = (): Fixtures => JSON.parse(readFileSync(`${repo}var/e2e/fixtures.json`, 'utf8')) as Fixtures

@@ -202,6 +202,18 @@ Blocs inspirés du catalogue 21st.dev (code récupéré via le MCP, puis réécr
 | Tableau de données                       | « Complex Data Table » (felipemenezes098)        | TanStack Table v9 au lieu de v8 ; pagination serveur par curseur au lieu de la pagination client ; menus d'actions par ligne et bouton « Colonnes » repris ; tri et sélection multiple écartés (l'API ne trie pas, aucune action groupée) |
 | Panneau latéral                          | « Drawer » du catalogue (inspiration seulement)  | quota de récupération du jour épuisé : réécrit sur Radix Dialog, en-tête à badges, pied d'actions collant, variante non modale pour les cartes                                                                                            |
 
+**Demandes de données (10A).** Écran composé des briques existantes (le MCP 21st.dev n'était pas
+disponible dans cette session ; aucun bloc nouveau repris) : `DataTable` (demande + référence en
+mono, personne, origine, échéance en date et « N jours » / « En retard de N jours » en texte,
+statut), onglets À traiter / Traitées / Refusées / Toutes, filtre de type, pastille « En retard » ;
+`DetailPanel` (échéance, personne, précisions, vérification d'identité avec champ du code à
+6 chiffres et « Envoyer un nouveau code », réponse) ; actions en pied : refuser (motif obligatoire,
+`ReasonDialog` à 2 000 caractères), prendre en charge et générer la copie (`ConfirmDialog`),
+supprimer le compte (destructif, réponse facultative), clore avec une réponse. `DataRequestsDueAlert`
+(`alert` d'avertissement à 7 jours, de danger en retard, icône `Clock` et texte) sur le tableau de
+bord et en tête de l'écran ; badge de la barre latérale : demandes ouvertes. Le retard n'est jamais
+signalé par la seule couleur (badge « En retard » et texte).
+
 ## 9. Accessibilité (WCAG 2.2 AA)
 
 - Navigation clavier complète, lien d'évitement « Aller au contenu », focus visible partout.

@@ -8,7 +8,12 @@ import type { NavBadge } from './nav'
 export function useNavBadges(): Partial<Record<NavBadge, number>> {
   const { data } = useQuery({
     ...countersQuery,
-    select: (c) => ({ pending: c.pendingStations, reports: c.openReports, alerts: c.openAlerts + c.locationReviews }),
+    select: (c) => ({
+      pending: c.pendingStations,
+      reports: c.openReports,
+      alerts: c.openAlerts + c.locationReviews,
+      dataRequests: c.dataRequests.open,
+    }),
   })
   return data ?? {}
 }

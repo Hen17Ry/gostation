@@ -219,6 +219,24 @@ test.describe('écrans connectés', () => {
     await shoot(page, 'users', { only1440: true })
   })
 
+  test('demandes de données : liste, échéance, détail et demande reçue par email', async ({ page }) => {
+    const f = fixtures()
+    await page.goto('/data-requests')
+    await expect(page.getByRole('row').filter({ hasText: f.lateRequest.reference })).toBeVisible()
+    await shoot(page, 'data-requests', {
+      reload: () => expect(page.getByRole('row').filter({ hasText: f.dataRequest.reference })).toBeVisible(),
+    })
+
+    await page.goto(`/data-requests?request=${f.lateRequest.id}`)
+    await expect(page.getByRole('dialog', { name: 'Accès' }).getByText(f.lateRequest.email)).toBeVisible()
+    await shoot(page, 'data-request-detail', { only1440: true })
+
+    await page.goto('/data-requests')
+    await page.getByRole('button', { name: 'Demande reçue par email' }).click()
+    await expect(page.getByRole('dialog', { name: 'Enregistrer une demande reçue par email' })).toBeVisible()
+    await shoot(page, 'data-request-record', { only1440: true })
+  })
+
   test('catalogue, audit, exports, palette', async ({ page }) => {
     const f = fixtures()
     await page.goto('/catalog')

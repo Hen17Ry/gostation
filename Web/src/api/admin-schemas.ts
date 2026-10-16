@@ -278,7 +278,7 @@ export const auditPageSchema = page(auditEntrySchema) satisfies z.ZodMiniType<Sc
 
 // ── Exports ─────────────────────────────────────────────────────────────────
 
-export const datasets = ['stations', 'stocks', 'search_stats', 'reports', 'audit'] as const
+export const datasets = ['stations', 'stocks', 'search_stats', 'reports', 'audit', 'data_requests'] as const
 export type Dataset = (typeof datasets)[number]
 
 export const exportSchema = z.object({
@@ -298,6 +298,61 @@ export const exportSchema = z.object({
 }) satisfies z.ZodMiniType<Schemas['Export']>
 export type Export = z.infer<typeof exportSchema>
 export const exportPageSchema = page(exportSchema) satisfies z.ZodMiniType<Schemas['ExportPage']>
+
+// ── Demandes de données (droits des personnes) ──────────────────────────────
+
+export const dataRequestTypes = ['access', 'export', 'rectification', 'deletion', 'opposition', 'other'] as const
+export type DataRequestType = (typeof dataRequestTypes)[number]
+export const dataRequestStatuses = ['pending', 'in_progress', 'completed', 'rejected'] as const
+export type DataRequestStatus = (typeof dataRequestStatuses)[number]
+
+const dataRequestBase = {
+  id: z.string(),
+  reference: z.string(),
+  type: z.enum(dataRequestTypes),
+  status: z.enum(dataRequestStatuses),
+  source: z.enum(['app', 'email']),
+  createdAt: isoDate,
+  dueAt: isoDate,
+  completedAt: nullableDate,
+  response: nullableString,
+}
+const dataRequestUser = z.object({
+  id: z.optional(z.string()),
+  email: nullableString,
+  firstName: z.optional(z.string()),
+  lastName: z.optional(z.string()),
+  role: z.nullable(role),
+  deleted: z.optional(z.boolean()),
+})
+export type DataRequestUser = z.infer<typeof dataRequestUser>
+
+export const dataRequestItemSchema = z.object({
+  ...dataRequestBase,
+  verified: z.boolean(),
+  overdue: z.boolean(),
+  dueSoon: z.boolean(),
+  user: z.nullable(dataRequestUser),
+}) satisfies z.ZodMiniType<Schemas['AdminDataRequestItem']>
+export type DataRequestItem = z.infer<typeof dataRequestItemSchema>
+export const dataRequestPageSchema = page(dataRequestItemSchema) satisfies z.ZodMiniType<
+  Schemas['AdminDataRequestPage']
+>
+
+export const dataRequestSchema = z.object({
+  ...dataRequestBase,
+  version: z.int(),
+  details: nullableString,
+  verifiedAt: nullableDate,
+  updatedAt: isoDate,
+  overdue: z.boolean(),
+  dueSoon: z.boolean(),
+  handledBy: nullableString,
+  codePending: z.boolean(),
+  user: z.nullable(dataRequestUser),
+  actions: z.object({ verify: z.boolean(), export: z.boolean(), deleteAccount: z.boolean(), close: z.boolean() }),
+}) satisfies z.ZodMiniType<Schemas['AdminDataRequest']>
+export type DataRequest = z.infer<typeof dataRequestSchema>
 
 // ── Pénuries ────────────────────────────────────────────────────────────────
 

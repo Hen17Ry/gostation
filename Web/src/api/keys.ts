@@ -52,6 +52,13 @@ export const exportKeys = {
   list: (cursor: string | undefined) => [...exportKeys.all, 'list', cursor ?? null] as const,
 }
 
+export const dataRequestKeys = {
+  all: ['dataRequests'] as const,
+  lists: () => [...dataRequestKeys.all, 'list'] as const,
+  list: (f: object) => [...dataRequestKeys.lists(), f] as const,
+  detail: (id: string) => [...dataRequestKeys.all, 'detail', id] as const,
+}
+
 export const shortageKeys = {
   all: ['shortages'] as const,
   map: (f: object) => [...shortageKeys.all, f] as const,

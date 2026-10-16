@@ -15,8 +15,6 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { ta } from '@/i18n/admin'
 
-const MAX = 500
-
 /**
  * Dialogue de décision avec motif (obligatoire quand l'API l'exige, sinon note facultative).
  * L'erreur de l'API s'affiche dans le dialogue, la saisie est conservée ; le dialogue se ferme
@@ -33,6 +31,7 @@ export function ReasonDialog({
   reasonLabel = ta.common.reason,
   reasonHint = ta.common.reasonHint,
   destructive = false,
+  maxLength = 500,
   children,
 }: {
   open: boolean
@@ -45,6 +44,8 @@ export function ReasonDialog({
   reasonLabel?: string
   reasonHint?: string
   destructive?: boolean
+  /** Longueur maximale du motif (500 par défaut, comme les décisions sur les stations). */
+  maxLength?: number
   children?: ReactNode
 }) {
   const [reason, setReason] = useState('')
@@ -97,7 +98,7 @@ export function ReasonDialog({
             error={touched && invalid ? ta.common.reasonRequired : undefined}
             labelAction={
               <span className="text-2xs text-muted-foreground tabular-nums" aria-hidden>
-                {ta.common.reasonCounter(reason.length, MAX)}
+                {ta.common.reasonCounter(reason.length, maxLength)}
               </span>
             }
           >
@@ -105,7 +106,7 @@ export function ReasonDialog({
               <Textarea
                 {...p}
                 value={reason}
-                maxLength={MAX}
+                maxLength={maxLength}
                 rows={3}
                 required={reasonRequired}
                 onChange={(e) => setReason(e.target.value)}
