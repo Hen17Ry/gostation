@@ -336,6 +336,16 @@ export const fr = {
       back_in_stock: (product: string, station: string) => `${product} est de retour en stock à ${station}.`,
       station_reported: (station: string) => `Des utilisateurs ont signalé un problème sur ${station}.`,
       stock_reminder: (station: string) => `Pensez à mettre à jour les stocks de ${station}.`,
+      station_decision: {
+        approved: (station: string) =>
+          `${station} est validée : renseignez vos stocks pour apparaître dans la recherche.`,
+        rejected: (station: string) => `Le dossier de ${station} a été refusé : consultez le motif.`,
+        suspended: (station: string) => `${station} est suspendue : consultez le motif.`,
+        reinstated: (station: string) => `${station} est de nouveau active.`,
+        move_approved: (station: string) => `La nouvelle position de ${station} est validée.`,
+        move_rejected: (station: string) =>
+          `Le déplacement de ${station} a été refusé : l’ancienne position reste active.`,
+      },
     },
     unknown: 'Nouvelle notification',
   },
@@ -645,6 +655,87 @@ export const fr = {
         other: 'Autre problème',
       },
     },
+  },
+  push: {
+    channels: {
+      reminders: 'Rappels de stock',
+      remindersDescription:
+        'Toutes les 4\u00a0h pendant vos horaires d’ouverture, quand vos stocks n’ont pas été mis à jour.',
+      alerts: 'Alertes de stock',
+      alertsDescription: 'Un produit d’une station favorite est de retour en stock.',
+      reports: 'Signalements',
+      reportsDescription: 'Des utilisateurs signalent un problème sur votre station.',
+      account: 'Compte et station',
+      accountDescription: 'Décisions sur votre station : validation, refus, suspension, déplacement.',
+      confirmations: 'Confirmations',
+      confirmationsDescription: 'Résultat de « Rien n’a changé » touché dans un rappel.',
+    },
+    actions: {
+      update: 'Mettre à jour',
+      confirm: 'Rien n’a changé',
+    },
+    // Push présentés par l'app sur Android (D75) : titre et texte d'après le type et les données.
+    reminder: {
+      title: 'Vos stocks sont-ils à jour ?',
+      body: (station: string, hours: number | null) =>
+        hours === null
+          ? `« ${station} » : renseignez vos stocks pour apparaître dans la recherche.`
+          : `« ${station} » : dernière mise à jour il y a ${hours}\u00a0h. Mettez à jour ou confirmez en un geste.`,
+    },
+    reported: {
+      title: 'Station signalée',
+      excludedTitle: 'Station masquée dans la recherche',
+      excluded: (station: string, product: string, n: number) =>
+        `« ${station} » n’apparaît plus ${product ? `pour ${product}` : 'dans la recherche'} après ${n}\u00a0signalements. Mettez à jour ou confirmez vos stocks pour réapparaître.`,
+      out_of_stock: (station: string, product: string, n: number) =>
+        `${n}\u00a0utilisateurs signalent une rupture à « ${station} » : ${product}. Mettez à jour ou confirmez vos stocks.`,
+      station_closed: (station: string, n: number) =>
+        `${n}\u00a0utilisateurs signalent « ${station} » comme fermée. Confirmez vos stocks si vous êtes ouvert.`,
+      wrong_location: (station: string, n: number) =>
+        `${n}\u00a0utilisateurs signalent une position incorrecte pour « ${station} ». Vérifiez l’épingle.`,
+      other: (station: string, n: number) => `${n}\u00a0utilisateurs signalent un problème à « ${station} ».`,
+    },
+    backInStock: {
+      title: 'De retour en stock',
+      body: (product: string, station: string) => `${product} est de nouveau disponible à « ${station} ».`,
+    },
+    decision: {
+      approved: 'Station validée',
+      rejected: 'Dossier refusé',
+      suspended: 'Station suspendue',
+      reinstated: 'Station réactivée',
+      move_approved: 'Déplacement validé',
+      move_rejected: 'Déplacement refusé',
+    } as Record<string, string>,
+    fallbackTitle: 'GoStation',
+    confirmed: 'Stocks confirmés',
+    confirmedBody: 'Votre station reste à jour dans la recherche.',
+    confirmFailed: 'Confirmation impossible',
+    confirmFailedBody: 'Ouvrez GoStation pour confirmer vos stocks.',
+    confirmedToast: 'Stocks confirmés : votre station reste à jour.',
+    intro: {
+      title: 'Rappels de stock',
+      lead: 'Les clients ne voient votre station que si vos stocks sont récents. GoStation vous rappelle de les mettre à jour.',
+      whyTitle: 'Pourquoi',
+      why: 'Au-delà de 8\u00a0h sans mise à jour, votre station est marquée « à vérifier » ; après 24\u00a0h, elle disparaît de la recherche.',
+      whenTitle: 'Quand',
+      when: 'Toutes les 4\u00a0h pendant vos horaires d’ouverture, si rien n’a été mis à jour, et 4\u00a0fois par jour au plus.',
+      quietTitle: 'En un geste',
+      quiet:
+        '« Rien n’a changé » confirme vos stocks depuis la notification. « Couper les rappels pour aujourd’hui », dans Stocks, les arrête jusqu’à la fermeture.',
+      enable: 'Activer les rappels',
+      understood: 'C’est compris',
+      later: 'Plus tard',
+      openSettings: 'Ouvrir les réglages',
+      deniedNote: 'Les notifications sont coupées pour GoStation : activez-les dans les réglages du téléphone.',
+    },
+    denied: {
+      title: 'Notifications désactivées',
+      manager: 'Vous ne recevrez pas les rappels de stock ni les signalements.',
+      user: 'Vous ne recevrez pas vos alertes « de retour en stock ».',
+      action: 'Ouvrir les réglages',
+    },
+    alertPermission: 'Autorisez les notifications pour recevoir cette alerte.',
   },
   a11y: {
     selected: 'sélectionné',

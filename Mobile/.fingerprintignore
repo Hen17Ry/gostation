@@ -1,0 +1,5 @@
+# Configuration Firebase : présente ou non selon la machine (app.config.ts), sans effet sur le JS.
+google-services.json
+# Réécrit dans node_modules par le plugin Gradle de React Native au premier build local (attribut
+# « package » retiré) : l'empreinte d'une machine qui a déjà compilé différerait de celle d'EAS.
+node_modules/@react-native-masked-view/masked-view/android/src/main/AndroidManifest.xml

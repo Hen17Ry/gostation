@@ -16,12 +16,12 @@ export function notificationText(n: Pick<Notification, 'type' | 'data'>): string
       return t.inbox.types.station_reported(station)
     case 'stock_reminder':
       return t.inbox.types.stock_reminder(station)
+    case 'station_decision': {
+      const texts = t.inbox.types.station_decision
+      const decision = str(n.data, 'decision')
+      return decision in texts ? texts[decision as keyof typeof texts](station) : t.inbox.unknown
+    }
     default:
       return t.inbox.unknown
   }
-}
-
-export const notificationStationId = (n: Pick<Notification, 'data'>) => {
-  const id = n.data.stationId
-  return typeof id === 'string' ? id : null
 }

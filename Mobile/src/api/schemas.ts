@@ -172,7 +172,9 @@ export const favoriteListSchema = z.object({ items: z.array(favoriteSchema) }) s
   Schemas['FavoriteList']
 >
 
-const notificationType = z.enum(['stock_reminder', 'station_reported', 'back_in_stock'])
+const notificationType = z.enum(['stock_reminder', 'station_reported', 'back_in_stock', 'station_decision'])
+/** Types réglables (préférences) : une décision de l'admin (`station_decision`) part toujours. */
+const settingType = z.enum(['stock_reminder', 'station_reported', 'back_in_stock'])
 
 export const notificationSchema = z.object({
   id: z.string(),
@@ -189,7 +191,7 @@ export const notificationPageSchema = z.object({
 }) satisfies z.ZodMiniType<Schemas['NotificationPage']>
 
 export const notificationSettingsSchema = z.object({
-  items: z.array(z.object({ type: notificationType, enabled: z.boolean() })),
+  items: z.array(z.object({ type: settingType, enabled: z.boolean() })),
 }) satisfies z.ZodMiniType<Schemas['NotificationSettingList']>
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>
 

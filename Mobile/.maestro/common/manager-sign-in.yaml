@@ -1,4 +1,5 @@
-# Connexion d'un gérant (EMAIL, PASSWORD) depuis un lancement à neuf ; arrivée dans son espace.
+# Connexion d'un gérant (EMAIL, PASSWORD) depuis un lancement à neuf ; arrivée dans son espace
+# (explication des rappels refermée si la station est validée).
 appId: bj.gostation.app
 ---
 - runFlow: start.yaml
@@ -17,3 +18,4 @@ appId: bj.gostation.app
 - tapOn:
     id: sign-in-submit
 - runFlow: dismiss-autofill.yaml
+- runFlow: reminders-intro.yaml

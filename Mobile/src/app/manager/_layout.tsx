@@ -28,6 +28,7 @@ export default function ManagerLayout() {
         <Stack.Screen name="hours" />
         <Stack.Screen name="products" />
         <Stack.Screen name="search" options={{ animation: 'fade_from_bottom' }} />
+        <Stack.Screen name="reminders" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
       </Stack.Protected>
       <Stack.Protected guard={space === 'manager-status'}>
         <Stack.Screen name="status" options={{ animation: 'fade' }} />

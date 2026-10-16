@@ -18,14 +18,21 @@ const FONTS = [
   'node_modules/@expo-google-fonts/geist-mono/500Medium/GeistMono_500Medium.ttf',
 ]
 
-const LOCAL_API = /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.EXPO_PUBLIC_API_URL ?? '')
+// API locale (build de test : adb reverse vers l'hôte) : HTTP en clair permis. Jamais pour le profil
+// production, même si le .env de la machine qui lance le build pointe sur l'API locale : EAS évalue
+// la config sans ce fichier, et les deux empreintes (runtimeVersion) différeraient.
+const LOCAL_API =
+  process.env.EAS_BUILD_PROFILE !== 'production' &&
+  /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.EXPO_PUBLIC_API_URL ?? '')
 
-// Configuration Firebase (FCM, push Android), jamais commitée (Mobile/.gitignore). Build EAS : variable
-// d'environnement EAS de type fichier GOOGLE_SERVICES_JSON (EAS y met le chemin du fichier). En local :
-// Mobile/google-services.json, s'il existe ; sinon le build se fait sans Firebase.
-const LOCAL_GOOGLE_SERVICES = join(__dirname, 'google-services.json')
-const GOOGLE_SERVICES_FILE =
-  process.env.GOOGLE_SERVICES_JSON ?? (existsSync(LOCAL_GOOGLE_SERVICES) ? './google-services.json' : undefined)
+// Configuration Firebase (FCM, push Android), jamais commitée (Mobile/.gitignore), toujours lue au même
+// endroit : Mobile/google-services.json, s'il existe (sinon le build se fait sans Firebase). Build EAS :
+// la variable d'environnement EAS de type fichier GOOGLE_SERVICES_JSON y est copiée avant l'installation
+// (scripts/eas-google-services.mjs) ; le fichier est exclu de l'empreinte (.fingerprintignore), qui ne
+// dépend donc pas de sa présence sur la machine qui lance le build.
+const GOOGLE_SERVICES_FILE = existsSync(join(__dirname, 'google-services.json')) ? './google-services.json' : undefined
+
+const EAS_PROJECT_ID = 'da725901-6ce3-49d5-bd36-5df2d9a716a1'
 
 const config: ExpoConfig = {
   name: 'GoStation',
@@ -34,6 +41,10 @@ const config: ExpoConfig = {
   owner: 'hen_ry',
   version: '0.1.0',
   orientation: 'portrait',
+  // EAS Update : une mise à jour JS ne va qu'aux builds dont le natif a la même empreinte
+  // (fingerprint) ; canaux preview et production (eas.json).
+  runtimeVersion: { policy: 'fingerprint' },
+  updates: { url: `https://u.expo.dev/${EAS_PROJECT_ID}` },
   scheme: 'gostation',
   userInterfaceStyle: 'automatic',
   icon: './assets/images/icon.png',
@@ -102,6 +113,16 @@ const config: ExpoConfig = {
     ],
     // Heures et dates des horaires (sélecteurs natifs).
     '@react-native-community/datetimepicker',
+    // Push (étape 9C) : silhouette blanche monochrome du logo dans la barre d'état, teinte d'accent
+    // orange (brand 600). Les canaux sont créés par l'app au démarrage (src/features/notifications).
+    [
+      'expo-notifications',
+      {
+        icon: './assets/images/notification-icon.png',
+        color: '#d14200',
+        defaultChannel: 'account',
+      },
+    ],
     // Méthodes Java/Kotlin du parcours principal précompilées à l'installation (images perdues sinon).
     './plugins/with-baseline-profile',
     [
@@ -114,6 +135,10 @@ const config: ExpoConfig = {
           enableMinifyInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
           usesCleartextTraffic: LOCAL_API,
+          // Push reçu app tuée : expo-task-manager charge le JS sans interface par le nom de cette
+          // classe (meta-data du manifeste d'expo-modules-core), que R8 renommerait sinon (crash du
+          // service FCM, ClassNotFoundException).
+          extraProguardRules: '-keep class expo.modules.adapters.react.apploader.** { *; }',
         },
       },
     ],
@@ -121,7 +146,7 @@ const config: ExpoConfig = {
   experiments: { typedRoutes: true, reactCompiler: true },
   extra: {
     router: {},
-    eas: { projectId: 'da725901-6ce3-49d5-bd36-5df2d9a716a1' },
+    eas: { projectId: EAS_PROJECT_ID },
   },
 }
 

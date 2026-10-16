@@ -12,6 +12,7 @@ name: Gérant, de l'inscription aux stocks
       EMAIL: ${output.email}
 - tapOn:
     id: status-refresh
+- runFlow: common/reminders-intro.yaml
 - extendedWaitUntil:
     visible:
       id: setup-checklist

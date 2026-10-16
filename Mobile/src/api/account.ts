@@ -8,6 +8,7 @@ import {
   favoriteListSchema,
   favoriteSchema,
   notificationPageSchema,
+  type NotificationSettings,
   notificationSettingsSchema,
   profileSchema,
   sessionListSchema,
@@ -122,13 +123,20 @@ export const notificationsQuery = queryOptions({
 export const markNotificationsRead = (body: { ids?: string[]; all?: boolean }) =>
   unwrap(api.POST('/api/v1/me/notifications/read', { body }))
 
+/**
+ * Enregistre l'appareil push de cette installation (token Expo, lié à la session : le logout ou la
+ * révocation de la session le supprime côté serveur).
+ */
+export const registerPushDevice = (body: components['schemas']['DeviceRequest']) =>
+  unwrap(api.POST('/api/v1/me/devices', { body }))
+
 export const notificationSettingsQuery = queryOptions({
   queryKey: meKeys.settings(),
   queryFn: ({ signal }) => unwrap(api.GET('/api/v1/me/notification-settings', { signal }), notificationSettingsSchema),
   select: (d) => d.items,
 })
 
-export const updateNotificationSettings = (settings: components['schemas']['NotificationSetting'][]) =>
+export const updateNotificationSettings = (settings: NotificationSettings['items']) =>
   unwrap(api.PUT('/api/v1/me/notification-settings', { body: { settings } }), notificationSettingsSchema)
 
 // --- Signalements ------------------------------------------------------------------------------

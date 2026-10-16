@@ -14,17 +14,20 @@ export interface SpaceHint {
 
 /**
  * Préférences locales (MMKV, non sensibles) : accueil vu, dernier produit choisi, guidage vocal,
- * espace du compte. Jamais de position.
+ * espace du compte, explication des rappels vue. Jamais de position.
  */
 interface Prefs {
   onboarded: boolean
   productId: number | null
   voice: boolean
   space: SpaceHint | null
+  /** Écran d'explication des rappels vu (gérant, après la validation de sa station). */
+  remindersIntroSeen: boolean
   setOnboarded: () => void
   setProductId: (id: number) => void
   setVoice: (on: boolean) => void
   setSpace: (space: SpaceHint | null) => void
+  setRemindersIntroSeen: () => void
 }
 
 export const usePrefs = create<Prefs>()(
@@ -34,10 +37,12 @@ export const usePrefs = create<Prefs>()(
       productId: null,
       voice: false,
       space: null,
+      remindersIntroSeen: false,
       setOnboarded: () => set({ onboarded: true }),
       setProductId: (productId) => set({ productId }),
       setVoice: (voice) => set({ voice }),
       setSpace: (space) => set({ space }),
+      setRemindersIntroSeen: () => set({ remindersIntroSeen: true }),
     }),
     {
       name: 'prefs',
@@ -46,7 +51,13 @@ export const usePrefs = create<Prefs>()(
         setItem: (k, v) => storage.set(k, v),
         removeItem: (k) => void storage.remove(k),
       })),
-      partialize: ({ onboarded, productId, voice, space }) => ({ onboarded, productId, voice, space }),
+      partialize: ({ onboarded, productId, voice, space, remindersIntroSeen }) => ({
+        onboarded,
+        productId,
+        voice,
+        space,
+        remindersIntroSeen,
+      }),
     },
   ),
 )

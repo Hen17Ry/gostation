@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { router } from 'expo-router'
-import { BellRing, CheckCheck, Flag, LogIn, PackageCheck } from 'lucide-react-native'
+import { BellRing, CheckCheck, Flag, LogIn, PackageCheck, ShieldCheck } from 'lucide-react-native'
 import { RefreshControl, View } from 'react-native'
 
 import { markNotificationsRead, notificationsQuery } from '@/api/account'
@@ -15,13 +15,19 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TabScreen } from '@/components/ui/tab-screen'
 import { Text } from '@/components/ui/text'
 import { useRequireAccount } from '@/features/auth/use-require-account'
-import { notificationStationId, notificationText } from '@/features/inbox/notification-text'
+import { notificationText } from '@/features/inbox/notification-text'
+import { notificationHref } from '@/features/notifications/routing'
 import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { agoFrom } from '@/lib/format'
 import { useTheme } from '@/theme/theme'
 
-const ICONS = { back_in_stock: PackageCheck, station_reported: Flag, stock_reminder: BellRing }
+const ICONS = {
+  back_in_stock: PackageCheck,
+  station_reported: Flag,
+  stock_reminder: BellRing,
+  station_decision: ShieldCheck,
+}
 
 /** Boîte de réception (30 jours) : texte composé sur l'appareil, non lues mises en avant. */
 export default function Inbox() {
@@ -51,8 +57,9 @@ export default function Inbox() {
   const unread = q.data?.unreadCount ?? 0
   const open = (n: Notification) => {
     if (!n.readAt) read.mutate({ ids: [n.id] })
-    const stationId = notificationStationId(n)
-    if (stationId && n.type === 'back_in_stock') router.push({ pathname: '/station/[id]', params: { id: stationId } })
+    // Même écran que le push touché (D61) : stocks, signalements, fiche station, statut.
+    const href = notificationHref({ ...n.data, type: n.type })
+    if (href) router.push(href)
   }
 
   return (

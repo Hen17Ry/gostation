@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Icône de notification Android (barre d'état) : silhouette blanche monochrome sur fond
+       transparent, teintée par le système ; la couleur d'accent orange est posée par la config
+       (plugin expo-notifications). Même épingle à éclair évidé que l'icône thématique, dans la zone
+       utile de 22 dp. -->
+  <g transform="translate(12 12) scale(1.12) translate(-16 -15.7)">
+    <path fill-rule="evenodd" fill="#fff" d="M16 6.5c-4 0-7.2 3.1-7.2 7 0 5.1 6.1 10.9 6.6 11.4a.9.9 0 0 0 1.2 0c.5-.5 6.6-6.3 6.6-11.4 0-3.9-3.2-7-7.2-7Z M16.9 9.6l-3.2 4.6h2.4l-.9 3.9 3.3-4.9h-2.5l.9-3.6Z"/>
+  </g>
+</svg>

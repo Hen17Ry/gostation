@@ -32,6 +32,8 @@ import { haptics } from '@/lib/haptics'
 import { useOnline } from '@/lib/use-online'
 import { useTheme } from '@/theme/theme'
 
+import { PushDeniedBanner } from '@/features/notifications/push-denied-banner'
+
 import { SetupChecklist } from './setup-checklist'
 import { StockRow } from './stock-row'
 import {
@@ -179,6 +181,7 @@ export function StocksScreen() {
             </Text>
           )}
           {station.data && !station.data.data.setup.searchable && <SetupChecklist setup={station.data.data.setup} />}
+          <PushDeniedBanner audience="manager" />
 
           {!online && (
             <Banner tone="info" title={t.common.offline}>

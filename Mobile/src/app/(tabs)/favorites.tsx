@@ -21,6 +21,7 @@ import { Text } from '@/components/ui/text'
 import { useRequireAccount } from '@/features/auth/use-require-account'
 import { AlertsSheet } from '@/features/favorites/alerts-sheet'
 import { useFavorite } from '@/features/favorites/use-favorite'
+import { PushDeniedBanner } from '@/features/notifications/push-denied-banner'
 import { t } from '@/i18n'
 import { useTheme } from '@/theme/theme'
 
@@ -46,8 +47,10 @@ export default function Favorites() {
     )
   }
 
+  const anyAlert = (q.data ?? []).some((f) => f.alertProductIds.length > 0)
   return (
     <TabScreen title={t.favorites.title}>
+      {anyAlert && <PushDeniedBanner audience="user" className="mx-5 mb-2" />}
       {q.isError && !q.data && (
         <View className="px-5">
           <Banner

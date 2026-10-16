@@ -1,0 +1,16 @@
+# Explication des rappels de stock (D70), ouverte une fois juste après la validation de la station :
+# refermée sans autoriser (« Plus tard »), ou « C'est compris » si l'autorisation est déjà accordée
+# (Android 12 et moins).
+appId: bj.gostation.app
+---
+- extendedWaitUntil:
+    visible:
+      id: reminders-intro-primary
+    timeout: 10000
+    optional: true
+- tapOn:
+    id: reminders-intro-later
+    optional: true
+- tapOn:
+    id: reminders-intro-primary
+    optional: true

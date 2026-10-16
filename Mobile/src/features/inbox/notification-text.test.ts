@@ -1,4 +1,4 @@
-import { notificationStationId, notificationText } from './notification-text'
+import { notificationText } from './notification-text'
 
 describe('notificationText', () => {
   it('compose le texte d’après type et data, jamais d’un texte serveur', () => {
@@ -18,8 +18,17 @@ describe('notificationText', () => {
     expect(text).toBe('Des utilisateurs ont signalé un problème sur Station X.')
   })
 
-  it('identifiant de station facultatif', () => {
-    expect(notificationStationId({ data: { stationId: 'abc' } })).toBe('abc')
-    expect(notificationStationId({ data: {} })).toBeNull()
+  it('décision de l’admin : texte par décision, jamais le motif', () => {
+    const text = (decision: string) =>
+      notificationText({ type: 'station_decision', data: { stationName: 'Station Zongo', decision, reason: 'SECRET' } })
+    expect(text('approved')).toBe(
+      'Station Zongo est validée : renseignez vos stocks pour apparaître dans la recherche.',
+    )
+    expect(text('suspended')).toBe('Station Zongo est suspendue : consultez le motif.')
+    expect(text('move_rejected')).toBe(
+      'Le déplacement de Station Zongo a été refusé : l’ancienne position reste active.',
+    )
+    expect(text('bogus')).toBe('Nouvelle notification')
+    expect(text('rejected')).not.toContain('SECRET')
   })
 })

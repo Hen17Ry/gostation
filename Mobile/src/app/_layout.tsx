@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ToastHost } from '@/components/ui/toast'
 import { useAuthBootstrap } from '@/features/auth/use-auth-bootstrap'
 import { useSpace } from '@/features/manager/space'
+import { NotificationsRuntime } from '@/features/notifications/runtime'
 import { bindQueryManagers, createQueryClient, persistOptions } from '@/lib/query-client'
 import { splashReady } from '@/lib/splash'
 import { configureMapCache } from '@/map/config'
@@ -35,6 +36,8 @@ export default function RootLayout() {
             <BottomSheetModalProvider>
               <Root />
             </BottomSheetModalProvider>
+            {/* Après les panneaux (portail du fournisseur) : un toast reste au-dessus de leur voile. */}
+            <ToastHost />
           </PersistQueryClientProvider>
         </ThemeProvider>
       </SafeAreaProvider>
@@ -89,7 +92,7 @@ function Root() {
           <Stack.Screen name="design" />
         </Stack.Protected>
       </Stack>
-      <ToastHost />
+      <NotificationsRuntime />
     </>
   )
 }

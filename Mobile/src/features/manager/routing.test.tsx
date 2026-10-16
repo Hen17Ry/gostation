@@ -8,6 +8,7 @@ import { meKeys } from '@/api/keys'
 import type { Profile } from '@/api/schemas'
 import TabsLayout from '@/app/(tabs)/_layout'
 import ManagerLayout from '@/app/manager/_layout'
+import { usePushPermission } from '@/features/notifications/permission'
 import { useAuth } from '@/stores/auth'
 import { usePrefs } from '@/stores/prefs'
 import { ThemeProvider } from '@/theme/theme'
@@ -60,6 +61,7 @@ const routes = {
   'manager/hours': page('écran horaires'),
   'manager/products': page('écran produits'),
   'manager/search': page('écran recherche'),
+  'manager/reminders': page('écran rappels'),
 }
 
 function open(status: Parameters<typeof profile>[0], url: string) {
@@ -90,6 +92,8 @@ describe('espace gérant : écrans selon le statut de la station (D58, D61)', ()
   beforeEach(() => {
     useAuth.setState({ status: 'unknown' })
     usePrefs.getState().setSpace(null)
+    usePrefs.setState({ remindersIntroSeen: true })
+    usePushPermission.setState({ status: 'unknown', canAskAgain: true })
     searchRendered.mockClear()
   })
 
