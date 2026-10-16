@@ -55,3 +55,29 @@ jest.mock('expo-location', () => ({
   getCurrentPositionAsync: jest.fn(async () => ({ coords: { latitude: 6.3654, longitude: 2.4183, accuracy: 10 } })),
   watchPositionAsync: jest.fn(async () => ({ remove: jest.fn() })),
 }))
+
+// Notifications (9C) : aucune autorisation, aucun token réel ; les tests règlent les réponses.
+jest.mock('expo-notifications', () => {
+  const sub = () => ({ remove: jest.fn() })
+  return {
+    AndroidImportance: { MIN: 1, LOW: 2, DEFAULT: 3, HIGH: 4, MAX: 5 },
+    AndroidNotificationVisibility: { PUBLIC: 1, PRIVATE: 0, SECRET: -1 },
+    BackgroundNotificationTaskResult: { NewData: 0, NoData: 1, Failed: 2 },
+    DEFAULT_ACTION_IDENTIFIER: 'expo.modules.notifications.actions.DEFAULT',
+    setNotificationHandler: jest.fn(),
+    setNotificationChannelAsync: jest.fn(async () => null),
+    setNotificationCategoryAsync: jest.fn(async () => null),
+    getPermissionsAsync: jest.fn(async () => ({ granted: false, status: 'undetermined', canAskAgain: true })),
+    requestPermissionsAsync: jest.fn(async () => ({ granted: true, status: 'granted', canAskAgain: true })),
+    getExpoPushTokenAsync: jest.fn(async () => ({ type: 'expo', data: 'ExponentPushToken[test]' })),
+    addPushTokenListener: jest.fn(sub),
+    addNotificationReceivedListener: jest.fn(sub),
+    addNotificationResponseReceivedListener: jest.fn(sub),
+    getLastNotificationResponseAsync: jest.fn(async () => null),
+    clearLastNotificationResponseAsync: jest.fn(async () => undefined),
+    dismissNotificationAsync: jest.fn(async () => undefined),
+    scheduleNotificationAsync: jest.fn(async () => 'local-id'),
+    registerTaskAsync: jest.fn(async () => null),
+  }
+})
+jest.mock('expo-task-manager', () => ({ defineTask: jest.fn() }))

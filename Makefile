@@ -28,7 +28,7 @@ GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATI
 
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
 	tools run worker-run build test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
-	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats
+	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats dev-remind dev-notify dev-decide
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-15s\033[0m %s\n", $$1, $$2}'
@@ -133,6 +133,20 @@ admin-create: .env ## Crée un admin : make admin-create email=… first=… las
 admin-reset-2fa: .env ## Réinitialise la 2FA d'un admin : make admin-reset-2fa email=…
 	@[[ -n "$(email)" ]] || { echo "usage : make admin-reset-2fa email=…"; exit 1; }
 	@$(WITH_ENV) cd $(BACKEND) && go run ./cmd/admin reset-2fa --email "$(email)"
+
+# ── Notifications : déclenchement immédiat (dev uniquement, le worker envoie les push) ──
+
+dev-remind: .env ## Rappel de stock tout de suite : vieillit la dernière mise à jour puis lance la tâche (station=<uuid> [reset=1])
+	@[[ -n "$(station)" ]] || { echo "usage : make dev-remind station=<uuid> [reset=1]"; exit 1; }
+	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/devtools remind -station "$(station)" $(if $(reset),-reset,)'
+
+dev-notify: .env ## Notification d'un type à un compte (type=stock_reminder|back_in_stock|station_reported|station_decision user=<email|uuid> [decision=…] [station=…])
+	@[[ -n "$(type)" && -n "$(user)" ]] || { echo "usage : make dev-notify type=… user=<email|uuid> [decision=…] [station=<uuid>]"; exit 1; }
+	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/devtools notify -type "$(type)" -user "$(user)" $(if $(decision),-decision "$(decision)",) $(if $(station),-station "$(station)",)'
+
+dev-decide: .env ## Décision d'admin sur une station (push de décision) : make dev-decide station=<uuid> action=approve|reject|suspend|unsuspend [reason=… exigé sauf approve]
+	@[[ -n "$(station)" && -n "$(action)" ]] || { echo "usage : make dev-decide station=<uuid> action=approve|reject|suspend|unsuspend [reason=…]"; exit 1; }
+	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/devtools decide -station "$(station)" -action "$(action)" $(if $(reason),-reason "$(reason)",)'
 
 # ── Recherche : données fictives, plans et bench ──────────────────────────────
 

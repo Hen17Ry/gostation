@@ -15,6 +15,7 @@ import (
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/audit"
 	"gostation/backend/internal/mail"
+	"gostation/backend/internal/notification"
 	"gostation/backend/internal/store"
 	"gostation/backend/internal/store/dbgen"
 )
@@ -207,15 +208,16 @@ type transition struct {
 	from     string
 	to       dbgen.StationStatus
 	email    mail.StationStatusChange
+	push     string // décision envoyée au gérant (push et boîte de réception)
 	audit    string
 	reasonOK bool // motif obligatoire
 }
 
 var transitions = map[string]transition{
-	"approve":   {"approve", StatusPending, dbgen.StationStatusApproved, mail.StationApproved, audit.ActionStationApproved, false},
-	"reject":    {"reject", StatusPending, dbgen.StationStatusRejected, mail.StationRejected, audit.ActionStationRejected, true},
-	"suspend":   {"suspend", StatusApproved, dbgen.StationStatusSuspended, mail.StationSuspended, audit.ActionStationSuspended, true},
-	"unsuspend": {"unsuspend", StatusSuspended, dbgen.StationStatusApproved, mail.StationReinstated, audit.ActionStationUnsuspended, true},
+	"approve":   {"approve", StatusPending, dbgen.StationStatusApproved, mail.StationApproved, notification.DecisionApproved, audit.ActionStationApproved, false},
+	"reject":    {"reject", StatusPending, dbgen.StationStatusRejected, mail.StationRejected, notification.DecisionRejected, audit.ActionStationRejected, true},
+	"suspend":   {"suspend", StatusApproved, dbgen.StationStatusSuspended, mail.StationSuspended, notification.DecisionSuspended, audit.ActionStationSuspended, true},
+	"unsuspend": {"unsuspend", StatusSuspended, dbgen.StationStatusApproved, mail.StationReinstated, notification.DecisionReinstated, audit.ActionStationUnsuspended, true},
 }
 
 // ChangeStatus applique une décision admin (approve, reject, suspend, unsuspend) : transition
@@ -261,6 +263,7 @@ func (s *Service) ChangeStatus(ctx context.Context, admin Actor, stationID uuid.
 	s.audit(ctx, admin, tr.audit, stationID, meta)
 	s.invalidate(ctx, true)
 	s.notify(ctx, stationID, tr.email, reason)
+	s.pushDecision(ctx, stationID, tr.push)
 	return s.AdminDetail(ctx, stationID)
 }
 
@@ -322,6 +325,11 @@ func (s *Service) ResolveMove(ctx context.Context, admin Actor, stationID, reque
 	}
 	s.audit(ctx, admin, action, stationID, meta)
 	s.notify(ctx, stationID, change, reason)
+	decision := notification.DecisionMoveRejected
+	if approve {
+		decision = notification.DecisionMoveApproved
+	}
+	s.pushDecision(ctx, stationID, decision)
 	return s.AdminDetail(ctx, stationID)
 }
 

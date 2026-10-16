@@ -2221,8 +2221,11 @@ export interface components {
             /** Format: date-time */
             lastSeenAt: string;
         };
-        /** @enum {string} */
-        NotificationType: "stock_reminder" | "station_reported" | "back_in_stock";
+        /**
+         * @description `station_decision` (décision de l'admin sur la station du gérant) n'est jamais proposé dans les préférences : il part toujours, comme l'email qui l'accompagne.
+         * @enum {string}
+         */
+        NotificationType: "stock_reminder" | "station_reported" | "back_in_stock" | "station_decision";
         /**
          * @description `data` (et les données du push, qui y ajoutent `type` et `notificationId`) selon le type :
          *     - `stock_reminder` : `stationId`, `stationName`, `hoursSinceUpdate` (absent si jamais mis à jour),
@@ -2231,7 +2234,14 @@ export interface components {
          *       ouvrir l'app ; un 412 signifie que les stocks ont déjà bougé) ;
          *     - `station_reported` : `stationId`, `stationName`, `reason`, `productId`/`productLabel` (rupture),
          *       `reporters`, `level` (`flagged` à 3, `excluded` à 5) — jamais l'identité des auteurs ;
-         *     - `back_in_stock` : `stationId`, `stationName`, `productId`, `productLabel`.
+         *     - `back_in_stock` : `stationId`, `stationName`, `productId`, `productLabel` ;
+         *     - `station_decision` : `stationId`, `stationName`, `decision` (`approved`, `rejected`, `suspended`,
+         *       `reinstated`, `move_approved`, `move_rejected`) — jamais le motif, lu dans l'app (statut).
+         *
+         *     Push : sur Android, message de données (`type`, `notificationId`, ces données et `channelId`)
+         *     présenté par l'app ; sur iOS, notification avec titre et texte. Canal Android (créé par l'app au
+         *     démarrage) : `stock-reminders` (rappels), `stock-alerts` (retour en stock), `reports`
+         *     (signalements), `account` (décisions).
          */
         Notification: {
             /** Format: uuid */

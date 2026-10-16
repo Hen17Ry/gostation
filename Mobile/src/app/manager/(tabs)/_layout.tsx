@@ -1,16 +1,26 @@
 import { useQuery } from '@tanstack/react-query'
-import { Tabs } from 'expo-router'
+import { router, Tabs } from 'expo-router'
+import { useEffect } from 'react'
 
 import { notificationsQuery } from '@/api/account'
 import { managerReportsQuery } from '@/api/manager'
 import { TabBar } from '@/components/tab-bar'
 import { useMe } from '@/features/auth/use-me'
+import { usePushPermission } from '@/features/notifications/permission'
+import { usePrefs } from '@/stores/prefs'
 
 /** Onglets du gérant approuvé : Stocks (accueil), Ma station, Signalements, Notifications, Compte. */
 export default function ManagerTabsLayout() {
   const { me } = useMe()
   const inbox = useQuery({ ...notificationsQuery, enabled: !!me?.emailVerified, refetchInterval: 120_000 })
   const reports = useQuery({ ...managerReportsQuery('open'), refetchInterval: 300_000 })
+  // Juste après la validation de la station : explication des rappels, puis demande d'autorisation
+  // (une fois par installation ; jamais au premier lancement).
+  const introSeen = usePrefs((s) => s.remindersIntroSeen)
+  const permissionKnown = usePushPermission((s) => s.status !== 'unknown')
+  useEffect(() => {
+    if (!introSeen && permissionKnown) router.push('/manager/reminders')
+  }, [introSeen, permissionKnown])
   return (
     <Tabs
       screenOptions={{ headerShown: false, animation: 'fade', lazy: true }}

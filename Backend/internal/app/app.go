@@ -137,8 +137,8 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	limiter := ratelimit.New(infra.Redis, limiterOpts...)
 	jobsClient := jobs.NewClient(infra.Redis, cfg.Push.ReceiptsDelay)
 	emails := mail.NewQueue(jobsClient, queueSealer)
-	// La révocation d'une session supprime son appareil push (notifSvc est construit plus bas :
-	// il a lui-même besoin des sessions pour écarter les appareils de sessions expirées).
+	// La révocation d'une session supprime son appareil push (notifSvc est construit après les
+	// sessions : il en a lui-même besoin pour écarter les appareils de sessions expirées).
 	var notifSvc *notification.Service
 	sessions := auth.NewSessionStore(infra.Redis, auth.WithRevokeHook(func(ctx context.Context, sid string) {
 		notifSvc.SessionRevoked(ctx, sid)
@@ -166,13 +166,22 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		EmailKey:   emailKey,
 		Log:        log,
 	})
+	pusher := infra.Pusher
+	if pusher == nil {
+		if pusher, err = newPusher(cfg, log); err != nil {
+			return nil, err
+		}
+	}
+	notifSvc = notification.NewService(notification.Deps{
+		Store: st, Queue: jobsClient, Pusher: pusher, Sessions: sessions, Log: log,
+	})
 	cache := searchcache.New(infra.Redis)
 	stationSvc := station.NewService(station.Config{
 		Timezone: cfg.Timezone, MaxCylinders: cfg.Stock.MaxCylinders, MaxLiters: cfg.Stock.MaxLiters,
 		StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 	}, station.Deps{
 		Store: st, Documents: docs, Audit: auditLog, Cache: cache,
-		Mailer: emails, Templates: renderer, Restock: jobsClient, Log: log,
+		Mailer: emails, Templates: renderer, Restock: jobsClient, Decisions: notifSvc, Log: log,
 	})
 	osrmClient := infra.OSRM
 	if osrmClient == nil {
@@ -185,15 +194,6 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		MaxCandidates: cfg.Search.MaxCandidates, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 	}, st, infra.Redis, cache, osrmClient, searchstats.NewRecorder(infra.Redis), log)
 
-	pusher := infra.Pusher
-	if pusher == nil {
-		if pusher, err = newPusher(cfg, log); err != nil {
-			return nil, err
-		}
-	}
-	notifSvc = notification.NewService(notification.Deps{
-		Store: st, Queue: jobsClient, Pusher: pusher, Sessions: sessions, Log: log,
-	})
 	return &Services{
 		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient,
 		Stats: searchstats.NewFlusher(infra.Redis, st, cfg.Timezone, log), Limiter: limiter,

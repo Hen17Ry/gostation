@@ -12,6 +12,7 @@ import { SwitchRow } from '@/components/ui/list-row'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
+import { requestPushPermission, usePushPermission } from '@/features/notifications/permission'
 import { productLabel } from '@/features/search/product-picker'
 import { t } from '@/i18n'
 import { useTheme } from '@/theme/theme'
@@ -72,6 +73,8 @@ function AlertsBody({ favorite }: { favorite: Favorite }) {
     const next = on ? [...new Set([...ids, productId])] : ids.filter((x) => x !== productId)
     setIds(next)
     save.mutate(next)
+    // Première alerte activée : c'est le moment de demander l'autorisation (jamais avant).
+    if (on) void askForAlerts()
   }
   return (
     <View className="gap-3 pt-1">
@@ -105,4 +108,14 @@ function AlertsBody({ favorite }: { favorite: Favorite }) {
       )}
     </View>
   )
+}
+
+/**
+ * À l'activation d'une alerte : demande du système si elle n'a jamais été faite ; refusée, un toast
+ * le rappelle (le bandeau des favoris donne le lien vers les réglages).
+ */
+async function askForAlerts() {
+  const { status } = usePushPermission.getState()
+  const result = status === 'undetermined' ? await requestPushPermission() : status
+  if (result === 'denied') toast.info(t.push.alertPermission)
 }

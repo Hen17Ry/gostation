@@ -56,6 +56,12 @@ type CacheInvalidator interface {
 	All(ctx context.Context) error
 }
 
+// DecisionNotifier prévient le gérant d'une décision de l'admin par push et dans sa boîte de
+// réception (*notification.Service, étape 9C).
+type DecisionNotifier interface {
+	NotifyStationDecision(ctx context.Context, managerID, stationID uuid.UUID, stationName, decision string)
+}
+
 // RestockNotifier déclenche les alertes « de retour en stock » des favoris (*jobs.Client).
 type RestockNotifier interface {
 	EnqueueBackInStock(ctx context.Context, stationID uuid.UUID, productIDs []int16) error
@@ -70,6 +76,7 @@ type Deps struct {
 	Mailer    mail.Mailer
 	Templates *mail.Renderer
 	Restock   RestockNotifier
+	Decisions DecisionNotifier // facultatif (nil : email seulement)
 	Log       *slog.Logger
 }
 
@@ -162,6 +169,20 @@ func (s *Service) notify(ctx context.Context, stationID uuid.UUID, change mail.S
 	if err != nil {
 		s.Log.ErrorContext(ctx, "station: status email", slog.String("change", string(change)), slog.Any("err", err))
 	}
+}
+
+// pushDecision envoie la décision de l'admin au gérant (push et boîte de réception), en plus de
+// l'email ; un échec est journalisé, jamais renvoyé.
+func (s *Service) pushDecision(ctx context.Context, stationID uuid.UUID, decision string) {
+	if s.Decisions == nil {
+		return
+	}
+	contact, err := s.Store.GetStationContact(ctx, stationID)
+	if err != nil {
+		s.Log.ErrorContext(ctx, "station: decision push", slog.String("decision", decision), slog.Any("err", err))
+		return
+	}
+	s.Decisions.NotifyStationDecision(ctx, contact.ManagerID, stationID, contact.Name, decision)
 }
 
 // ManagerStationStatus renvoie le statut de la station du gérant ("" s'il n'en a pas).

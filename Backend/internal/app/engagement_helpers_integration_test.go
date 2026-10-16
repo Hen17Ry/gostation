@@ -39,11 +39,18 @@ type deviceResp struct {
 }
 
 // registerDevice enregistre un appareil (nouvelle installation) sur la session du client.
+// registerDevice enregistre un appareil iOS : ses push portent titre et texte, que les tests
+// vérifient. Un appareil Android reçoit des messages de données (D75) : registerDeviceOn.
 func registerDevice(t *testing.T, c *client, lang string) (token string, d deviceResp) {
+	t.Helper()
+	return registerDeviceOn(t, c, lang, "ios")
+}
+
+func registerDeviceOn(t *testing.T, c *client, lang, platform string) (token string, d deviceResp) {
 	t.Helper()
 	token = newExpoToken()
 	r := c.do(http.MethodPost, "/api/v1/me/devices", map[string]any{
-		"token": token, "platform": "android", "installId": uuid.NewString(), "language": lang, "appVersion": "1.0.0",
+		"token": token, "platform": platform, "installId": uuid.NewString(), "language": lang, "appVersion": "1.0.0",
 	})
 	expect(t, r, http.StatusOK, "")
 	r.decode(t, &d)

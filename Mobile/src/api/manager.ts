@@ -181,9 +181,12 @@ export const setStationProducts = (productIds: number[], etag: string) =>
     stationProductListSchema,
   )
 
+export const loadStocks = (signal?: AbortSignal) =>
+  unwrapVersioned(api.GET('/api/v1/manager/station/stocks', { signal }), stockListSchema)
+
 export const stocksQuery = queryOptions({
   queryKey: managerKeys.stocks(),
-  queryFn: ({ signal }) => unwrapVersioned(api.GET('/api/v1/manager/station/stocks', { signal }), stockListSchema),
+  queryFn: ({ signal }) => loadStocks(signal),
 })
 
 export const updateStocks = (items: { productId: number; quantity: number }[], etag: string) =>

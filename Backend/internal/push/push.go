@@ -37,9 +37,13 @@ type Message struct {
 	Body       string         `json:"body,omitempty"`
 	Data       map[string]any `json:"data,omitempty"`
 	CategoryID string         `json:"categoryId,omitempty"` // catégorie d'actions déclarée par l'app
+	ChannelID  string         `json:"channelId,omitempty"`  // canal Android créé par l'app (son, importance)
 	Sound      string         `json:"sound,omitempty"`
 	Priority   string         `json:"priority,omitempty"` // default | normal | high
 	TTL        int            `json:"ttl,omitempty"`      // secondes
+	// ContentAvailable sans titre ni texte : message de données (Android : réveille la tâche de
+	// l'app, même tuée, qui présente elle-même la notification).
+	ContentAvailable bool `json:"_contentAvailable,omitempty"`
 }
 
 // Ticket est la réponse d'Expo pour un message : un identifiant de reçu, ou une erreur immédiate.

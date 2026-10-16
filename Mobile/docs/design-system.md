@@ -240,3 +240,22 @@ souvent d'une main. Captures 50 à 69 ([`screenshots/`](screenshots)).
 - **Horaires** : une carte par jour (interrupteur ouvert/fermé, 24 h/24, plages en `TimeField`
   côte à côte, « le lendemain » sous une plage qui passe minuit), « Copier sur tous les jours »
   en bouton fantôme ; fermetures en liste avec suppression confirmée.
+
+## 12. Notifications (9C)
+
+Captures 70 à 74 ([`screenshots/`](screenshots)).
+
+- **Explication des rappels** (D70) : écran plein en modale (glisse du bas), montré une fois au
+  gérant juste après la validation de sa station, avant la demande du système. Pastille `BellRing`
+  sur `primary-subtle`, titre, puis trois raisons (icône en pastille `muted`, titre en `headline`,
+  texte en `subhead` `muted`) : pourquoi, quand et à quelle fréquence, comment répondre ou couper.
+  Pied collant : bouton principal « Activer les rappels » (« C'est compris » si l'autorisation est
+  déjà accordée, « Ouvrir les réglages » après un refus définitif) et « Plus tard » en fantôme.
+- **Autorisation refusée** : [`PushDeniedBanner`](../src/features/notifications/push-denied-banner.tsx),
+  `Banner` d'information (jamais d'alerte rouge : rien n'est cassé) avec un bouton contour « Ouvrir
+  les réglages », en haut de Stocks (gérant) et de Favoris (utilisateur ayant une alerte active).
+- **Push reçu app ouverte** (D73) : aucune notification système ; `toast.info` composé d'après le
+  type (même texte que la boîte de réception), compteur de l'onglet Notifications à jour.
+- **Notification système** : petite icône blanche monochrome (épingle et éclair), accent orange
+  brand 600 ; rappel avec ses deux actions « Mettre à jour » et « Rien n'a changé » ; confirmation
+  sur un canal silencieux, qui remplace le rappel dans le volet.
