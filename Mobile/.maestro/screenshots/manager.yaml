@@ -1,4 +1,4 @@
-# Captures de l'espace gérant (docs/screenshots/50 à 69), lancées par scripts/screenshots.sh pour
+# Captures de l'espace gérant (docs/screenshots/50 à 70), lancées par scripts/screenshots.sh pour
 # chaque thème (THEME), contre la pile E2E et son pilotage (e2efixtures serve). REPORTS_EMAIL et
 # REPORTS_PASSWORD : gérant de la station exclue des fixtures (signalements en cours). Jamais de
 # capture du sélecteur de fichiers (il montre les fichiers récents du téléphone).
@@ -135,6 +135,14 @@ appId: bj.gostation.app
       EMAIL: ${output.email}
 - tapOn:
     id: status-refresh
+# Station validée : explication des rappels de stock (une fois), avant la demande d'autorisation.
+- extendedWaitUntil:
+    visible:
+      id: reminders-intro-primary
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 70-manager-reminders-intro-${THEME}
+- runFlow: ../common/reminders-intro.yaml
 - extendedWaitUntil:
     visible:
       id: setup-checklist

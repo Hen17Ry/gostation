@@ -13,6 +13,7 @@ d'état de démonstration. Parcours principal (01 à 26) : Galaxy S10 (Android 1
 | 27 à 45 | États mis en scène sur la pile isolée                                              | `npm run states` (`STEPS=…`, voir le script) |
 | 46      | Vitrine `/design` (dev build seulement)                                            | à la main : Compte → Design system           |
 | 50 à 69 | Espace gérant (Galaxy S10) : inscription, statuts, configuration, stocks, station  | `PARTS=manager npm run screenshots`          |
+| 70 à 74 | Notifications (9C) : explication des rappels, autorisation refusée, push           | voir « Notifications » ci-dessous            |
 
 ## États (27 à 45)
 
@@ -67,3 +68,18 @@ les fichiers récents du téléphone).
 | 67-manager-status-rejected      | dossier refusé : motif, correction, nouveau justificatif                |
 | 68-manager-edit                 | correction des informations                                             |
 | 69-manager-resubmit             | nouveau justificatif choisi                                             |
+
+## Notifications (70 à 74)
+
+Build `preview` (EAS), le 2026-10-16, à la main (70 aussi par `PARTS=manager npm run screenshots`) :
+70 à 73 sur l'émulateur Android 16 (autorisation POST_NOTIFICATIONS), 74 sur le Galaxy S10. Le
+volet du système (73) est recadré sur la seule notification de GoStation : jamais celles des autres
+applications.
+
+| Capture                    | État                                                                        |
+| -------------------------- | --------------------------------------------------------------------------- |
+| 70-manager-reminders-intro | explication des rappels, juste après la validation de la station            |
+| 71-manager-push-denied     | autorisation refusée : bandeau discret dans Stocks, lien vers les réglages  |
+| 72-favorites-push-denied   | autorisation refusée après l'activation d'une alerte : bandeau dans Favoris |
+| 73-reminder-notification   | rappel dans le volet, avec « Mettre à jour » et « Rien n'a changé »         |
+| 74-push-toast              | push reçu app ouverte : toast, sans notification du système                 |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Captures de référence de chaque écran (docs/screenshots/), en clair puis en sombre, sur l'appareil
 # branché (téléphone de préférence). Contre la pile API isolée (comptes jetables, cf. e2e.sh).
-# PARTS : « main » (parcours principal, 01 à 26), « manager » (espace gérant, 50 à 69) ; les deux
+# PARTS : « main » (parcours principal, 01 à 26), « manager » (espace gérant, 50 à 70) ; les deux
 # par défaut.
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
