@@ -9,12 +9,13 @@ import {
   Map,
   Package,
   ScrollText,
+  UserLock,
   Users,
 } from 'lucide-react'
 
 import { t } from '@/i18n'
 
-export type NavBadge = 'pending' | 'reports' | 'alerts'
+export type NavBadge = 'pending' | 'reports' | 'alerts' | 'dataRequests'
 
 export interface NavItem {
   to: LinkProps['to'] & string
@@ -40,6 +41,7 @@ export const navSections: NavSection[] = [
       { to: '/reports', label: t.nav.reports, icon: Flag, badge: 'reports' },
       { to: '/alerts', label: t.nav.alerts, icon: BellRing, badge: 'alerts' },
       { to: '/users', label: t.nav.users, icon: Users },
+      { to: '/data-requests', label: t.nav.dataRequests, icon: UserLock, badge: 'dataRequests' },
     ],
   },
   {

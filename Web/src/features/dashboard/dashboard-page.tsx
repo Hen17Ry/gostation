@@ -15,6 +15,7 @@ import { KpiCard, KpiCardSkeleton } from './kpi-card'
 import { isPartialBucket, type PeriodSearch } from './period'
 import { PeriodPicker } from './period-picker'
 import { ShortagesCard } from './shortages-card'
+import { DataRequestsDueAlert } from '@/features/data-requests/deadline-alert'
 import { Shortcuts } from './shortcuts'
 import { StationsCard } from './stations-card'
 
@@ -190,7 +191,10 @@ function DashboardContent({ data: d }: { data: Dashboard }) {
         </section>
       </Reveal>
       <Reveal i={1}>
-        <Shortcuts data={d} />
+        <div className="flex flex-col gap-3">
+          <DataRequestsDueAlert />
+          <Shortcuts data={d} />
+        </div>
       </Reveal>
       {/* Conteneur observé (une boîte réelle : un élément en display: contents n'intersecte jamais). */}
       <div ref={chartsRef}>

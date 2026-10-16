@@ -30,3 +30,6 @@ export function applyApiErrors<T extends FieldValues>(
   }
   return attached > 0 && attached === e.fields.length ? null : e.userMessage
 }
+
+/** Message français d'une erreur quelconque (code de l'API, sinon message générique). */
+export const errorMessage = (e: unknown): string => (isApiError(e) ? e.userMessage : t.common.errorTitle)

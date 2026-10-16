@@ -132,6 +132,198 @@ func AllBackInStockStatusValues() []BackInStockStatus {
 	}
 }
 
+type DataRequestSource string
+
+const (
+	DataRequestSourceApp   DataRequestSource = "app"
+	DataRequestSourceEmail DataRequestSource = "email"
+)
+
+func (e *DataRequestSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DataRequestSource(s)
+	case string:
+		*e = DataRequestSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DataRequestSource: %T", src)
+	}
+	return nil
+}
+
+type NullDataRequestSource struct {
+	DataRequestSource DataRequestSource `json:"dataRequestSource"`
+	Valid             bool              `json:"valid"` // Valid is true if DataRequestSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDataRequestSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.DataRequestSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DataRequestSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDataRequestSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DataRequestSource), nil
+}
+
+func (e DataRequestSource) Valid() bool {
+	switch e {
+	case DataRequestSourceApp,
+		DataRequestSourceEmail:
+		return true
+	}
+	return false
+}
+
+func AllDataRequestSourceValues() []DataRequestSource {
+	return []DataRequestSource{
+		DataRequestSourceApp,
+		DataRequestSourceEmail,
+	}
+}
+
+type DataRequestStatus string
+
+const (
+	DataRequestStatusPending    DataRequestStatus = "pending"
+	DataRequestStatusInProgress DataRequestStatus = "in_progress"
+	DataRequestStatusCompleted  DataRequestStatus = "completed"
+	DataRequestStatusRejected   DataRequestStatus = "rejected"
+)
+
+func (e *DataRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DataRequestStatus(s)
+	case string:
+		*e = DataRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DataRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullDataRequestStatus struct {
+	DataRequestStatus DataRequestStatus `json:"dataRequestStatus"`
+	Valid             bool              `json:"valid"` // Valid is true if DataRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDataRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.DataRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DataRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDataRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DataRequestStatus), nil
+}
+
+func (e DataRequestStatus) Valid() bool {
+	switch e {
+	case DataRequestStatusPending,
+		DataRequestStatusInProgress,
+		DataRequestStatusCompleted,
+		DataRequestStatusRejected:
+		return true
+	}
+	return false
+}
+
+func AllDataRequestStatusValues() []DataRequestStatus {
+	return []DataRequestStatus{
+		DataRequestStatusPending,
+		DataRequestStatusInProgress,
+		DataRequestStatusCompleted,
+		DataRequestStatusRejected,
+	}
+}
+
+type DataRequestType string
+
+const (
+	DataRequestTypeAccess        DataRequestType = "access"
+	DataRequestTypeExport        DataRequestType = "export"
+	DataRequestTypeRectification DataRequestType = "rectification"
+	DataRequestTypeDeletion      DataRequestType = "deletion"
+	DataRequestTypeOpposition    DataRequestType = "opposition"
+	DataRequestTypeOther         DataRequestType = "other"
+)
+
+func (e *DataRequestType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DataRequestType(s)
+	case string:
+		*e = DataRequestType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DataRequestType: %T", src)
+	}
+	return nil
+}
+
+type NullDataRequestType struct {
+	DataRequestType DataRequestType `json:"dataRequestType"`
+	Valid           bool            `json:"valid"` // Valid is true if DataRequestType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDataRequestType) Scan(value interface{}) error {
+	if value == nil {
+		ns.DataRequestType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DataRequestType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDataRequestType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DataRequestType), nil
+}
+
+func (e DataRequestType) Valid() bool {
+	switch e {
+	case DataRequestTypeAccess,
+		DataRequestTypeExport,
+		DataRequestTypeRectification,
+		DataRequestTypeDeletion,
+		DataRequestTypeOpposition,
+		DataRequestTypeOther:
+		return true
+	}
+	return false
+}
+
+func AllDataRequestTypeValues() []DataRequestType {
+	return []DataRequestType{
+		DataRequestTypeAccess,
+		DataRequestTypeExport,
+		DataRequestTypeRectification,
+		DataRequestTypeDeletion,
+		DataRequestTypeOpposition,
+		DataRequestTypeOther,
+	}
+}
+
 type DevicePlatform string
 
 const (
@@ -193,11 +385,12 @@ func AllDevicePlatformValues() []DevicePlatform {
 type ExportDataset string
 
 const (
-	ExportDatasetStations    ExportDataset = "stations"
-	ExportDatasetStocks      ExportDataset = "stocks"
-	ExportDatasetSearchStats ExportDataset = "search_stats"
-	ExportDatasetReports     ExportDataset = "reports"
-	ExportDatasetAudit       ExportDataset = "audit"
+	ExportDatasetStations     ExportDataset = "stations"
+	ExportDatasetStocks       ExportDataset = "stocks"
+	ExportDatasetSearchStats  ExportDataset = "search_stats"
+	ExportDatasetReports      ExportDataset = "reports"
+	ExportDatasetAudit        ExportDataset = "audit"
+	ExportDatasetDataRequests ExportDataset = "data_requests"
 )
 
 func (e *ExportDataset) Scan(src interface{}) error {
@@ -241,7 +434,8 @@ func (e ExportDataset) Valid() bool {
 		ExportDatasetStocks,
 		ExportDatasetSearchStats,
 		ExportDatasetReports,
-		ExportDatasetAudit:
+		ExportDatasetAudit,
+		ExportDatasetDataRequests:
 		return true
 	}
 	return false
@@ -254,6 +448,7 @@ func AllExportDatasetValues() []ExportDataset {
 		ExportDatasetSearchStats,
 		ExportDatasetReports,
 		ExportDatasetAudit,
+		ExportDatasetDataRequests,
 	}
 }
 
@@ -504,6 +699,67 @@ func AllNotificationTypeValues() []NotificationType {
 		NotificationTypeStationReported,
 		NotificationTypeBackInStock,
 		NotificationTypeStationDecision,
+	}
+}
+
+type PersonalExportStatus string
+
+const (
+	PersonalExportStatusPending PersonalExportStatus = "pending"
+	PersonalExportStatusReady   PersonalExportStatus = "ready"
+	PersonalExportStatusFailed  PersonalExportStatus = "failed"
+)
+
+func (e *PersonalExportStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PersonalExportStatus(s)
+	case string:
+		*e = PersonalExportStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PersonalExportStatus: %T", src)
+	}
+	return nil
+}
+
+type NullPersonalExportStatus struct {
+	PersonalExportStatus PersonalExportStatus `json:"personalExportStatus"`
+	Valid                bool                 `json:"valid"` // Valid is true if PersonalExportStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPersonalExportStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.PersonalExportStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PersonalExportStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPersonalExportStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PersonalExportStatus), nil
+}
+
+func (e PersonalExportStatus) Valid() bool {
+	switch e {
+	case PersonalExportStatusPending,
+		PersonalExportStatusReady,
+		PersonalExportStatusFailed:
+		return true
+	}
+	return false
+}
+
+func AllPersonalExportStatusValues() []PersonalExportStatus {
+	return []PersonalExportStatus{
+		PersonalExportStatusPending,
+		PersonalExportStatusReady,
+		PersonalExportStatusFailed,
 	}
 }
 
@@ -1008,6 +1264,21 @@ type AuditLog struct {
 	Metadata   []byte     `json:"metadata"`
 	RequestID  *string    `json:"requestId"`
 	CreatedAt  time.Time  `json:"createdAt"`
+}
+
+type PersonalExport struct {
+	ID          uuid.UUID            `json:"id"`
+	UserID      uuid.UUID            `json:"userId"`
+	RequestID   *uuid.UUID           `json:"requestId"`
+	Status      PersonalExportStatus `json:"status"`
+	ObjectKey   *string              `json:"objectKey"`
+	WrappedKey  []byte               `json:"wrappedKey"`
+	Sha256      []byte               `json:"sha256"`
+	SizeBytes   *int64               `json:"sizeBytes"`
+	Error       *string              `json:"error"`
+	CreatedAt   time.Time            `json:"createdAt"`
+	CompletedAt *time.Time           `json:"completedAt"`
+	ExpiresAt   *time.Time           `json:"expiresAt"`
 }
 
 type StationOpeningHour struct {

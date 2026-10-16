@@ -109,6 +109,8 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, 
 		_ = s.Sessions.Revoke(ctx, sess.ID)
 		return TokenPair{}, Session{}, errInvalidRefresh()
 	}
+	// Activité du compte (suppression des comptes inactifs, étape 10A).
+	_ = s.Store.TouchLastActive(ctx, sess.UserID)
 	access, err := s.Tokens.Issue(sess.UserID, sess.Role, sess.ID, sess.MFA)
 	if err != nil {
 		return TokenPair{}, Session{}, err

@@ -128,55 +128,11 @@ func (s *Service) RevokeSession(ctx context.Context, a Actor, sessionID string) 
 	return nil
 }
 
-// DeleteAccount anonymise le compte et révoque toutes ses sessions (la purge définitive et
-// le reste du parcours RGPD viendront à l'étape 9). La station d'un gérant est suspendue.
-func (s *Service) DeleteAccount(ctx context.Context, a Actor, password string) error {
-	if a.Role == string(dbgen.UserRoleAdmin) {
-		return apperr.New(http.StatusForbidden, apperr.CodeForbidden, "Admin accounts are removed with the admin CLI.")
-	}
-	if _, err := s.verifyCurrentPassword(ctx, a.UserID, "password", password); err != nil {
-		return err
-	}
-	err := s.Store.InTx(ctx, func(q *dbgen.Queries) error {
-		if err := q.AnonymizeUser(ctx, dbgen.AnonymizeUserParams{
-			ID:              a.UserID,
-			AnonymizedEmail: "deleted+" + a.UserID.String() + "@anonymized.invalid",
-		}); err != nil {
-			return err
-		}
-		if err := q.DeleteUserDeviceTokens(ctx, a.UserID); err != nil {
-			return err
-		}
-		if err := q.DeleteUserFavorites(ctx, a.UserID); err != nil {
-			return err
-		}
-		if err := q.DeleteUserNotifications(ctx, a.UserID); err != nil {
-			return err
-		}
-		if err := q.DeleteUserNotificationOptOuts(ctx, a.UserID); err != nil {
-			return err
-		}
-		if err := q.DeleteUserBackInStockAlerts(ctx, a.UserID); err != nil {
-			return err
-		}
-		if a.Role == string(dbgen.UserRoleManager) {
-			return q.SuspendManagerStation(ctx, dbgen.SuspendManagerStationParams{
-				ManagerID: &a.UserID, Reason: ptr("Manager account deleted."),
-			})
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("auth: delete account: %w", err)
-	}
-	if err := s.Sessions.RevokeAll(ctx, a.UserID, ""); err != nil {
-		return err
-	}
-	s.Audit.Log(ctx, audit.Entry{
-		ActorID: &a.UserID, ActorRole: a.Role, Action: audit.ActionAccountDeleted,
-		EntityType: "user", EntityID: a.UserID.String(),
-	})
-	return nil
+// VerifyPassword contrôle le mot de passe du compte connecté (confirmation de la suppression du
+// compte, étape 10A : internal/privacy).
+func (s *Service) VerifyPassword(ctx context.Context, uid uuid.UUID, password string) error {
+	_, err := s.verifyCurrentPassword(ctx, uid, "password", password)
+	return err
 }
 
 // EmailVerified indique si l'email du compte est vérifié et le compte actif (middleware).

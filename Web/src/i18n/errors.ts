@@ -40,6 +40,15 @@ const byCode: Record<string, string> = {
   'export.expired': 'Cet export a expiré : le fichier a été supprimé.',
   'export.link_expired': 'Le lien de téléchargement a expiré. Rechargez la liste puis réessayez.',
   'export.invalid_signature': 'Lien de téléchargement invalide. Rechargez la liste puis réessayez.',
+  'data_request.account_not_found': 'Aucun compte n’utilise cette adresse email.',
+  'data_request.not_verified': 'L’identité de la personne n’est pas encore confirmée : saisissez d’abord son code.',
+  'data_request.already_verified': 'L’identité de la personne est déjà confirmée.',
+  'data_request.invalid_code': 'Code incorrect ou expiré. Après 5 essais, envoyez un nouveau code.',
+  'data_request.closed': 'Cette demande est déjà close.',
+  'data_request.wrong_type': 'Cette action ne correspond pas au type de la demande.',
+  'data_request.account_deleted': 'Le compte de cette demande a déjà été supprimé.',
+  'data_request.too_many_open': 'Cette personne a déjà 5 demandes en cours.',
+  'privacy.admin_account': 'Les comptes administrateurs se gèrent avec la CLI.',
   'response.invalid': 'Réponse inattendue du serveur. Rechargez la page.',
 }
 

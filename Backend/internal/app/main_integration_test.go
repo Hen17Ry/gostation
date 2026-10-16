@@ -165,6 +165,8 @@ type client struct {
 	bearer  string
 	cookies map[string]*http.Cookie
 	csrf    string
+	// handler remplace l'application partagée (ex. configuration modifiée) ; nil : it.handler.
+	handler http.Handler
 }
 
 func newClient(t *testing.T) *client {
@@ -207,7 +209,11 @@ func (c *client) send(req *http.Request) response {
 		req.Header.Set(middleware.HeaderCSRF, c.csrf)
 	}
 	rec := httptest.NewRecorder()
-	it.handler.ServeHTTP(rec, req)
+	h := it.handler
+	if c.handler != nil {
+		h = c.handler
+	}
+	h.ServeHTTP(rec, req)
 	for _, ck := range rec.Result().Cookies() {
 		if ck.MaxAge < 0 {
 			delete(c.cookies, ck.Name)

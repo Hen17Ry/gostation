@@ -10,6 +10,11 @@ import {
   alertPageSchema,
   alertSchema,
   auditPageSchema,
+  type DataRequest,
+  dataRequestPageSchema,
+  dataRequestSchema,
+  type DataRequestStatus,
+  type DataRequestType,
   type Dataset,
   type Export,
   exportPageSchema,
@@ -32,7 +37,17 @@ import {
 } from './admin-schemas'
 import { api, API_BASE_URL, session, unwrap } from './client'
 import { ApiError } from './errors'
-import { alertKeys, auditKeys, exportKeys, productKeys, reportKeys, shortageKeys, stationKeys, userKeys } from './keys'
+import {
+  alertKeys,
+  auditKeys,
+  dataRequestKeys,
+  exportKeys,
+  productKeys,
+  reportKeys,
+  shortageKeys,
+  stationKeys,
+  userKeys,
+} from './keys'
 
 export const ifMatch = (version: number) => ({ 'If-Match': `"v${version}"` })
 
@@ -314,6 +329,72 @@ export const auditQuery = (f: AuditFilters) =>
       unwrap(api.GET('/api/v1/admin/audit', { params: { query: { limit: 25, ...f } }, signal }), auditPageSchema),
     placeholderData: keepPreviousData,
   })
+
+// ── Demandes de données ─────────────────────────────────────────────────────
+
+export interface DataRequestFilters {
+  /** open : reçues et en cours ; all : sans filtre de statut. */
+  status: 'open' | 'all' | DataRequestStatus
+  type?: DataRequestType
+  overdue?: boolean
+  cursor?: string
+}
+
+export const dataRequestsQuery = (f: DataRequestFilters) =>
+  queryOptions({
+    queryKey: dataRequestKeys.list(f),
+    queryFn: ({ signal }) => {
+      const { status, ...rest } = f
+      const query = { limit: 25, ...rest, status: status === 'all' ? undefined : status }
+      return unwrap(api.GET('/api/v1/admin/data-requests', { params: { query }, signal }), dataRequestPageSchema)
+    },
+    placeholderData: keepPreviousData,
+  })
+
+export const dataRequestQuery = (id: string) =>
+  queryOptions({
+    queryKey: dataRequestKeys.detail(id),
+    queryFn: ({ signal }) =>
+      unwrap(api.GET('/api/v1/admin/data-requests/{id}', { params: { path: { id } }, signal }), dataRequestSchema),
+  })
+
+/** Demande reçue par email : un code de confirmation part vers l'adresse du compte. */
+export const recordDataRequest = (body: { email: string; type: DataRequestType; details?: string }) =>
+  unwrap(api.POST('/api/v1/admin/data-requests', { body }), dataRequestSchema)
+
+export const resendDataRequestCode = (id: string) =>
+  unwrap(api.POST('/api/v1/admin/data-requests/{id}/code', { params: { path: { id } } }), dataRequestSchema)
+
+type VersionedRequest = Pick<DataRequest, 'id' | 'version'>
+const requestParams = (r: VersionedRequest) => ({ path: { id: r.id }, header: ifMatch(r.version) })
+
+export const verifyDataRequest = (r: VersionedRequest, code: string) =>
+  unwrap(
+    api.POST('/api/v1/admin/data-requests/{id}/verify', { params: requestParams(r), body: { code } }),
+    dataRequestSchema,
+  )
+
+export const startDataRequest = (r: VersionedRequest) =>
+  unwrap(api.POST('/api/v1/admin/data-requests/{id}/start', { params: requestParams(r) }), dataRequestSchema)
+
+/** Génère la copie des données de la personne : elle la télécharge dans son app, jamais l'admin. */
+export const exportDataRequest = (r: VersionedRequest) =>
+  unwrap(api.POST('/api/v1/admin/data-requests/{id}/export', { params: requestParams(r) }), dataRequestSchema)
+
+export const deleteDataRequestAccount = (r: VersionedRequest, response?: string) =>
+  unwrap(
+    api.POST('/api/v1/admin/data-requests/{id}/delete-account', {
+      params: requestParams(r),
+      body: response ? { response } : {},
+    }),
+    dataRequestSchema,
+  )
+
+export const closeDataRequest = (r: VersionedRequest, outcome: 'completed' | 'rejected', response: string) =>
+  unwrap(
+    api.POST('/api/v1/admin/data-requests/{id}/close', { params: requestParams(r), body: { outcome, response } }),
+    dataRequestSchema,
+  )
 
 // ── Exports ─────────────────────────────────────────────────────────────────
 

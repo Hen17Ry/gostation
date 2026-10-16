@@ -2,9 +2,6 @@ package export
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -13,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"gostation/backend/internal/platform/h3"
+	"gostation/backend/internal/pseudonym"
 	"gostation/backend/internal/store/dbgen"
 )
 
@@ -24,14 +22,12 @@ const kAnonymity = 5
 const fetchLimit = MaxRows + 1
 
 // pseudonym remplace l'auteur d'un signalement par un identifiant stable mais non réversible sans
-// la clé (on repère les auteurs récurrents sans exposer leur compte).
-func (s *Service) pseudonym(id *uuid.UUID) *string {
+// la clé ; passé 90 jours, le pseudonyme est déjà en base (même clé, même valeur).
+func (s *Service) pseudonym(id *uuid.UUID, stored *string) *string {
 	if id == nil {
-		return nil // compte supprimé
+		return stored // pseudonymisé, ou compte supprimé avant l'étape 10A
 	}
-	m := hmac.New(sha256.New, s.PseudonymKey)
-	m.Write(id[:])
-	p := "u_" + hex.EncodeToString(m.Sum(nil))[:16]
+	p := pseudonym.Of(s.PseudonymKey, *id)
 	return &p
 }
 
@@ -141,7 +137,7 @@ func (s *Service) build(ctx context.Context, dataset string, p Params) (table, e
 		for _, r := range rows {
 			t.rows = append(t.rows, []any{
 				r.ID.String(), r.CreatedAt, r.StationID.String(), r.StationName, string(r.Reason),
-				r.ProductCode, r.Comment, string(r.Status), r.Abusive, r.ResolvedAt, r.ResolutionNote, s.pseudonym(r.ReporterID),
+				r.ProductCode, r.Comment, string(r.Status), r.Abusive, r.ResolvedAt, r.ResolutionNote, s.pseudonym(r.ReporterID, r.ReporterPseudonym),
 			})
 		}
 		return t, nil
@@ -167,6 +163,23 @@ func (s *Service) build(ctx context.Context, dataset string, p Params) (table, e
 				role = &ro
 			}
 			t.rows = append(t.rows, []any{r.ID, r.CreatedAt, actor, role, r.Action, r.EntityType, r.EntityID, r.RequestID, json.RawMessage(r.Metadata)})
+		}
+		return t, nil
+
+	case DatasetDataRequests:
+		since, until, _, _, err := s.period(p)
+		if err != nil {
+			return table{}, err
+		}
+		rows, err := s.Store.ExportDataRequests(ctx, dbgen.ExportDataRequestsParams{Now: s.now(), Since: since, Until: until, MaxRows: fetchLimit})
+		if err != nil {
+			return table{}, fmt.Errorf("export: data requests: %w", err)
+		}
+		t := table{columns: []string{"id", "type", "source", "status", "createdAt", "dueAt", "verified", "completedAt", "overdue"}}
+		for _, r := range rows {
+			t.rows = append(t.rows, []any{
+				r.ID.String(), string(r.Type), string(r.Source), string(r.Status), r.CreatedAt, r.DueAt, r.Verified, r.CompletedAt, r.Overdue,
+			})
 		}
 		return t, nil
 	}

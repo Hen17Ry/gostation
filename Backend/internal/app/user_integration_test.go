@@ -341,6 +341,11 @@ func TestDeleteAccount(t *testing.T) {
 	if !contains(auditActions(t, "user", s.User.ID), "user.account_deleted") {
 		t.Error("account deletion not audited")
 	}
+	// Preuve de conformité : une demande de suppression close, et l'email de confirmation.
+	if n := queryInt64(t, `SELECT count(*) FROM data_requests WHERE user_id = $1 AND type = 'deletion' AND status = 'completed'`, s.User.ID); n != 1 {
+		t.Error("deletion not recorded as a closed data request")
+	}
+	waitMail(t, email, "Votre compte a été supprimé")
 	// L'adresse est de nouveau libre.
 	registerUser(t, newClient(t), email)
 }

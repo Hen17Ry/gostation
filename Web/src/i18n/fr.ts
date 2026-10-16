@@ -20,6 +20,7 @@ export const fr = {
     reports: 'Signalements',
     alerts: 'Alertes',
     users: 'Utilisateurs',
+    dataRequests: 'Demandes de données',
     catalog: 'Catalogue',
     audit: 'Audit',
     exports: 'Exports',
@@ -154,6 +155,16 @@ export const fr = {
     openReports: 'Signalements ouverts',
     openAlerts: 'Alertes ouvertes',
     inactiveManagers: 'Gérants inactifs',
+    /** Alerte d'échéance des demandes de données (tableau de bord et écran des demandes). */
+    dataRequestsDue: (overdue: number, soon: number) =>
+      [
+        overdue > 0 && `${overdue} demande${overdue > 1 ? 's' : ''} de données en retard`,
+        soon > 0 && `${soon} à échéance sous 7 jours`,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    dataRequestsDueBody: 'La loi impose de répondre dans le délai. Traitez-les en priorité.',
+    dataRequestsDueLink: 'Voir les demandes',
     alertKinds: { manager_inactive: 'gérant inactif', reports_threshold: 'seuil de signalements' } as Record<
       string,
       string

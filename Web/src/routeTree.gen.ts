@@ -16,6 +16,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAlertsRouteImport } from './routes/_app/alerts'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppCatalogRouteImport } from './routes/_app/catalog'
+import { Route as AppDataRequestsRouteImport } from './routes/_app/data-requests'
 import { Route as AppExportsRouteImport } from './routes/_app/exports'
 import { Route as AppMapsRouteImport } from './routes/_app/maps'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
@@ -57,6 +58,11 @@ const AppCatalogRoute = AppCatalogRouteImport.update({
   path: '/catalog',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDataRequestsRoute = AppDataRequestsRouteImport.update({
+  id: '/data-requests',
+  path: '/data-requests',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppExportsRoute = AppExportsRouteImport.update({
   id: '/exports',
   path: '/exports',
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/alerts': typeof AppAlertsRoute
   '/audit': typeof AppAuditRoute
   '/catalog': typeof AppCatalogRoute
+  '/data-requests': typeof AppDataRequestsRoute
   '/exports': typeof AppExportsRoute
   '/maps': typeof AppMapsRoute
   '/reports': typeof AppReportsRoute
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/alerts': typeof AppAlertsRoute
   '/audit': typeof AppAuditRoute
   '/catalog': typeof AppCatalogRoute
+  '/data-requests': typeof AppDataRequestsRoute
   '/exports': typeof AppExportsRoute
   '/maps': typeof AppMapsRoute
   '/reports': typeof AppReportsRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/_app/alerts': typeof AppAlertsRoute
   '/_app/audit': typeof AppAuditRoute
   '/_app/catalog': typeof AppCatalogRoute
+  '/_app/data-requests': typeof AppDataRequestsRoute
   '/_app/exports': typeof AppExportsRoute
   '/_app/maps': typeof AppMapsRoute
   '/_app/reports': typeof AppReportsRoute
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/audit'
     | '/catalog'
+    | '/data-requests'
     | '/exports'
     | '/maps'
     | '/reports'
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/audit'
     | '/catalog'
+    | '/data-requests'
     | '/exports'
     | '/maps'
     | '/reports'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/_app/alerts'
     | '/_app/audit'
     | '/_app/catalog'
+    | '/_app/data-requests'
     | '/_app/exports'
     | '/_app/maps'
     | '/_app/reports'
@@ -235,6 +247,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCatalogRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/data-requests': {
+      id: '/_app/data-requests'
+      path: '/data-requests'
+      fullPath: '/data-requests'
+      preLoaderRoute: typeof AppDataRequestsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/exports': {
       id: '/_app/exports'
       path: '/exports'
@@ -284,6 +303,7 @@ interface AppRouteChildren {
   AppAlertsRoute: typeof AppAlertsRoute
   AppAuditRoute: typeof AppAuditRoute
   AppCatalogRoute: typeof AppCatalogRoute
+  AppDataRequestsRoute: typeof AppDataRequestsRoute
   AppExportsRoute: typeof AppExportsRoute
   AppMapsRoute: typeof AppMapsRoute
   AppReportsRoute: typeof AppReportsRoute
@@ -297,6 +317,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAlertsRoute: AppAlertsRoute,
   AppAuditRoute: AppAuditRoute,
   AppCatalogRoute: AppCatalogRoute,
+  AppDataRequestsRoute: AppDataRequestsRoute,
   AppExportsRoute: AppExportsRoute,
   AppMapsRoute: AppMapsRoute,
   AppReportsRoute: AppReportsRoute,

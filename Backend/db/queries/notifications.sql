@@ -37,10 +37,6 @@ FROM device_tokens
 WHERE user_id = ANY(@user_ids::uuid[])
 ORDER BY user_id, id;
 
--- name: DeleteInactiveDevices :execrows
--- Conservation (ARCHITECTURE §8) : 90 jours sans réenregistrement.
-DELETE FROM device_tokens WHERE last_seen_at < @before;
-
 -- name: InsertNotification :one
 -- Rien n'est créé si l'utilisateur a désactivé ce type (opt-out) ou si son compte n'est plus actif.
 INSERT INTO notifications (user_id, type, data)
@@ -72,10 +68,6 @@ SELECT count(*) FROM notifications WHERE user_id = @user_id AND read_at IS NULL;
 -- name: MarkNotificationsRead :execrows
 UPDATE notifications SET read_at = now()
 WHERE user_id = @user_id AND read_at IS NULL AND (@all_unread::boolean OR id = ANY(@ids::uuid[]));
-
--- name: DeleteNotificationsBefore :execrows
--- Conservation : 30 jours.
-DELETE FROM notifications WHERE created_at < @before;
 
 -- name: ListNotificationOptOuts :many
 SELECT type FROM notification_opt_outs WHERE user_id = @user_id ORDER BY type;

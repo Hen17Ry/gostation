@@ -1,6 +1,6 @@
+import { privacyPolicy } from '@/features/legal/content.generated'
 import { LegalScreen } from '@/features/legal/legal-screen'
-import { t } from '@/i18n'
 
 export default function Privacy() {
-  return <LegalScreen title={t.legal.privacyTitle} sections={t.legal.privacy} />
+  return <LegalScreen doc={privacyPolicy} />
 }

@@ -41,6 +41,13 @@ export function formatDuration(s: number): string {
 export const formatTime = (iso: string | Date) =>
   df('time', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
 
+/** « 16 octobre 2026 » (date locale du Bénin). */
+export const formatDate = (iso: string | Date) =>
+  df('date', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso))
+
+/** « 16 octobre 2026 à 14:05 ». */
+export const formatDateTime = (iso: string | Date) => `${formatDate(iso)} à ${formatTime(iso)}`
+
 const dayKey = (d: Date) => df('day', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 
 /**

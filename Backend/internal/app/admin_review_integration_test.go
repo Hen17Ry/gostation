@@ -22,6 +22,11 @@ type countersResp struct {
 	OpenReports     int `json:"openReports"`
 	OpenAlerts      int `json:"openAlerts"`
 	LocationReviews int `json:"locationReviews"`
+	DataRequests    struct {
+		Open    int `json:"open"`
+		DueSoon int `json:"dueSoon"`
+		Overdue int `json:"overdue"`
+	} `json:"dataRequests"`
 }
 
 func counters(t *testing.T, admin *client) countersResp {

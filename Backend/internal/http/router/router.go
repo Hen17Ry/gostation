@@ -51,6 +51,7 @@ type Deps struct {
 	Favorites     *handler.Favorites
 	Reports       *handler.Reports
 	Reminders     *handler.Reminders
+	Privacy       *handler.Privacy
 	Admin         *handler.Admin
 	EmailVerifier middleware.EmailVerifier
 	StationStatus middleware.StationStatusReader
@@ -184,6 +185,12 @@ func New(cfg Config, d Deps) http.Handler {
 				me.Delete("/me/sessions/{id}", h(d.Me.RevokeSession))
 				// Désenregistrer un appareil reste possible sans email vérifié.
 				me.Delete("/me/devices/{id}", h(d.Notifications.UnregisterDevice))
+				// Droits des personnes (étape 10A) : ouverts sans email vérifié, comme la suppression.
+				me.Post("/me/data-export", h(d.Privacy.RequestExport))
+				me.Get("/me/data-export", h(d.Privacy.ExportStatus))
+				me.Get("/me/data-export/{id}/download", h(d.Privacy.DownloadExport))
+				me.Get("/me/data-requests", h(d.Privacy.MyRequests))
+				me.Post("/me/data-requests", h(d.Privacy.CreateRequest))
 			})
 
 			// Notifications, favoris et signalements : email vérifié obligatoire (D5).
@@ -268,6 +275,15 @@ func New(cfg Config, d Deps) http.Handler {
 				ad.Post("/admin/exports", h(adm.CreateExport))
 				ad.Get("/admin/exports/{id}", h(adm.Export))
 				ad.Get("/admin/exports/{id}/download", h(adm.DownloadExport))
+				ad.Get("/admin/data-requests", h(d.Privacy.AdminList))
+				ad.Post("/admin/data-requests", h(d.Privacy.AdminCreate))
+				ad.Get("/admin/data-requests/{id}", h(d.Privacy.AdminGet))
+				ad.Post("/admin/data-requests/{id}/code", h(d.Privacy.AdminResendCode))
+				ad.Post("/admin/data-requests/{id}/verify", h(d.Privacy.AdminVerify))
+				ad.Post("/admin/data-requests/{id}/start", h(d.Privacy.AdminStart))
+				ad.Post("/admin/data-requests/{id}/export", h(d.Privacy.AdminExport))
+				ad.Post("/admin/data-requests/{id}/delete-account", h(d.Privacy.AdminDeleteAccount))
+				ad.Post("/admin/data-requests/{id}/close", h(d.Privacy.AdminClose))
 			})
 		})
 	})

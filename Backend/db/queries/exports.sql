@@ -70,7 +70,7 @@ LIMIT @max_rows;
 -- L'auteur sort pseudonymisé par le service (reporter_id ne quitte jamais le serveur, l'email
 -- n'est jamais lu).
 SELECT r.id, r.created_at, r.station_id, s.name AS station_name, r.reason, p.code AS product_code,
-       r.comment, r.status, r.abusive, r.resolved_at, r.resolution_note, r.reporter_id
+       r.comment, r.status, r.abusive, r.resolved_at, r.resolution_note, r.reporter_id, r.reporter_pseudonym
 FROM reports r
 JOIN stations s ON s.id = r.station_id
 LEFT JOIN products p ON p.id = r.product_id

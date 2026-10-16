@@ -28,7 +28,7 @@ import { ta } from '@/i18n/admin'
 import { formatBytes, formatDate, formatDateTime, formatRelative, toLocalDate } from '@/lib/format'
 
 const route = getRouteApi('/_app/exports')
-const PERIOD_DATASETS: Dataset[] = ['search_stats', 'reports', 'audit']
+const PERIOD_DATASETS: Dataset[] = ['search_stats', 'reports', 'audit', 'data_requests']
 
 const STATUS_VARIANT = { pending: 'info', ready: 'success', failed: 'danger', expired: 'secondary' } as const
 

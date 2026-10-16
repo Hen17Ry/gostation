@@ -76,9 +76,5 @@ ORDER BY created_at, id;
 -- name: SetBackInStockStatus :exec
 UPDATE back_in_stock_alerts SET status = @status, sent_at = sqlc.narg(sent_at) WHERE id = @id AND status = 'pending';
 
--- name: DeleteBackInStockAlertsBefore :execrows
--- Conservation : 30 jours (les limites ne regardent que les dernières 24 h).
-DELETE FROM back_in_stock_alerts WHERE created_at < @before AND status <> 'pending';
-
 -- name: DeleteUserBackInStockAlerts :exec
 DELETE FROM back_in_stock_alerts WHERE user_id = @user_id;

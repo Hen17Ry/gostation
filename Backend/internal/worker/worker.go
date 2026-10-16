@@ -24,6 +24,7 @@ import (
 	"gostation/backend/internal/jobs"
 	"gostation/backend/internal/mail"
 	"gostation/backend/internal/notification"
+	"gostation/backend/internal/privacy"
 	"gostation/backend/internal/reminder"
 	"gostation/backend/internal/retention"
 	"gostation/backend/internal/searchstats"
@@ -56,6 +57,7 @@ type Tasks struct {
 	Retention     *retention.Purger
 	Analytics     *analytics.Service
 	Exports       *export.Service
+	Privacy       *privacy.Service
 }
 
 // Worker est le serveur asynq et son scheduler.
@@ -124,9 +126,14 @@ func (w *Worker) routes() {
 		_, err := w.t.Stats.Flush(ctx)
 		return err
 	})
-	w.mux.HandleFunc(jobs.TypeRetentionPurge, func(ctx context.Context, _ *asynq.Task) error {
-		return w.t.Retention.Run(ctx)
-	})
+	for _, r := range w.t.Retention.Rules() {
+		name := r.Name
+		w.mux.HandleFunc(retention.TaskType(name), func(ctx context.Context, _ *asynq.Task) error {
+			_, err := w.t.Retention.Run(ctx, name)
+			return err
+		})
+	}
+	w.mux.HandleFunc(jobs.TypePersonalExport, w.generatePersonalExport)
 	w.mux.HandleFunc(jobs.TypeFreshnessSnapshot, func(ctx context.Context, _ *asynq.Task) error {
 		_, err := w.t.Analytics.SnapshotFreshness(ctx)
 		return err
@@ -148,9 +155,21 @@ func (w *Worker) schedule(cfg Config) error {
 		{"*/15 * * * *", jobs.TypeRemindersScan, []asynq.Option{asynq.Unique(14 * time.Minute), asynq.MaxRetry(1), asynq.Timeout(5 * time.Minute)}},
 		{"*/15 * * * *", jobs.TypeReleaseAlerts, []asynq.Option{asynq.Unique(14 * time.Minute), asynq.MaxRetry(1), asynq.Timeout(5 * time.Minute)}},
 		{"@every " + cfg.StatsFlushInterval.String(), jobs.TypeStatsFlush, []asynq.Option{asynq.Unique(cfg.StatsFlushInterval), asynq.MaxRetry(3), asynq.Timeout(time.Minute)}},
-		{"0 3 * * *", jobs.TypeRetentionPurge, []asynq.Option{asynq.Unique(23 * time.Hour), asynq.MaxRetry(3), asynq.Timeout(30 * time.Minute)}},
 		{"0 * * * *", jobs.TypeFreshnessSnapshot, []asynq.Option{asynq.Unique(55 * time.Minute), asynq.MaxRetry(2), asynq.Timeout(5 * time.Minute)}},
 		{"*/15 * * * *", jobs.TypeExportPurge, []asynq.Option{asynq.Unique(14 * time.Minute), asynq.MaxRetry(1), asynq.Timeout(5 * time.Minute)}},
+	}
+	// Purges de conservation : une tâche par règle (03:00 à 03:12, copies « mes données » toutes
+	// les 15 min).
+	for _, r := range w.t.Retention.Rules() {
+		unique := 23 * time.Hour
+		if r.Spec == "*/15 * * * *" {
+			unique = 14 * time.Minute
+		}
+		entries = append(entries, struct {
+			spec string
+			typ  string
+			opts []asynq.Option
+		}{r.Spec, retention.TaskType(r.Name), []asynq.Option{asynq.Unique(unique), asynq.MaxRetry(3), asynq.Timeout(30 * time.Minute)}})
 	}
 	for _, e := range entries {
 		opts := append([]asynq.Option{asynq.Queue(jobs.QueueLow)}, e.opts...)
@@ -241,6 +260,25 @@ func (w *Worker) generateExport(ctx context.Context, t *asynq.Task) error {
 		maxRetry, _ := asynq.GetMaxRetry(ctx)
 		if retried >= maxRetry {
 			w.t.Exports.Fail(ctx, p.ExportID, "")
+		}
+	}
+	return err
+}
+
+func (w *Worker) generatePersonalExport(ctx context.Context, t *asynq.Task) error {
+	p, err := jobs.Decode[jobs.PersonalExportPayload](t)
+	if err != nil {
+		return err
+	}
+	err = w.t.Privacy.GenerateExport(ctx, p.ExportID)
+	if errors.Is(err, privacy.ErrPermanent) {
+		return jobs.SkipRetry(err)
+	}
+	if err != nil {
+		retried, _ := asynq.GetRetryCount(ctx)
+		maxRetry, _ := asynq.GetMaxRetry(ctx)
+		if retried >= maxRetry {
+			w.t.Privacy.FailExport(ctx, p.ExportID)
 		}
 	}
 	return err

@@ -24,7 +24,7 @@ export function userAgent(appVersion: string, os: string, osVersion: string | nu
 const USER_AGENT = userAgent(Constants.expoConfig?.version ?? '0', Platform.OS, Device.osVersion, Device.modelName)
 
 /** En-têtes de toutes les requêtes : installation (quotas, appareil push), langue, app. */
-const baseHeaders = () => ({ 'X-Install-Id': installId(), 'Accept-Language': 'fr', 'User-Agent': USER_AGENT })
+export const baseHeaders = () => ({ 'X-Install-Id': installId(), 'Accept-Language': 'fr', 'User-Agent': USER_AGENT })
 
 export const session = createSession({ baseUrl: API_URL, headers: baseHeaders })
 

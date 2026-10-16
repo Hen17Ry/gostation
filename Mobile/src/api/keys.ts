@@ -27,6 +27,8 @@ export const meKeys = {
   favorites: () => ['me', 'favorites'] as const,
   notifications: () => ['me', 'notifications'] as const,
   settings: () => ['me', 'notification-settings'] as const,
+  dataExport: () => ['me', 'data-export'] as const,
+  dataRequests: () => ['me', 'data-requests'] as const,
 }
 
 /** Espace gérant : en mémoire seulement (le brouillon de stock a son propre stockage, D60). */

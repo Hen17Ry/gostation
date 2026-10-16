@@ -17,6 +17,7 @@ import (
 	"gostation/backend/internal/catalog"
 	"gostation/backend/internal/export"
 	"gostation/backend/internal/http/respond"
+	"gostation/backend/internal/privacy"
 )
 
 // Admin sert le reste de l'API admin (étape 7) : tableau de bord, stats et pénuries, comptes,
@@ -29,6 +30,7 @@ type Admin struct {
 	catalog   *catalog.Service
 	audit     *audit.Reader
 	exports   *export.Service
+	privacy   *privacy.Service
 	loc       *time.Location
 }
 
@@ -39,6 +41,7 @@ type AdminDeps struct {
 	Catalog   *catalog.Service
 	Audit     *audit.Reader
 	Exports   *export.Service
+	Privacy   *privacy.Service
 	Timezone  *time.Location
 }
 
@@ -46,7 +49,7 @@ type AdminDeps struct {
 func NewAdmin(rs *respond.Responder, d AdminDeps) *Admin {
 	return &Admin{
 		rs: rs, analytics: d.Analytics, users: d.Users, catalog: d.Catalog,
-		audit: d.Audit, exports: d.Exports, loc: d.Timezone,
+		audit: d.Audit, exports: d.Exports, privacy: d.Privacy, loc: d.Timezone,
 	}
 }
 

@@ -11,18 +11,20 @@ import (
 	"gostation/backend/internal/auth"
 	"gostation/backend/internal/http/httpctx"
 	"gostation/backend/internal/http/respond"
+	"gostation/backend/internal/privacy"
 )
 
 // Me sert les routes /api/v1/me (compte de l'utilisateur authentifié).
 type Me struct {
-	rs   *respond.Responder
-	svc  *auth.Service
-	auth *Auth // pour effacer les cookies de session à la suppression du compte
+	rs      *respond.Responder
+	svc     *auth.Service
+	auth    *Auth // pour effacer les cookies de session à la suppression du compte
+	privacy *privacy.Service
 }
 
 // NewMe construit le handler.
-func NewMe(rs *respond.Responder, svc *auth.Service, a *Auth) *Me {
-	return &Me{rs: rs, svc: svc, auth: a}
+func NewMe(rs *respond.Responder, svc *auth.Service, a *Auth, p *privacy.Service) *Me {
+	return &Me{rs: rs, svc: svc, auth: a, privacy: p}
 }
 
 func actor(r *http.Request) auth.Actor {
@@ -143,13 +145,14 @@ type deleteAccountRequest struct {
 	Password string `json:"password"`
 }
 
-// Delete anonymise le compte et révoque toutes les sessions (DELETE /me).
+// Delete supprime le compte (anonymisation immédiate, sessions et appareils révoqués ; station d'un
+// gérant retirée de la recherche), après confirmation par le mot de passe (DELETE /me).
 func (h *Me) Delete(w http.ResponseWriter, r *http.Request) error {
 	var req deleteAccountRequest
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.svc.DeleteAccount(r.Context(), actor(r), req.Password); err != nil {
+	if err := h.privacy.DeleteMyAccount(r.Context(), privacyActor(r), req.Password); err != nil {
 		return err
 	}
 	h.auth.clearSessionCookies(w)

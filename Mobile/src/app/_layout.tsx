@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { ToastHost } from '@/components/ui/toast'
 import { useAuthBootstrap } from '@/features/auth/use-auth-bootstrap'
+import { useMustAcceptPolicy } from '@/features/legal/policy-gate'
 import { useSpace } from '@/features/manager/space'
 import { NotificationsRuntime } from '@/features/notifications/runtime'
 import { bindQueryManagers, createQueryClient, persistOptions } from '@/lib/query-client'
@@ -52,6 +53,9 @@ function Root() {
   const pathname = usePathname()
   // Espace selon le compte (D58) : utilisateur (onglets de recherche) ou gérant (stocks, ou statut).
   const space = useSpace()
+  // Nouvelle politique de confidentialité à accepter : seul l'écran de réacceptation (et les textes
+  // légaux, le profil pour supprimer le compte) reste ouvert.
+  const mustAccept = useMustAcceptPolicy()
   useAuthBootstrap()
   // Démarrage sur la carte : l'écran de démarrage attend aussi sa première image (src/lib/splash.ts).
   useEffect(() => {
@@ -73,7 +77,10 @@ function Root() {
         <Stack.Protected guard={!onboarded}>
           <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
         </Stack.Protected>
-        <Stack.Protected guard={onboarded}>
+        <Stack.Protected guard={onboarded && mustAccept}>
+          <Stack.Screen name="policy-update" options={{ animation: 'fade', gestureEnabled: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={onboarded && !mustAccept}>
           <Stack.Protected guard={space === 'user'}>
             <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
           </Stack.Protected>
@@ -84,8 +91,10 @@ function Root() {
           <Stack.Screen name="route/[id]" options={{ animation: 'fade_from_bottom', gestureEnabled: false }} />
           <Stack.Screen name="report/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="auth" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="profile" />
           <Stack.Screen name="out-of-coverage" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        </Stack.Protected>
+        <Stack.Protected guard={onboarded}>
+          <Stack.Screen name="profile" />
         </Stack.Protected>
         <Stack.Screen name="legal" />
         <Stack.Protected guard={__DEV__}>
