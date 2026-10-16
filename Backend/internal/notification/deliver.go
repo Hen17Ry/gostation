@@ -72,7 +72,7 @@ func (s *Service) Deliver(ctx context.Context, ids []uuid.UUID) error {
 		}
 		u := unit{id: r.ID, devices: devs}
 		for _, d := range devs {
-			u.msgs = append(u.msgs, buildMessage(d.Token, d.Language, Type(r.Type), r.ID, data))
+			u.msgs = append(u.msgs, buildMessage(d.Token, d.Language, d.Platform, Type(r.Type), r.ID, data))
 		}
 		units = append(units, u)
 	}

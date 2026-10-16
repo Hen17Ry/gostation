@@ -195,7 +195,9 @@ func TestPushBatchesAndReceipts(t *testing.T) {
 		t.Fatalf("batches = %v (auth header seen %v), want [100 30]", batches, authSeen)
 	}
 	msg := it.expo.to(tokens[0])
-	if len(msg) != 1 || msg[0].Title != "De retour en stock" || msg[0].Data["type"] != "back_in_stock" || msg[0].Data["notificationId"] != ids[0].String() {
+	// Appareils Android : message de données, canal dans les données (D75).
+	if len(msg) != 1 || msg[0].Title != "" || !msg[0].ContentAvailable || msg[0].Data["channelId"] != notification.ChannelStockAlerts ||
+		msg[0].Data["type"] != "back_in_stock" || msg[0].Data["notificationId"] != ids[0].String() {
 		t.Fatalf("message = %+v", msg)
 	}
 	if len(it.expo.to(expiredToken)) != 0 || deviceExists(t, expiredDevice.String()) {
@@ -358,5 +360,39 @@ func TestEmailsGoThroughAsynqWithRetry(t *testing.T) {
 	}
 	if strings.Contains(it.logs.String(), email) {
 		t.Error("logs contain the recipient address")
+	}
+}
+
+// TestStationDecisionPush : chaque décision de l'admin arrive au gérant en push, sur le canal
+// Android « account » et sans le motif (qui reste dans l'email et l'app), et dans sa boîte de
+// réception (étape 9C).
+func TestStationDecisionPush(t *testing.T) {
+	admin := adminClient(t)
+	m, _, stationID := pendingManager(t)
+	token, _ := registerDevice(t, m, "fr")
+	path := "/api/v1/admin/stations/" + stationID
+	decide := func(action string, body any) {
+		t.Helper()
+		expect(t, admin.doIf(http.MethodPost, path+"/"+action, admin.do(http.MethodGet, path, nil).Header().Get("ETag"), body), http.StatusOK, "")
+	}
+	decide("approve", nil)
+	decide("suspend", map[string]string{"reason": "Prix affichés trompeurs"})
+	waitUntil(t, "two decision pushes", func() bool { return len(it.expo.to(token)) == 2 })
+	msgs := it.expo.to(token)
+	for i, want := range []string{notification.DecisionApproved, notification.DecisionSuspended} {
+		got := msgs[i]
+		if got.ChannelID != notification.ChannelAccount || got.Data["type"] != "station_decision" ||
+			got.Data["decision"] != want || got.Data["stationId"] != stationID {
+			t.Fatalf("push %d = %+v", i, got)
+		}
+		if strings.Contains(got.Body, "Prix affichés") || got.Data["reason"] != nil {
+			t.Fatal("the admin's reason must not travel in a push")
+		}
+	}
+	if msgs[0].Title != "Station validée" || msgs[1].Title != "Station suspendue" {
+		t.Fatalf("titles = %q, %q", msgs[0].Title, msgs[1].Title)
+	}
+	if n := len(inbox(t, m).ofType("station_decision", stationID)); n != 2 {
+		t.Fatalf("inbox holds %d decisions, want 2", n)
 	}
 }

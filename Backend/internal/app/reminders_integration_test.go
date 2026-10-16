@@ -5,7 +5,6 @@ package app_test
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -96,7 +95,7 @@ func TestStockReminders(t *testing.T) {
 
 	t.Run("open station, 4 h without update, confirm action", func(t *testing.T) {
 		m, stationID := readyStation(t, admin, calavi, map[int16]int{gas: 5})
-		token, _ := registerDevice(t, m, "fr")
+		token, _ := registerDeviceOn(t, m, "fr", "android")
 
 		setLastUpdate(t, stationID, day(0, 2, 0))
 		scanAt(t, day(0, 3, 0)) // mise à jour il y a 1 h : rien
@@ -106,7 +105,10 @@ func TestStockReminders(t *testing.T) {
 		scanAt(t, day(0, 6, 0))
 		expectSent(t, stationID, 1, day(0, 6, 0))
 		msg := it.expo.waitFor(t, token, 1)[0]
-		if msg.CategoryID != notification.CategoryStockReminder || !strings.Contains(msg.Body, "il y a 4 h") || msg.Priority != "high" {
+		// Appareil Android : message de données, présenté par l'app avec ses actions (D75).
+		if msg.Title != "" || !msg.ContentAvailable || msg.ChannelID != "" || msg.Priority != "high" ||
+			msg.Data["type"] != "stock_reminder" || msg.Data["hoursSinceUpdate"] != float64(4) ||
+			msg.Data["channelId"] != notification.ChannelStockReminders {
 			t.Fatalf("reminder push = %+v", msg)
 		}
 		actions, _ := msg.Data["actions"].([]any)

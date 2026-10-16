@@ -35,6 +35,19 @@ const (
 	TypeStockReminder   Type = "stock_reminder"   // gérant : stocks à mettre à jour
 	TypeStationReported Type = "station_reported" // gérant : seuil de signalements atteint
 	TypeBackInStock     Type = "back_in_stock"    // utilisateur : produit d'un favori de retour en stock
+	// TypeStationDecision : gérant, décision de l'admin sur sa station (étape 9C). Toujours envoyé :
+	// absent des préférences, comme l'email qui l'accompagne.
+	TypeStationDecision Type = "station_decision"
+)
+
+// Décisions de l'admin (donnée decision de station_decision).
+const (
+	DecisionApproved     = "approved"
+	DecisionRejected     = "rejected"
+	DecisionSuspended    = "suspended"
+	DecisionReinstated   = "reinstated"
+	DecisionMoveApproved = "move_approved"
+	DecisionMoveRejected = "move_rejected"
 )
 
 // Niveaux d'un signalement collectif (donnée level de station_reported).
@@ -212,6 +225,27 @@ func (s *Service) UnregisterDevice(ctx context.Context, userID, id uuid.UUID) er
 		return apperr.NotFound("Device not found.")
 	}
 	return nil
+}
+
+// NotifyStationDecision écrit la décision de l'admin dans la boîte de réception du gérant et met
+// son push en file, après la décision (qui est déjà validée). Un échec est journalisé : l'email
+// de décision part de son côté.
+func (s *Service) NotifyStationDecision(ctx context.Context, managerID, stationID uuid.UUID, stationName, decision string) {
+	data := map[string]any{"decision": decision, "stationId": stationID.String(), "stationName": stationName}
+	var id uuid.UUID
+	var created bool
+	err := s.Store.InTx(ctx, func(q *dbgen.Queries) error {
+		var err error
+		id, created, err = s.Create(ctx, q, managerID, TypeStationDecision, data)
+		return err
+	})
+	if err != nil {
+		s.Log.ErrorContext(ctx, "notification: station decision not recorded", slog.String("decision", decision), slog.Any("err", err))
+		return
+	}
+	if created {
+		s.Dispatch(ctx, []uuid.UUID{id})
+	}
 }
 
 // SessionRevoked supprime les appareils d'une session révoquée (crochet de auth.SessionStore).
