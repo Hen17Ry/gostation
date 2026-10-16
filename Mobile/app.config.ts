@@ -18,12 +18,7 @@ const FONTS = [
   'node_modules/@expo-google-fonts/geist-mono/500Medium/GeistMono_500Medium.ttf',
 ]
 
-// API locale (build de test : adb reverse vers l'hôte) : HTTP en clair permis. Jamais pour le profil
-// production, même si le .env de la machine qui lance le build pointe sur l'API locale : EAS évalue
-// la config sans ce fichier, et les deux empreintes (runtimeVersion) différeraient.
-const LOCAL_API =
-  process.env.EAS_BUILD_PROFILE !== 'production' &&
-  /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.EXPO_PUBLIC_API_URL ?? '')
+const LOCAL_API = /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.EXPO_PUBLIC_API_URL ?? '')
 
 // Configuration Firebase (FCM, push Android), jamais commitée (Mobile/.gitignore), toujours lue au même
 // endroit : Mobile/google-services.json, s'il existe (sinon le build se fait sans Firebase). Build EAS :
