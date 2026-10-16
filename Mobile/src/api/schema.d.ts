@@ -452,14 +452,73 @@ export interface paths {
     put?: never;
     post?: never;
     /**
-     * Supprime le compte (anonymisation, révocation de toutes les sessions)
-     * @description La station d'un gérant est suspendue. Les comptes admin se suppriment par la CLI.
+     * Supprime le compte (anonymisation immédiate, sessions et appareils révoqués)
+     * @description Confirmation par le mot de passe. Station d'un gérant (approuvée ou en attente) : suspendue,
+     *     retirée de la recherche ; son justificatif suit sa durée de conservation. La
+     *     suppression est tracée par une demande close (type deletion). Les comptes admin se suppriment
+     *     par la CLI.
      */
     delete: operations["deleteMe"];
     options?: never;
     head?: never;
     /** Modifie prénom et/ou nom */
     patch: operations["updateMe"];
+    trace?: never;
+  };
+  "/api/v1/me/data-export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Dernière copie des données (et lien de téléchargement signé, valable 15 min, si elle est prête) */
+    get: operations["getMyDataExport"];
+    put?: never;
+    /**
+     * Demande une copie des données (JSON généré par le worker, disponible 24 h)
+     * @description Une copie prête ou en cours est réutilisée. La demande est tracée (type export) et close à la génération.
+     */
+    post: operations["requestMyDataExport"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/data-export/{id}/download": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Télécharge la copie (lien signé et session de la personne concernée ; audité) */
+    get: operations["downloadMyDataExport"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/data-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Demandes d'exercice des droits de la personne (50 dernières) */
+    get: operations["listMyDataRequests"];
+    put?: never;
+    /** Fait une demande (accès, rectification, opposition, suppression, autre) ; accusé de réception par email */
+    post: operations["createMyDataRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/api/v1/me/change-password": {
@@ -1496,6 +1555,155 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/admin/data-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Demandes de données, les plus récentes d'abord */
+    get: operations["listDataRequests"];
+    put?: never;
+    /**
+     * Enregistre une demande reçue par email et envoie un code de confirmation à l'adresse du compte
+     * @description Rien n'est traité avant que la personne ait communiqué ce code (verify). Audité.
+     */
+    post: operations["recordDataRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Détail d'une demande (compte visé, échéance, actions possibles) */
+    get: operations["getDataRequest"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}/code": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Envoie un nouveau code de confirmation (l'ancien ne vaut plus) */
+    post: operations["resendDataRequestCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Confirme l'identité de la personne avec le code reçu à l'adresse du compte
+     * @description Code valable 7 jours, 5 essais. Accusé de réception envoyé à la personne. Audité.
+     */
+    post: operations["verifyDataRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Prend la demande en charge (statut in_progress) */
+    post: operations["startDataRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Génère la copie des données de la personne, téléchargeable 24 h dans son app (l'admin n'en voit pas le contenu)
+     * @description Demande confirmée exigée. Audité.
+     */
+    post: operations["exportDataRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}/delete-account": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Supprime le compte visé par une demande de suppression confirmée, puis clôt la demande
+     * @description Anonymisation, sessions et appareils révoqués, station retirée de la recherche. Audité.
+     */
+    post: operations["executeDataRequestDeletion"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/admin/data-requests/{id}/close": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Clôt la demande avec une réponse (traitée) ou un motif (refusée), transmis par email */
+    post: operations["closeDataRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2138,6 +2346,130 @@ export interface components {
       openAlerts: number;
       /** @description Épingles signalées ou demandes de déplacement en attente */
       locationReviews: number;
+      /** @description Demandes d'exercice des droits ouvertes, à échéance sous 7 jours, échues */
+      dataRequests: {
+        open: number;
+        dueSoon: number;
+        overdue: number;
+      };
+    };
+    /** @enum {string} */
+    DataRequestType:
+      | "access"
+      | "export"
+      | "rectification"
+      | "deletion"
+      | "opposition"
+      | "other";
+    /** @enum {string} */
+    DataRequestStatus: "pending" | "in_progress" | "completed" | "rejected";
+    DataExport: {
+      /** @enum {string} */
+      status: "none" | "pending" | "ready" | "failed" | "expired";
+      /** Format: date-time */
+      createdAt: string | null;
+      /**
+       * Format: date-time
+       * @description Suppression de la copie (24 h après la génération)
+       */
+      expiresAt: string | null;
+      sizeBytes: number | null;
+      /** @description Chemin signé, valable 15 min, quand la copie est prête */
+      downloadUrl: string | null;
+    };
+    DataRequest: {
+      /** Format: uuid */
+      id: string;
+      /**
+       * @description Référence communiquée à la personne
+       * @example DR-1A2B3C4D
+       */
+      reference: string;
+      type: components["schemas"]["DataRequestType"];
+      status: components["schemas"]["DataRequestStatus"];
+      /** @enum {string} */
+      source: "app" | "email";
+      /** Format: date-time */
+      createdAt: string;
+      /**
+       * Format: date-time
+       * @description Échéance de la réponse (30 jours
+       */
+      dueAt: string;
+      /** Format: date-time */
+      completedAt: string | null;
+      /** @description Réponse ou motif du refus */
+      response: string | null;
+    };
+    CreateDataRequest: {
+      /** @enum {string} */
+      type: "access" | "rectification" | "opposition" | "deletion" | "other";
+      /** @description Précisions (10 caractères au moins pour rectification et other) */
+      details?: string;
+    };
+    AdminDataRequestUser: {
+      /** Format: uuid */
+      id?: string;
+      email: string | null;
+      firstName?: string;
+      lastName?: string;
+      /** @enum {string|null} */
+      role: "user" | "manager" | "admin" | null;
+      /** @description Compte déjà supprimé (anonymisé) */
+      deleted?: boolean;
+    };
+    AdminDataRequestItem: components["schemas"]["DataRequest"] & {
+      /** @description Identité confirmée (app */
+      verified: boolean;
+      overdue: boolean;
+      /** @description Échéance sous 7 jours */
+      dueSoon: boolean;
+      user: components["schemas"]["AdminDataRequestUser"] | null;
+    };
+    AdminDataRequestPage: {
+      items: components["schemas"]["AdminDataRequestItem"][];
+      nextCursor: string | null;
+    };
+    AdminDataRequest: components["schemas"]["DataRequest"] & {
+      /** @description Version (ETag "v{version}", à renvoyer dans If-Match) */
+      version: number;
+      details: string | null;
+      /** Format: date-time */
+      verifiedAt: string | null;
+      /** Format: date-time */
+      updatedAt: string;
+      overdue: boolean;
+      dueSoon: boolean;
+      /** @description Admin en charge */
+      handledBy: string | null;
+      /** @description Code de confirmation envoyé */
+      codePending: boolean;
+      user: components["schemas"]["AdminDataRequestUser"] | null;
+      actions: {
+        verify: boolean;
+        export: boolean;
+        deleteAccount: boolean;
+        close: boolean;
+      };
+    };
+    RecordDataRequest: {
+      /** @description Adresse du compte visé */
+      email: string;
+      type: components["schemas"]["DataRequestType"];
+      details?: string;
+    };
+    VerifyDataRequest: {
+      code: string;
+    };
+    DeleteForDataRequest: {
+      /** @description Réponse enregistrée (texte par défaut sinon) */
+      response?: string;
+    };
+    CloseDataRequest: {
+      /** @enum {string} */
+      outcome: "completed" | "rejected";
+      /** @description Réponse (traitée) ou motif (refusée) */
+      response: string;
     };
     AdminStationPage: {
       items: components["schemas"]["AdminStationSummary"][];
@@ -2796,7 +3128,13 @@ export interface components {
     };
     ExportRequest: {
       /** @enum {string} */
-      dataset: "stations" | "stocks" | "search_stats" | "reports" | "audit";
+      dataset:
+        | "stations"
+        | "stocks"
+        | "search_stats"
+        | "reports"
+        | "audit"
+        | "data_requests";
       /**
        * @default csv
        * @enum {string}
@@ -2819,7 +3157,13 @@ export interface components {
       /** Format: uuid */
       id: string;
       /** @enum {string} */
-      dataset: "stations" | "stocks" | "search_stats" | "reports" | "audit";
+      dataset:
+        | "stations"
+        | "stocks"
+        | "search_stats"
+        | "reports"
+        | "audit"
+        | "data_requests";
       /** @enum {string} */
       format: "csv" | "json";
       params: {
@@ -3015,6 +3359,7 @@ export interface components {
     UserId: string;
     ProductId: number;
     ExportId: string;
+    DataRequestId: string;
     /** @description 24h (par heure), 7d (défaut), 30d (jours locaux, aujourd'hui compris), custom (avec from et to) */
     Period: "24h" | "7d" | "30d" | "custom";
     /** @description Premier jour local (period=custom uniquement) */
@@ -3705,6 +4050,131 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationFailed"];
+    };
+  };
+  getMyDataExport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Copie (status none s'il n'y en a pas) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataExport"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  requestMyDataExport: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Copie demandée (ou existante) */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataExport"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  downloadMyDataExport: {
+    parameters: {
+      query: {
+        expires: number;
+        signature: string;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Copie JSON (pièce jointe, jamais mise en cache) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": Record<string, never>;
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      410: components["responses"]["Gone"];
+    };
+  };
+  listMyDataRequests: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Demandes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["DataRequest"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  createMyDataRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateDataRequest"];
+      };
+    };
+    responses: {
+      /** @description Demande enregistrée */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataRequest"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["ValidationFailed"];
     };
   };
@@ -5588,6 +6058,302 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       410: components["responses"]["Gone"];
+    };
+  };
+  listDataRequests: {
+    parameters: {
+      query?: {
+        type?: components["schemas"]["DataRequestType"];
+        status?: "open" | "pending" | "in_progress" | "completed" | "rejected";
+        overdue?: boolean;
+        /** @description Valeur nextCursor de la page précédente */
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Page de demandes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequestPage"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["ValidationFailed"];
+    };
+  };
+  recordDataRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordDataRequest"];
+      };
+    };
+    responses: {
+      /** @description Demande enregistrée */
+      201: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["ValidationFailed"];
+    };
+  };
+  getDataRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Demande */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  resendDataRequestCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Demande */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  verifyDataRequest: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag de la ressource lue (verrouillage optimiste), par exemple "v3" */
+        "If-Match": components["parameters"]["IfMatch"];
+      };
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["VerifyDataRequest"];
+      };
+    };
+    responses: {
+      /** @description Demande */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["ValidationFailed"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  startDataRequest: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag de la ressource lue (verrouillage optimiste), par exemple "v3" */
+        "If-Match": components["parameters"]["IfMatch"];
+      };
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Demande */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["ValidationFailed"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  exportDataRequest: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag de la ressource lue (verrouillage optimiste), par exemple "v3" */
+        "If-Match": components["parameters"]["IfMatch"];
+      };
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Demande */
+      202: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["ValidationFailed"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  executeDataRequestDeletion: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag de la ressource lue (verrouillage optimiste), par exemple "v3" */
+        "If-Match": components["parameters"]["IfMatch"];
+      };
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DeleteForDataRequest"];
+      };
+    };
+    responses: {
+      /** @description Demande */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["ValidationFailed"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  closeDataRequest: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag de la ressource lue (verrouillage optimiste), par exemple "v3" */
+        "If-Match": components["parameters"]["IfMatch"];
+      };
+      path: {
+        id: components["parameters"]["DataRequestId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CloseDataRequest"];
+      };
+    };
+    responses: {
+      /** @description Demande */
+      200: {
+        headers: {
+          ETag: components["headers"]["ETag"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminDataRequest"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["ValidationFailed"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
 }
