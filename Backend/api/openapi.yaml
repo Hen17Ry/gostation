@@ -62,6 +62,10 @@ tags:
     description: Journal d'audit en lecture seule
   - name: admin-exports
     description: Exports CSV/JSON générés par le worker, lien signé valable 1 h, fichiers supprimés à 24 h
+  - name: privacy
+    description: Droits des personnes (étape 10A) — copie des données, demandes d'exercice des droits
+  - name: admin-privacy
+    description: Demandes de données (droits des personnes) — suivi, confirmation d'identité, actions auditées
 
 paths:
   /healthz:
@@ -561,8 +565,12 @@ paths:
     delete:
       tags: [me]
       operationId: deleteMe
-      summary: Supprime le compte (anonymisation, révocation de toutes les sessions)
-      description: La station d'un gérant est suspendue. Les comptes admin se suppriment par la CLI.
+      summary: Supprime le compte (anonymisation immédiate, sessions et appareils révoqués)
+      description: |
+        Confirmation par le mot de passe. Station d'un gérant (approuvée ou en attente) : suspendue,
+        retirée de la recherche ; son justificatif suit sa durée de conservation. La
+        suppression est tracée par une demande close (type deletion). Les comptes admin se suppriment
+        par la CLI.
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfToken: [] }]
       requestBody:
         required: true
@@ -573,6 +581,92 @@ paths:
         "204": { description: Compte supprimé }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/me/data-export:
+    get:
+      tags: [privacy]
+      operationId: getMyDataExport
+      summary: Dernière copie des données (et lien de téléchargement signé, valable 15 min, si elle est prête)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Copie (status none s'il n'y en a pas)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataExport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [privacy]
+      operationId: requestMyDataExport
+      summary: Demande une copie des données (JSON généré par le worker, disponible 24 h)
+      description: Une copie prête ou en cours est réutilisée. La demande est tracée (type export) et close à la génération.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "202":
+          description: Copie demandée (ou existante)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataExport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /api/v1/me/data-export/{id}/download:
+    get:
+      tags: [privacy]
+      operationId: downloadMyDataExport
+      summary: Télécharge la copie (lien signé et session de la personne concernée ; audité)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: expires, in: query, required: true, schema: { type: integer, description: Échéance du lien (secondes Unix) } }
+        - { name: signature, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Copie JSON (pièce jointe, jamais mise en cache)
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "410": { $ref: "#/components/responses/Gone" }
+  /api/v1/me/data-requests:
+    get:
+      tags: [privacy]
+      operationId: listMyDataRequests
+      summary: Demandes d'exercice des droits de la personne (50 dernières)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Demandes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/DataRequest" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [privacy]
+      operationId: createMyDataRequest
+      summary: Fait une demande (accès, rectification, opposition, suppression, autre) ; accusé de réception par email
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateDataRequest" }
+      responses:
+        "201":
+          description: Demande enregistrée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
   /api/v1/me/change-password:
     post:
@@ -1910,6 +2004,225 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "410": { $ref: "#/components/responses/Gone" }
 
+  /api/v1/admin/data-requests:
+    get:
+      tags: [admin, admin-privacy]
+      operationId: listDataRequests
+      summary: Demandes de données, les plus récentes d'abord
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/DataRequestType" } }
+        - { name: status, in: query, schema: { type: string, enum: [open, pending, in_progress, completed, rejected], description: "open : reçues et en cours" } }
+        - { name: overdue, in: query, schema: { type: boolean, description: Ouvertes et échues seulement } }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de demandes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequestPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [admin, admin-privacy]
+      operationId: recordDataRequest
+      summary: Enregistre une demande reçue par email et envoie un code de confirmation à l'adresse du compte
+      description: Rien n'est traité avant que la personne ait communiqué ce code (verify). Audité.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordDataRequest" }
+      responses:
+        "201":
+          description: Demande enregistrée
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+  /api/v1/admin/data-requests/{id}:
+    get:
+      tags: [admin, admin-privacy]
+      operationId: getDataRequest
+      summary: Détail d'une demande (compte visé, échéance, actions possibles)
+      security: [{ cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/DataRequestId" }]
+      responses:
+        "200":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/data-requests/{id}/code:
+    post:
+      tags: [admin, admin-privacy]
+      operationId: resendDataRequestCode
+      summary: Envoie un nouveau code de confirmation (l'ancien ne vaut plus)
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters: [{ $ref: "#/components/parameters/DataRequestId" }]
+      responses:
+        "200":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/admin/data-requests/{id}/verify:
+    post:
+      tags: [admin, admin-privacy]
+      operationId: verifyDataRequest
+      summary: Confirme l'identité de la personne avec le code reçu à l'adresse du compte
+      description: Code valable 7 jours, 5 essais. Accusé de réception envoyé à la personne. Audité.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DataRequestId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerifyDataRequest" }
+      responses:
+        "200":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/data-requests/{id}/start:
+    post:
+      tags: [admin, admin-privacy]
+      operationId: startDataRequest
+      summary: Prend la demande en charge (statut in_progress)
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DataRequestId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/data-requests/{id}/export:
+    post:
+      tags: [admin, admin-privacy]
+      operationId: exportDataRequest
+      summary: Génère la copie des données de la personne, téléchargeable 24 h dans son app (l'admin n'en voit pas le contenu)
+      description: Demande confirmée exigée. Audité.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DataRequestId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "202":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/data-requests/{id}/delete-account:
+    post:
+      tags: [admin, admin-privacy]
+      operationId: executeDataRequestDeletion
+      summary: Supprime le compte visé par une demande de suppression confirmée, puis clôt la demande
+      description: Anonymisation, sessions et appareils révoqués, station retirée de la recherche. Audité.
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DataRequestId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteForDataRequest" }
+      responses:
+        "200":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /api/v1/admin/data-requests/{id}/close:
+    post:
+      tags: [admin, admin-privacy]
+      operationId: closeDataRequest
+      summary: Clôt la demande avec une réponse (traitée) ou un motif (refusée), transmis par email
+      security: [{ cookieAuth: [], csrfToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/DataRequestId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloseDataRequest" }
+      responses:
+        "200":
+          description: Demande
+          headers: { ETag: { $ref: "#/components/headers/ETag" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDataRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1992,6 +2305,11 @@ components:
       required: true
       schema: { type: integer, minimum: 1 }
     ExportId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DataRequestId:
       name: id
       in: path
       required: true
@@ -2788,12 +3106,136 @@ components:
         updatedAt: { type: string, format: date-time }
     AdminCounters:
       type: object
-      required: [pendingStations, openReports, openAlerts, locationReviews]
+      required: [pendingStations, openReports, openAlerts, locationReviews, dataRequests]
       properties:
         pendingStations: { type: integer, description: "Dossiers pending (email du gérant vérifié)" }
         openReports: { type: integer }
         openAlerts: { type: integer }
         locationReviews: { type: integer, description: Épingles signalées ou demandes de déplacement en attente }
+        dataRequests:
+          type: object
+          description: Demandes d'exercice des droits ouvertes, à échéance sous 7 jours, échues
+          required: [open, dueSoon, overdue]
+          properties:
+            open: { type: integer }
+            dueSoon: { type: integer }
+            overdue: { type: integer }
+    DataRequestType:
+      type: string
+      enum: [access, export, rectification, deletion, opposition, other]
+    DataRequestStatus:
+      type: string
+      enum: [pending, in_progress, completed, rejected]
+    DataExport:
+      type: object
+      required: [status, createdAt, expiresAt, sizeBytes, downloadUrl]
+      properties:
+        status: { type: string, enum: [none, pending, ready, failed, expired] }
+        createdAt: { type: [string, "null"], format: date-time }
+        expiresAt: { type: [string, "null"], format: date-time, description: Suppression de la copie (24 h après la génération) }
+        sizeBytes: { type: [integer, "null"] }
+        downloadUrl: { type: [string, "null"], description: "Chemin signé, valable 15 min, quand la copie est prête" }
+    DataRequest:
+      type: object
+      required: [id, reference, type, status, source, createdAt, dueAt, completedAt, response]
+      properties:
+        id: { type: string, format: uuid }
+        reference: { type: string, examples: ["DR-1A2B3C4D"], description: Référence communiquée à la personne }
+        type: { $ref: "#/components/schemas/DataRequestType" }
+        status: { $ref: "#/components/schemas/DataRequestStatus" }
+        source: { type: string, enum: [app, email] }
+        createdAt: { type: string, format: date-time }
+        dueAt: { type: string, format: date-time, description: Échéance de la réponse (30 jours, provisoire) }
+        completedAt: { type: [string, "null"], format: date-time }
+        response: { type: [string, "null"], description: Réponse ou motif du refus }
+    CreateDataRequest:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type: { type: string, enum: [access, rectification, opposition, deletion, other] }
+        details: { type: string, maxLength: 2000, description: "Précisions (10 caractères au moins pour rectification et other)" }
+    AdminDataRequestUser:
+      type: object
+      required: [email, role]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: [string, "null"] }
+        firstName: { type: string }
+        lastName: { type: string }
+        role: { type: [string, "null"], enum: [user, manager, admin, null] }
+        deleted: { type: boolean, description: Compte déjà supprimé (anonymisé) }
+    AdminDataRequestItem:
+      allOf:
+        - $ref: "#/components/schemas/DataRequest"
+        - type: object
+          required: [verified, overdue, dueSoon, user]
+          properties:
+            verified: { type: boolean, description: Identité confirmée (app, ou code reçu par email) }
+            overdue: { type: boolean }
+            dueSoon: { type: boolean, description: Échéance sous 7 jours }
+            user:
+              oneOf:
+                - $ref: "#/components/schemas/AdminDataRequestUser"
+                - type: "null"
+    AdminDataRequestPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/AdminDataRequestItem" } }
+        nextCursor: { type: [string, "null"] }
+    AdminDataRequest:
+      allOf:
+        - $ref: "#/components/schemas/DataRequest"
+        - type: object
+          required: [version, details, verifiedAt, updatedAt, overdue, dueSoon, handledBy, codePending, user, actions]
+          properties:
+            version: { type: integer, description: "Version (ETag \"v{version}\", à renvoyer dans If-Match)" }
+            details: { type: [string, "null"] }
+            verifiedAt: { type: [string, "null"], format: date-time }
+            updatedAt: { type: string, format: date-time }
+            overdue: { type: boolean }
+            dueSoon: { type: boolean }
+            handledBy: { type: [string, "null"], description: Admin en charge }
+            codePending: { type: boolean, description: Code de confirmation envoyé, en attente }
+            user:
+              oneOf:
+                - $ref: "#/components/schemas/AdminDataRequestUser"
+                - type: "null"
+            actions:
+              type: object
+              required: [verify, export, deleteAccount, close]
+              properties:
+                verify: { type: boolean }
+                export: { type: boolean }
+                deleteAccount: { type: boolean }
+                close: { type: boolean }
+    RecordDataRequest:
+      type: object
+      required: [email, type]
+      additionalProperties: false
+      properties:
+        email: { type: string, description: Adresse du compte visé }
+        type: { $ref: "#/components/schemas/DataRequestType" }
+        details: { type: string, maxLength: 2000 }
+    VerifyDataRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code: { type: string, pattern: "^[0-9]{6}$" }
+    DeleteForDataRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        response: { type: string, maxLength: 2000, description: Réponse enregistrée (texte par défaut sinon) }
+    CloseDataRequest:
+      type: object
+      required: [outcome, response]
+      additionalProperties: false
+      properties:
+        outcome: { type: string, enum: [completed, rejected] }
+        response: { type: string, minLength: 3, maxLength: 2000, description: Réponse (traitée) ou motif (refusée), envoyé par email }
     AdminStationPage:
       type: object
       required: [items, nextCursor]
@@ -3521,7 +3963,7 @@ components:
       required: [dataset]
       additionalProperties: false
       properties:
-        dataset: { type: string, enum: [stations, stocks, search_stats, reports, audit] }
+        dataset: { type: string, enum: [stations, stocks, search_stats, reports, audit, data_requests] }
         format: { type: string, enum: [csv, json], default: csv }
         from: { type: string, format: date, description: "search_stats, reports, audit (défaut : il y a 29 jours)" }
         to: { type: string, format: date, description: "Inclus, au plus aujourd'hui (défaut : aujourd'hui)" }
@@ -3531,7 +3973,7 @@ components:
       required: [id, dataset, format, params, status, error, rowCount, sizeBytes, requestedBy, createdAt, completedAt, expiresAt, download]
       properties:
         id: { type: string, format: uuid }
-        dataset: { type: string, enum: [stations, stocks, search_stats, reports, audit] }
+        dataset: { type: string, enum: [stations, stocks, search_stats, reports, audit, data_requests] }
         format: { type: string, enum: [csv, json] }
         params:
           type: object

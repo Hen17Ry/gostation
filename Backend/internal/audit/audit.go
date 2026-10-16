@@ -66,6 +66,14 @@ const (
 	ActionVerificationResent = "admin.verification_resent"
 	ActionExportRequested    = "admin.export_requested"
 	ActionExportDownloaded   = "admin.export_downloaded"
+	// Étape 10A : droits des personnes.
+	ActionDataRequestCreated   = "privacy.request_created"
+	ActionDataRequestCodeSent  = "admin.data_request_code_sent"
+	ActionDataRequestVerified  = "admin.data_request_verified"
+	ActionDataRequestStarted   = "admin.data_request_started"
+	ActionDataRequestClosed    = "admin.data_request_closed"
+	ActionDataExportRequested  = "privacy.export_requested"
+	ActionDataExportDownloaded = "privacy.export_downloaded"
 )
 
 // Entry est une entrée du journal. Metadata ne contient aucune donnée personnelle superflue

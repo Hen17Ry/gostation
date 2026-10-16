@@ -159,10 +159,18 @@ type dashboardDTO struct {
 }
 
 type countersDTO struct {
-	PendingStations int `json:"pendingStations"`
-	OpenReports     int `json:"openReports"`
-	OpenAlerts      int `json:"openAlerts"`
-	LocationReviews int `json:"locationReviews"`
+	PendingStations int                    `json:"pendingStations"`
+	OpenReports     int                    `json:"openReports"`
+	OpenAlerts      int                    `json:"openAlerts"`
+	LocationReviews int                    `json:"locationReviews"`
+	DataRequests    dataRequestCountersDTO `json:"dataRequests"`
+}
+
+// dataRequestCountersDTO : demandes d'exercice des droits ouvertes, à échéance proche, échues.
+type dataRequestCountersDTO struct {
+	Open    int `json:"open"`
+	DueSoon int `json:"dueSoon"`
+	Overdue int `json:"overdue"`
 }
 
 // Counters renvoie les compteurs des badges de la barre latérale (GET /admin/counters).
@@ -174,9 +182,14 @@ func (h *Admin) Counters(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	d, err := h.privacy.Counters(r.Context())
+	if err != nil {
+		return err
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	h.rs.JSON(w, r, http.StatusOK, countersDTO{
 		PendingStations: c.PendingStations, OpenReports: c.OpenReports, OpenAlerts: c.OpenAlerts, LocationReviews: c.LocationReviews,
+		DataRequests: dataRequestCountersDTO{Open: d.Open, DueSoon: d.DueSoon, Overdue: d.Overdue},
 	})
 	return nil
 }

@@ -42,6 +42,7 @@ import (
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
 	"gostation/backend/internal/platform/storage"
+	"gostation/backend/internal/privacy"
 	"gostation/backend/internal/report"
 	"gostation/backend/internal/station"
 )
@@ -87,6 +88,15 @@ type Fixtures struct {
 		Label    string `json:"label"`
 		Stations int    `json:"stations"`
 	} `json:"product"`
+	DataRequest RequestFixture `json:"dataRequest"`
+	LateRequest RequestFixture `json:"lateRequest"`
+}
+
+// RequestFixture décrit une demande de données (droits des personnes).
+type RequestFixture struct {
+	ID        string `json:"id"`
+	Reference string `json:"reference"`
+	Email     string `json:"email"`
 }
 
 type fixer struct {
@@ -241,6 +251,29 @@ func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
 		}
 	}
 	fx.Product.ID, fx.Product.Label, fx.Product.Stations = p.ID, label, 2
+
+	// Demandes de données : une rectification faite depuis l'app, un accès dont l'échéance est
+	// passée (retard, alerte d'échéance).
+	senaEmail := f.email("sena")
+	senaID, err := f.userWithEmail("Séna", "Houngbo", senaEmail)
+	if err != nil {
+		return err
+	}
+	sena := privacy.Actor{UserID: senaID, Role: "user"}
+	rect, err := svc.Privacy.CreateRequest(ctx, sena, "rectification", "Mon prénom s'écrit Séna, avec un accent.")
+	if err != nil {
+		return fmt.Errorf("data request: %w", err)
+	}
+	fx.DataRequest = RequestFixture{ID: rect.ID.String(), Reference: rect.Reference, Email: senaEmail}
+	late, err := svc.Privacy.CreateRequest(ctx, sena, "access", "")
+	if err != nil {
+		return fmt.Errorf("late data request: %w", err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE data_requests SET created_at = now() - interval '32 days', due_at = now() - interval '2 days'
+		WHERE id = $1`, late.ID); err != nil {
+		return fmt.Errorf("late data request: %w", err)
+	}
+	fx.LateRequest = RequestFixture{ID: late.ID.String(), Reference: late.Reference, Email: senaEmail}
 
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")

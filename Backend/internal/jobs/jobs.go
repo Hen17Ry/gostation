@@ -34,18 +34,20 @@ func Queues() map[string]int {
 
 // Types de tâches (identifiants stables : ils vivent dans Redis entre deux déploiements).
 const (
-	TypeEmailSend      = "email:send"
-	TypePushSend       = "push:send"
-	TypePushReceipts   = "push:receipts"
-	TypeBackInStock    = "favorites:back_in_stock"
-	TypeReleaseAlerts  = "favorites:release"
-	TypeRemindersScan  = "reminders:scan"
-	TypeStatsFlush     = "stats:flush"
-	TypeRetentionPurge = "retention:purge"
+	TypeEmailSend     = "email:send"
+	TypePushSend      = "push:send"
+	TypePushReceipts  = "push:receipts"
+	TypeBackInStock   = "favorites:back_in_stock"
+	TypeReleaseAlerts = "favorites:release"
+	TypeRemindersScan = "reminders:scan"
+	TypeStatsFlush    = "stats:flush"
+	// Les purges de conservation ont une tâche par règle : retention.TaskType(règle).
 	// Étape 7.
 	TypeFreshnessSnapshot = "stats:freshness"
 	TypeExportGenerate    = "export:generate"
 	TypeExportPurge       = "export:purge"
+	// Étape 10A : copie « mes données ».
+	TypePersonalExport = "privacy:export"
 )
 
 // EmailPayload porte un email chiffré (adresse et codes à usage unique ne sont jamais en clair
@@ -147,6 +149,17 @@ const ExportMaxRetry = 3
 // EnqueueExport met en file la génération d'un export admin.
 func (c *Client) EnqueueExport(ctx context.Context, id uuid.UUID) error {
 	return c.enqueue(ctx, TypeExportGenerate, ExportPayload{ExportID: id},
+		asynq.Queue(QueueDefault), asynq.MaxRetry(ExportMaxRetry), asynq.Timeout(10*time.Minute))
+}
+
+// PersonalExportPayload désigne la copie « mes données » à générer (rien d'autre dans Redis).
+type PersonalExportPayload struct {
+	ExportID uuid.UUID `json:"e"`
+}
+
+// EnqueuePersonalExport met en file la génération d'une copie « mes données ».
+func (c *Client) EnqueuePersonalExport(ctx context.Context, id uuid.UUID) error {
+	return c.enqueue(ctx, TypePersonalExport, PersonalExportPayload{ExportID: id},
 		asynq.Queue(QueueDefault), asynq.MaxRetry(ExportMaxRetry), asynq.Timeout(10*time.Minute))
 }
 

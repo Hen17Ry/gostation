@@ -33,6 +33,7 @@ import (
 	"gostation/backend/internal/platform/crypto"
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/storage"
+	"gostation/backend/internal/privacy"
 	"gostation/backend/internal/push"
 	"gostation/backend/internal/ratelimit"
 	"gostation/backend/internal/reminder"
@@ -88,6 +89,8 @@ type Services struct {
 	Catalog   *catalog.Service
 	Exports   *export.Service
 	Audit     *audit.Reader
+	// Étape 10A : droits des personnes (demandes, copie des données, suppression du compte).
+	Privacy *privacy.Service
 	// Clés dérivées d'APP_SECRET (une par usage).
 	CSRFKey  []byte
 	EmailKey []byte
@@ -109,6 +112,8 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	}
 	linkKey, _ := derive("export-link")
 	pseudonymKey, _ := derive("export-pseudonym")
+	privacyLinkKey, _ := derive("privacy-export-link")
+	privacyCodeKey, _ := derive("privacy-request-code")
 	queueKey, _ := derive("email-queue")
 	queueSealer, err := crypto.NewSealer(queueKey)
 	if err != nil {
@@ -189,6 +194,15 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 			return nil, err
 		}
 	}
+	privacySvc := privacy.NewService(privacy.Config{
+		Timezone: cfg.Timezone, RequestDeadline: cfg.Privacy.RequestDeadline, DueSoon: cfg.Privacy.DueSoon,
+		ContactEmail: cfg.Privacy.ContactEmail,
+	}, privacy.Deps{
+		Store: st, Storage: infra.Storage, Envelope: envelope, Documents: docs, Queue: jobsClient,
+		Mailer: emails, Templates: renderer, Sessions: sessions, Passwords: authSvc, Cache: cache, Audit: auditLog,
+		Redis: infra.Redis, LinkKey: privacyLinkKey, CodeKey: privacyCodeKey, PseudonymKey: pseudonymKey,
+		Log: log, Clock: infra.Clock,
+	})
 	searchSvc := search.New(search.Config{
 		Timezone: cfg.Timezone, CacheTTL: cfg.Search.CacheTTL, MinResults: cfg.Search.MinResults,
 		MaxCandidates: cfg.Search.MaxCandidates, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
@@ -209,9 +223,16 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 			Store: st, Notifier: notifSvc, Log: log, Clock: infra.Clock,
 		}),
 		Retention: retention.New(retention.Config{
-			Notifications: cfg.Retention.Notifications, BackInStockAlerts: cfg.Retention.BackInStockAlerts,
-			DeviceTokens: cfg.Retention.DeviceTokens,
-		}, st, log),
+			Timezone: cfg.Timezone, Notifications: cfg.Retention.Notifications, BackInStockAlerts: cfg.Retention.BackInStockAlerts,
+			DeviceTokens: cfg.Retention.DeviceTokens, InactiveAccounts: cfg.Retention.InactiveAccounts,
+			InactivityWarning: cfg.Retention.InactivityWarning, ReportAuthors: cfg.Retention.ReportAuthors,
+			Reports: cfg.Retention.Reports, AuditLogs: cfg.Retention.AuditLogs, RejectedDocuments: cfg.Retention.RejectedDocuments,
+			DeletedStationDocuments: cfg.Retention.DeletedStationDocuments, StockHistory: cfg.Retention.StockHistory,
+			DataRequests: cfg.Retention.DataRequests, AdminAlerts: cfg.Retention.AdminAlerts, ExportRecords: cfg.Retention.ExportRecords,
+		}, retention.Deps{
+			Store: st, Storage: infra.Storage, Privacy: privacySvc, Mailer: emails, Templates: renderer,
+			PseudonymKey: pseudonymKey, Log: log, Clock: infra.Clock,
+		}),
 		Analytics: analytics.New(analytics.Config{
 			Timezone: cfg.Timezone, StaleAfter: cfg.Stock.StaleAfter, ExpiredAfter: cfg.Stock.ExpiredAfter,
 		}, st, infra.Clock),
@@ -222,7 +243,8 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 			Store: st, Storage: infra.Storage, Envelope: envelope, Queue: jobsClient, Audit: auditLog, Log: log,
 			LinkKey: linkKey, PseudonymKey: pseudonymKey, Clock: infra.Clock,
 		}),
-		Audit: audit.NewReader(st),
+		Audit:   audit.NewReader(st),
+		Privacy: privacySvc,
 	}, nil
 }
 
@@ -259,7 +281,7 @@ func NewWorker(cfg config.Config, svc *Services, infra Infra, log *slog.Logger, 
 	}, infra.Redis, worker.Tasks{
 		SMTP: infra.Mailer, Emails: svc.Emails, Stats: svc.Stats, Notifications: svc.Notifications,
 		Reminders: svc.Reminders, Favorites: svc.Favorites, Retention: svc.Retention,
-		Analytics: svc.Analytics, Exports: svc.Exports,
+		Analytics: svc.Analytics, Exports: svc.Exports, Privacy: svc.Privacy,
 	}, log)
 }
 
@@ -295,16 +317,17 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog
 		Limiter:       svc.Limiter,
 		Authenticator: middleware.NewAuthenticator(svc.Tokens, svc.Sessions, svc.CSRFKey, cookies.Access(), rs),
 		Auth:          authHandler,
-		Me:            handler.NewMe(rs, svc.Auth, authHandler),
+		Me:            handler.NewMe(rs, svc.Auth, authHandler, svc.Privacy),
 		Stations:      handler.NewStations(rs, svc.Station),
 		Search:        handler.NewSearch(rs, svc.Search),
 		Notifications: handler.NewNotifications(rs, svc.Notifications),
 		Favorites:     handler.NewFavorites(rs, svc.Favorites),
 		Reports:       handler.NewReports(rs, svc.Reports),
 		Reminders:     handler.NewReminders(rs, svc.Reminders),
+		Privacy:       handler.NewPrivacy(rs, svc.Privacy),
 		Admin: handler.NewAdmin(rs, handler.AdminDeps{
 			Analytics: svc.Analytics, Users: svc.Auth, Catalog: svc.Catalog, Audit: svc.Audit,
-			Exports: svc.Exports, Timezone: cfg.Timezone,
+			Exports: svc.Exports, Privacy: svc.Privacy, Timezone: cfg.Timezone,
 		}),
 		EmailVerifier: svc.Auth,
 		StationStatus: svc.Station,

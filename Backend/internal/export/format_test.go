@@ -66,11 +66,15 @@ func TestWriteJSON(t *testing.T) {
 func TestPseudonymIsStableAndOpaque(t *testing.T) {
 	s := &Service{Deps: Deps{PseudonymKey: []byte("0123456789abcdef0123456789abcdef")}}
 	id := uuid.MustParse("01920000-0000-7000-8000-000000000001")
-	a, b := s.pseudonym(&id), s.pseudonym(&id)
+	a, b := s.pseudonym(&id, nil), s.pseudonym(&id, nil)
 	if a == nil || *a != *b || !strings.HasPrefix(*a, "u_") || len(*a) != 18 {
 		t.Fatalf("pseudonym = %v", a)
 	}
-	if s.pseudonym(nil) != nil {
+	if s.pseudonym(nil, nil) != nil {
 		t.Error("deleted reporter must stay null")
+	}
+	// Passé 90 jours, le pseudonyme est en base : même clé, même valeur.
+	if got := s.pseudonym(nil, a); got != a {
+		t.Errorf("stored pseudonym = %v, want %v", got, a)
 	}
 }

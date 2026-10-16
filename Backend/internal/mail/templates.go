@@ -19,6 +19,7 @@ const (
 	tmplResetPassword   = "reset_password"
 	tmplPasswordChanged = "password_changed"
 	tmplStationStatus   = "station_status"
+	tmplDataRequestCode = "data_request_code"
 )
 
 // Renderer produit les messages à partir des templates embarqués.
@@ -37,7 +38,7 @@ func NewRenderer(loc *time.Location) (*Renderer, error) {
 		loc:  loc,
 		now:  time.Now,
 	}
-	for _, name := range []string{tmplVerifyEmail, tmplResetPassword, tmplPasswordChanged, tmplStationStatus} {
+	for _, name := range []string{tmplVerifyEmail, tmplResetPassword, tmplPasswordChanged, tmplStationStatus, tmplDataRequestCode} {
 		h, err := htmltemplate.ParseFS(templateFS, "templates/layout.html.tmpl", "templates/code.html.tmpl", "templates/"+name+".html.tmpl")
 		if err != nil {
 			return nil, fmt.Errorf("mail: parse %s html: %w", name, err)
@@ -65,6 +66,10 @@ type templateData struct {
 	Lead   string
 	Reason string
 	Next   string
+	// ReasonLabel remplace « Motif » au-dessus de Reason (« Réponse » d'une demande traitée).
+	ReasonLabel string
+	// ExpiresDays : validité d'un code de confirmation de demande (jours).
+	ExpiresDays int
 }
 
 func (r *Renderer) render(name, to, subject string, d templateData) (Message, error) {

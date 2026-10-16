@@ -2,6 +2,6 @@
 
 [{{.Badge}}] {{.Lead}}
 {{if .Reason}}
-Motif : {{.Reason}}
+{{if .ReasonLabel}}{{.ReasonLabel}}{{else}}Motif{{end}} : {{.Reason}}
 {{end}}
 {{.Next}}{{end}}

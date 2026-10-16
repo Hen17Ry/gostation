@@ -3,6 +3,8 @@
 //
 //	worker               démarre le worker (configuration lue dans l'environnement)
 //	worker healthcheck   interroge /readyz en local ; code de sortie 0 si prêt (healthcheck Docker)
+//	worker purge-dry-run affiche, règle par règle, ce que les purges traiteraient maintenant, sans
+//	                     rien modifier (make purge-dry-run)
 //
 // Une seule instance tant que le scheduler n'est pas séparé (ARCHITECTURE §7).
 package main
@@ -45,7 +47,12 @@ func main() {
 		os.Exit(healthprobe.Run(addr, os.Stderr))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, os.Getenv, os.Stdout)
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "purge-dry-run" {
+		err = purgeDryRun(ctx, os.Getenv, os.Stdout)
+	} else {
+		err = run(ctx, os.Getenv, os.Stdout)
+	}
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gostation-worker:", err)
@@ -53,13 +60,15 @@ func main() {
 	}
 }
 
-// run assemble les dépendances, traite les tâches et s'arrête proprement quand ctx est annulé.
-func run(ctx context.Context, getenv func(string) string, stdout io.Writer) error {
-	cfg, err := config.Load(getenv)
-	if err != nil {
-		return err
+// connect charge la configuration et assemble l'infrastructure et les services ; closeAll les libère.
+func connect(ctx context.Context, getenv func(string) string, stdout io.Writer) (
+	cfg config.Config, log *slog.Logger, infra app.Infra, svc *app.Services, closeAll func(), err error,
+) {
+	closeAll = func() {}
+	if cfg, err = config.Load(getenv); err != nil {
+		return
 	}
-	log := logging.New(stdout, cfg.Log.Level, cfg.Log.Format, nil).
+	log = logging.New(stdout, cfg.Log.Level, cfg.Log.Format, nil).
 		With(slog.String("service", "worker"), slog.String("version", version))
 	log.InfoContext(ctx, "starting", slog.Any("config", cfg))
 
@@ -68,31 +77,67 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 		AppName: "gostation-worker",
 	})
 	if err != nil {
-		return err
+		return
 	}
-	defer pool.Close()
+	closers := []func(){pool.Close}
+	closeAll = func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
 	rdb, err := redis.Connect(ctx, cfg.Redis.URL)
 	if err != nil {
-		return err
+		return
 	}
-	defer func() { _ = rdb.Close() }()
+	closers = append(closers, func() { _ = rdb.Close() })
 	smtp, err := mail.NewSMTP(mail.SMTPConfig{
 		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
 		From: cfg.SMTP.From, TLSMode: cfg.SMTP.TLSMode,
 	})
 	if err != nil {
-		return err
+		return
 	}
 	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
 	if err != nil {
-		return err
+		return
 	}
-	infra := app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs}
-	svc, err := app.NewServices(cfg, infra, log)
+	infra = app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs}
+	if svc, err = app.NewServices(cfg, infra, log); err != nil {
+		return
+	}
+	closers = append(closers, func() { _ = svc.Jobs.Close() })
+	return cfg, log, infra, svc, closeAll, nil
+}
+
+// purgeDryRun affiche, pour chaque règle de conservation, le nombre de lignes qu'elle traiterait
+// maintenant. Rien n'est modifié : seules les requêtes Count des règles sont exécutées.
+func purgeDryRun(ctx context.Context, getenv func(string) string, stdout io.Writer) error {
+	_, _, _, svc, closeAll, err := connect(ctx, getenv, io.Discard)
+	defer closeAll()
 	if err != nil {
 		return err
 	}
-	defer func() { _ = svc.Jobs.Close() }()
+	sims, err := svc.Retention.DryRun(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "Simulation des purges (aucune modification) :")
+	var total int64
+	for _, sim := range sims {
+		fmt.Fprintf(stdout, "  %-28s %8d\n", sim.Rule, sim.Count)
+		total += sim.Count
+	}
+	fmt.Fprintf(stdout, "  %-28s %8d\n", "total", total)
+	return nil
+}
+
+// run assemble les dépendances, traite les tâches et s'arrête proprement quand ctx est annulé.
+func run(ctx context.Context, getenv func(string) string, stdout io.Writer) error {
+	cfg, log, infra, svc, closeAll, err := connect(ctx, getenv, stdout)
+	defer closeAll()
+	if err != nil {
+		return err
+	}
 	w, err := app.NewWorker(cfg, svc, infra, log, app.WorkerOptions{})
 	if err != nil {
 		return err
@@ -102,7 +147,7 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 	rs := respond.New(log)
 	health := handler.NewHealth(rs, log, 2*time.Second, map[string]handler.Check{
 		"postgres": svc.Store.Ping,
-		"redis":    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
+		"redis":    func(ctx context.Context) error { return infra.Redis.Ping(ctx).Err() },
 	})
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", handler.Handle(rs, health.Live))

@@ -45,6 +45,7 @@ type Config struct {
 	Push      Push
 	Reminders Reminders
 	Retention Retention
+	Privacy   Privacy
 }
 
 // Jobs regroupe les réglages du worker asynq (cmd/worker).
@@ -80,6 +81,29 @@ type Retention struct {
 	Notifications     time.Duration // boîte de réception
 	BackInStockAlerts time.Duration // journal des alertes « de retour en stock »
 	DeviceTokens      time.Duration // token push sans réenregistrement
+	// Étape 10A (valeurs par défaut provisoires, à valider par un juriste).
+	InactiveAccounts        time.Duration // compte sans activité : suppression (anonymisation)
+	InactivityWarning       time.Duration // avertissement par email avant cette suppression
+	ReportAuthors           time.Duration // auteur d'un signalement pseudonymisé
+	Reports                 time.Duration // signalement supprimé
+	AuditLogs               time.Duration // journal d'audit
+	RejectedDocuments       time.Duration // justificatif d'un dossier refusé sans renvoi
+	DeletedStationDocuments time.Duration // justificatif après la suppression du compte du gérant
+	StockHistory            time.Duration // historique des stocks, ensuite agrégé par jour
+	DataRequests            time.Duration // demandes d'exercice des droits closes
+	AdminAlerts             time.Duration // alertes admin résolues
+	ExportRecords           time.Duration // métadonnées des exports admin
+}
+
+// Privacy regroupe les réglages des demandes d'exercice des droits (étape 10A).
+type Privacy struct {
+	// RequestDeadline : délai de réponse à une demande (30 jours, provisoire, D69).
+	RequestDeadline time.Duration
+	// DueSoon : une demande ouverte dont l'échéance est plus proche est signalée à l'admin.
+	DueSoon time.Duration
+	// ContactEmail : adresse à laquelle exercer ses droits (affichée dans les emails) ; vide, la
+	// personne répond à l'équipe par le moyen par lequel elle a fait sa demande.
+	ContactEmail string
 }
 
 // Search regroupe les réglages de la recherche (ARCHITECTURE §4).
@@ -294,9 +318,28 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	c.Reminders = Reminders{Interval: l.duration("STOCK_REMINDER_INTERVAL", 4*time.Hour)}
 	c.Retention = Retention{
-		Notifications:     l.retention("RETENTION_NOTIFICATIONS", 30*24*time.Hour),
-		BackInStockAlerts: l.retention("RETENTION_BACK_IN_STOCK_ALERTS", 30*24*time.Hour),
-		DeviceTokens:      l.retention("RETENTION_DEVICE_TOKENS", 90*24*time.Hour),
+		Notifications:           l.retention("RETENTION_NOTIFICATIONS", 30*24*time.Hour),
+		BackInStockAlerts:       l.retention("RETENTION_BACK_IN_STOCK_ALERTS", 30*24*time.Hour),
+		DeviceTokens:            l.retention("RETENTION_DEVICE_TOKENS", 90*24*time.Hour),
+		InactiveAccounts:        l.retention("RETENTION_INACTIVE_ACCOUNTS", 730*24*time.Hour),
+		InactivityWarning:       l.retention("RETENTION_INACTIVITY_WARNING", 30*24*time.Hour),
+		ReportAuthors:           l.retention("RETENTION_REPORT_AUTHORS", 90*24*time.Hour),
+		Reports:                 l.retention("RETENTION_REPORTS", 365*24*time.Hour),
+		AuditLogs:               l.retention("RETENTION_AUDIT_LOGS", 365*24*time.Hour),
+		RejectedDocuments:       l.retention("RETENTION_REJECTED_DOCUMENTS", 182*24*time.Hour),
+		DeletedStationDocuments: l.retention("RETENTION_DELETED_STATION_DOCUMENTS", 365*24*time.Hour),
+		StockHistory:            l.retention("RETENTION_STOCK_HISTORY", 365*24*time.Hour),
+		DataRequests:            l.retention("RETENTION_DATA_REQUESTS", 3*365*24*time.Hour),
+		AdminAlerts:             l.retention("RETENTION_ADMIN_ALERTS", 365*24*time.Hour),
+		ExportRecords:           l.retention("RETENTION_EXPORT_RECORDS", 365*24*time.Hour),
+	}
+	if c.Retention.InactivityWarning >= c.Retention.InactiveAccounts {
+		l.fail("RETENTION_INACTIVITY_WARNING", "must be shorter than RETENTION_INACTIVE_ACCOUNTS")
+	}
+	c.Privacy = Privacy{
+		RequestDeadline: l.retention("PRIVACY_REQUEST_DEADLINE", 30*24*time.Hour),
+		DueSoon:         l.retention("PRIVACY_REQUEST_DUE_SOON", 7*24*time.Hour),
+		ContactEmail:    l.raw("PRIVACY_CONTACT_EMAIL"),
 	}
 
 	if c.Search.MinResults > c.Search.MaxCandidates {

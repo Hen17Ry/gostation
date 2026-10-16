@@ -6,7 +6,8 @@
 // génération par la tâche périodique export:purge. Demandes et téléchargements sont audités.
 //
 // Jeux de données : stations (avec IFU et RCCM), stocks actuels, stats de recherche agrégées (seuil
-// k ≥ 5), signalements (auteur pseudonymisé, jamais l'email), journal d'audit. Jamais la liste des
+// k ≥ 5), signalements (auteur pseudonymisé, jamais l'email), journal d'audit, suivi des demandes
+// d'exercice des droits (type, statut, échéance : jamais leur contenu). Jamais la liste des
 // utilisateurs, jamais d'email.
 package export
 
@@ -60,8 +61,10 @@ const (
 	DatasetSearchStats = string(dbgen.ExportDatasetSearchStats)
 	DatasetReports     = string(dbgen.ExportDatasetReports)
 	DatasetAudit       = string(dbgen.ExportDatasetAudit)
-	FormatCSV          = string(dbgen.ExportFormatCsv)
-	FormatJSON         = string(dbgen.ExportFormatJson)
+	// DatasetDataRequests : suivi des demandes d'exercice des droits (étape 10A), jamais leur contenu.
+	DatasetDataRequests = string(dbgen.ExportDatasetDataRequests)
+	FormatCSV           = string(dbgen.ExportFormatCsv)
+	FormatJSON          = string(dbgen.ExportFormatJson)
 )
 
 // Codes d'échec enregistrés (jamais de donnée).
@@ -145,7 +148,7 @@ func (s *Service) validate(in Input) (dbgen.ExportDataset, dbgen.ExportFormat, P
 	var fe []apperr.FieldError
 	dataset, format := dbgen.ExportDataset(in.Dataset), dbgen.ExportFormat(in.Format)
 	if !dataset.Valid() {
-		fe = append(fe, field("dataset", "invalid", "must be stations, stocks, search_stats, reports or audit"))
+		fe = append(fe, field("dataset", "invalid", "must be stations, stocks, search_stats, reports, audit or data_requests"))
 	}
 	if in.Format == "" {
 		format = dbgen.ExportFormatCsv
@@ -153,7 +156,8 @@ func (s *Service) validate(in Input) (dbgen.ExportDataset, dbgen.ExportFormat, P
 		fe = append(fe, field("format", "invalid", "must be csv or json"))
 	}
 	var p Params
-	periodic := in.Dataset == DatasetSearchStats || in.Dataset == DatasetReports || in.Dataset == DatasetAudit
+	periodic := in.Dataset == DatasetSearchStats || in.Dataset == DatasetReports || in.Dataset == DatasetAudit ||
+		in.Dataset == DatasetDataRequests
 	if !periodic && (in.From != "" || in.To != "") {
 		fe = append(fe, field("from", "not_allowed", "stations and stocks are current snapshots, without a period"))
 	}
