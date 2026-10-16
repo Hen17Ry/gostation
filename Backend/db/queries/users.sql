@@ -50,8 +50,15 @@ UPDATE users SET privacy_policy_version = @version, privacy_accepted_at = now()
 WHERE id = @id;
 
 -- name: TouchLastLogin :exec
-UPDATE users SET last_login_at = now()
+-- Une connexion compte comme activité et annule l'avertissement d'inactivité.
+UPDATE users SET last_login_at = now(), last_active_at = now(), inactivity_warned_at = NULL
 WHERE id = @id;
+
+-- name: TouchLastActive :exec
+-- Renouvellement de session : activité, au plus une écriture par heure (ou aussitôt si le compte
+-- avait été prévenu de sa suppression pour inactivité).
+UPDATE users SET last_active_at = now(), inactivity_warned_at = NULL
+WHERE id = @id AND (last_active_at < now() - interval '1 hour' OR inactivity_warned_at IS NOT NULL);
 
 -- name: EnableUserTOTP :exec
 UPDATE users SET totp_secret_encrypted = @secret, totp_enabled_at = now()
@@ -62,7 +69,8 @@ UPDATE users SET totp_secret_encrypted = NULL, totp_enabled_at = NULL
 WHERE id = @id;
 
 -- name: AnonymizeUser :exec
--- Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
+-- Suppression de compte : plus aucune donnée personnelle, motifs libres de l'admin compris (un
+-- compte désactivé perd aussi sa désactivation, ck_users_disabled n'admettant pas pending_deletion).
 UPDATE users
 SET email                 = @anonymized_email,
     first_name            = 'Deleted',
@@ -72,6 +80,11 @@ SET email                 = @anonymized_email,
     email_verified_at     = NULL,
     totp_secret_encrypted = NULL,
     totp_enabled_at       = NULL,
+    disabled_at           = NULL,
+    disabled_reason       = NULL,
+    reporting_banned_at   = NULL,
+    reporting_ban_reason  = NULL,
+    inactivity_warned_at  = NULL,
     deletion_requested_at = now()
 WHERE id = @id;
 

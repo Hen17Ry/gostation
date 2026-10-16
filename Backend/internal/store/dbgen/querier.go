@@ -21,7 +21,11 @@ type Querier interface {
 	AdminCounters(ctx context.Context) (AdminCountersRow, error)
 	// Verrou transactionnel nommé (limites par auteur, seuils par station).
 	AdvisoryLock(ctx context.Context, key string) error
-	// Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
+	// Historique des stocks au-delà de 12 mois : les lignes d'un lot sont supprimées et cumulées dans
+	// l'agrégat journalier (jour local), sans l'auteur de la saisie. Renvoie le nombre de lignes du lot.
+	AggregateStockHistoryBatch(ctx context.Context, arg AggregateStockHistoryBatchParams) (int64, error)
+	// Suppression de compte : plus aucune donnée personnelle, motifs libres de l'admin compris (un
+	// compte désactivé perd aussi sa désactivation, ck_users_disabled n'admettant pas pending_deletion).
 	AnonymizeUser(ctx context.Context, arg AnonymizeUserParams) error
 	// Applique une demande en attente à la station (nouvelle position, nouvelle cellule H3).
 	ApplyLocationRequest(ctx context.Context, requestID uuid.UUID) (int64, error)
@@ -51,18 +55,51 @@ type Querier interface {
 	// (-1 si la station n'est pas encore épinglée) ?
 	CheckStationPin(ctx context.Context, arg CheckStationPinParams) (CheckStationPinRow, error)
 	ClearReportingBan(ctx context.Context, id uuid.UUID) (int64, error)
+	ClearStationDocument(ctx context.Context, arg ClearStationDocumentParams) (int64, error)
 	ClearStationLocationFlag(ctx context.Context, id uuid.UUID) error
+	CloseDataRequest(ctx context.Context, arg CloseDataRequestParams) (int64, error)
 	// Clôture automatique par une action du gérant (étape 7) : une saisie ou une confirmation des
 	// stocks clôt les ruptures des produits concernés (product_ids) et « station fermée » ; un
 	// changement de position clôt « position incorrecte » (reasons). « Autre » ne se clôt que par
 	// l'admin. Les trois requêtes partagent le même filtre de causes.
 	CloseReportsForCauses(ctx context.Context, arg CloseReportsForCausesParams) (int64, error)
+	// Actions du compte au journal d'audit (connexions, changements de mot de passe, demandes…).
+	CollectAuditTrail(ctx context.Context, userID *uuid.UUID) ([]byte, error)
+	CollectBackInStockAlerts(ctx context.Context, userID uuid.UUID) ([]byte, error)
+	CollectDataRequests(ctx context.Context, userID *uuid.UUID) ([]byte, error)
+	// Le token push lui-même n'est pas exporté en entier (il suffit à envoyer des notifications).
+	CollectDevices(ctx context.Context, userID uuid.UUID) ([]byte, error)
+	CollectFavorites(ctx context.Context, userID uuid.UUID) ([]byte, error)
+	// Station du gérant (V1 : une seule), avec ses horaires, fermetures, produits et stocks, ses
+	// demandes de déplacement et l'historique des stocks saisi par le gérant.
+	CollectManagedStation(ctx context.Context, userID *uuid.UUID) ([]byte, error)
+	CollectNotificationSettings(ctx context.Context, userID uuid.UUID) ([]byte, error)
+	CollectNotifications(ctx context.Context, userID uuid.UUID) ([]byte, error)
+	// Collecte « mes données » : une requête par catégorie de l'inventaire (docs/legal), chacune
+	// renvoie du JSON (clés en camelCase, comme l'API).
+	CollectProfile(ctx context.Context, userID uuid.UUID) ([]byte, error)
+	// Signalements encore rattachés au compte (au-delà de 90 jours, l'auteur est pseudonymisé).
+	CollectReports(ctx context.Context, userID *uuid.UUID) ([]byte, error)
 	CompleteExport(ctx context.Context, arg CompleteExportParams) (int64, error)
+	CompletePersonalExport(ctx context.Context, arg CompletePersonalExportParams) (int64, error)
 	// « Rien n'a changé » : remet le délai de fraîcheur à zéro sans toucher aux quantités.
 	ConfirmStationStocks(ctx context.Context, arg ConfirmStationStocksParams) (int64, error)
+	CountAccountsToWarn(ctx context.Context, before time.Time) (int64, error)
+	CountAuditLogsBefore(ctx context.Context, before time.Time) (int64, error)
+	CountBackInStockAlertsBefore(ctx context.Context, before time.Time) (int64, error)
 	// Alertes envoyées pour un couple (station, produit) depuis since (limite des 6 h).
 	CountBackInStockSentSince(ctx context.Context, arg CountBackInStockSentSinceParams) (int64, error)
+	CountClosedDataRequestsBefore(ctx context.Context, before *time.Time) (int64, error)
+	CountDocumentsToDelete(ctx context.Context, arg CountDocumentsToDeleteParams) (int64, error)
+	CountExpiredPersonalExports(ctx context.Context, arg CountExpiredPersonalExportsParams) (int64, error)
+	CountExportRecordsBefore(ctx context.Context, before time.Time) (int64, error)
 	CountFavorites(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountInactiveAccountsToDelete(ctx context.Context, arg CountInactiveAccountsToDeleteParams) (int64, error)
+	CountInactiveDevices(ctx context.Context, before time.Time) (int64, error)
+	// Durées de conservation (ARCHITECTURE §8, docs/legal/inventaire-donnees.md). Chaque règle a une
+	// requête de comptage (make purge-dry-run) et une requête par lots (au plus @batch_size lignes),
+	// rejouée par la tâche jusqu'à épuisement : une règle interrompue reprend où elle s'était arrêtée.
+	CountNotificationsBefore(ctx context.Context, before time.Time) (int64, error)
 	CountOpenAdminAlerts(ctx context.Context) ([]CountOpenAdminAlertsRow, error)
 	// Recalcul d'un effet après un classement : auteurs distincts des signalements encore ouverts.
 	CountOpenReportersForCause(ctx context.Context, arg CountOpenReportersForCauseParams) (int32, error)
@@ -71,8 +108,11 @@ type Querier interface {
 	CountRegistrations(ctx context.Context, arg CountRegistrationsParams) (CountRegistrationsRow, error)
 	// Auteurs distincts des signalements ouverts d'une cause créés après since.
 	CountReportersForCause(ctx context.Context, arg CountReportersForCauseParams) (int32, error)
+	CountReportsBefore(ctx context.Context, before time.Time) (int64, error)
 	CountReportsCreated(ctx context.Context, arg CountReportsCreatedParams) (int32, error)
 	CountReportsSince(ctx context.Context, arg CountReportsSinceParams) (int64, error)
+	CountReportsToPseudonymize(ctx context.Context, before time.Time) (int64, error)
+	CountResolvedAdminAlertsBefore(ctx context.Context, before *time.Time) (int64, error)
 	// Tableau de bord et stats admin (étape 7). Les stats de recherche se lisent dans les agrégats
 	// tenus par le vidage du worker : search_stats_totals (heure × produit, tous lieux) pour les totaux,
 	// évolutions et séries ; search_stats_daily (jour local × cellule × produit) ou search_stats (heure ×
@@ -80,6 +120,7 @@ type Querier interface {
 	// le service sur l'agrégat affiché, jamais en base.
 	// Un dossier pending ne compte qu'une fois l'email du gérant vérifié (comme la liste admin, D5).
 	CountStationsByStatus(ctx context.Context) ([]CountStationsByStatusRow, error)
+	CountStockHistoryBefore(ctx context.Context, before time.Time) (int64, error)
 	CountUnreadNotifications(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountUnusedRecoveryCodes(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Alertes envoyées à l'utilisateur depuis since (limite de 5 par jour).
@@ -93,9 +134,14 @@ type Querier interface {
 	CreateProduct(ctx context.Context, arg CreateProductParams) (int16, error)
 	CreateStation(ctx context.Context, arg CreateStationParams) (CreateStationRow, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	// Badge et alerte de la barre latérale admin : demandes ouvertes, à échéance sous 7 jours, échues.
+	DataRequestCounters(ctx context.Context, arg DataRequestCountersParams) (DataRequestCountersRow, error)
 	DecideReport(ctx context.Context, arg DecideReportParams) error
-	// Conservation : 30 jours (les limites ne regardent que les dernières 24 h).
-	DeleteBackInStockAlertsBefore(ctx context.Context, before time.Time) (int64, error)
+	DeleteAuditLogsBatch(ctx context.Context, arg DeleteAuditLogsBatchParams) (int64, error)
+	// Journal des alertes « de retour en stock » (les limites ne regardent que les dernières 24 h).
+	DeleteBackInStockAlertsBatch(ctx context.Context, arg DeleteBackInStockAlertsBatchParams) (int64, error)
+	// Preuve de conformité : demandes closes depuis 3 ans.
+	DeleteClosedDataRequestsBatch(ctx context.Context, arg DeleteClosedDataRequestsBatchParams) (int64, error)
 	DeleteClosure(ctx context.Context, arg DeleteClosureParams) (int64, error)
 	DeleteDevice(ctx context.Context, arg DeleteDeviceParams) (int64, error)
 	// DeviceNotRegistered : on ne supprime la ligne que si elle porte encore le token signalé
@@ -107,43 +153,60 @@ type Querier interface {
 	DeleteDevicesByID(ctx context.Context, ids []uuid.UUID) (int64, error)
 	// Révocation d'une session (logout, révocation, changement de mot de passe…).
 	DeleteDevicesBySession(ctx context.Context, sessionID string) (int64, error)
+	// Métadonnées des exports admin (les fichiers, eux, sont supprimés 24 h après leur génération).
+	DeleteExportRecordsBatch(ctx context.Context, arg DeleteExportRecordsBatchParams) (int64, error)
 	DeleteFavorite(ctx context.Context, arg DeleteFavoriteParams) (int64, error)
 	DeleteFavoriteAlerts(ctx context.Context, arg DeleteFavoriteAlertsParams) error
-	// Conservation (ARCHITECTURE §8) : 90 jours sans réenregistrement.
-	DeleteInactiveDevices(ctx context.Context, before time.Time) (int64, error)
-	// Conservation : 30 jours.
-	DeleteNotificationsBefore(ctx context.Context, before time.Time) (int64, error)
+	// Tokens push sans réenregistrement depuis 90 jours.
+	DeleteInactiveDevicesBatch(ctx context.Context, arg DeleteInactiveDevicesBatchParams) (int64, error)
+	DeleteNotificationsBatch(ctx context.Context, arg DeleteNotificationsBatchParams) (int64, error)
 	DeleteOpeningHours(ctx context.Context, stationID uuid.UUID) error
+	DeletePersonalExport(ctx context.Context, id uuid.UUID) error
 	DeleteRecoveryCodes(ctx context.Context, userID uuid.UUID) error
 	DeleteReportFlag(ctx context.Context, id uuid.UUID) error
 	DeleteReportFlagsForCauses(ctx context.Context, arg DeleteReportFlagsForCausesParams) ([]DeleteReportFlagsForCausesRow, error)
+	DeleteReportsBatch(ctx context.Context, arg DeleteReportsBatchParams) (int64, error)
+	DeleteResolvedAdminAlertsBatch(ctx context.Context, arg DeleteResolvedAdminAlertsBatchParams) (int64, error)
 	DeleteUserBackInStockAlerts(ctx context.Context, userID uuid.UUID) error
 	DeleteUserDeviceTokens(ctx context.Context, userID uuid.UUID) error
 	DeleteUserFavorites(ctx context.Context, userID uuid.UUID) error
 	DeleteUserNotificationOptOuts(ctx context.Context, userID uuid.UUID) error
 	DeleteUserNotifications(ctx context.Context, userID uuid.UUID) error
+	// Effacement du compte d'un gérant : station approuvée ou en attente suspendue (retirée de la
+	// recherche et de la file de revue), lien avec le compte rompu ; la conservation du justificatif
+	// court à partir de manager_deleted_at.
+	DetachManagedStation(ctx context.Context, arg DetachManagedStationParams) ([]DetachManagedStationRow, error)
 	// Les comptes admin se gèrent par la CLI : jamais désactivés ici.
 	DisableUser(ctx context.Context, arg DisableUserParams) (int64, error)
 	DisableUserTOTP(ctx context.Context, id uuid.UUID) error
 	EnableUserTOTP(ctx context.Context, arg EnableUserTOTPParams) error
 	ExpireExport(ctx context.Context, id uuid.UUID) (int64, error)
 	ExportAuditLogs(ctx context.Context, arg ExportAuditLogsParams) ([]AuditLog, error)
+	// Jeu d'export admin « demandes » : le suivi seulement (ni email, ni précisions, ni réponse).
+	ExportDataRequests(ctx context.Context, arg ExportDataRequestsParams) ([]ExportDataRequestsRow, error)
 	// L'auteur sort pseudonymisé par le service (reporter_id ne quitte jamais le serveur, l'email
 	// n'est jamais lu).
 	ExportReports(ctx context.Context, arg ExportReportsParams) ([]ExportReportsRow, error)
 	ExportStations(ctx context.Context, maxRows int32) ([]ExportStationsRow, error)
 	ExportStocks(ctx context.Context, maxRows int32) ([]ExportStocksRow, error)
 	FailExport(ctx context.Context, arg FailExportParams) (int64, error)
+	FailPersonalExport(ctx context.Context, arg FailPersonalExportParams) (int64, error)
 	// Une demande toujours en attente après 1 h (tâche perdue) est déclarée échouée.
 	FailStalePendingExports(ctx context.Context, arg FailStalePendingExportsParams) (int64, error)
+	// Compte visé par une demande reçue par email (jamais un compte déjà supprimé).
+	FindUserForDataRequest(ctx context.Context, email string) (FindUserForDataRequestRow, error)
 	FlagStationLocation(ctx context.Context, arg FlagStationLocationParams) error
 	// Fraîcheur moyenne des relevés horaires par tranche (heure ou jour local).
 	FreshnessSeries(ctx context.Context, arg FreshnessSeriesParams) ([]FreshnessSeriesRow, error)
 	GetAdminAlert(ctx context.Context, id uuid.UUID) (GetAdminAlertRow, error)
 	// Station et produit d'une alerte, avec le stock courant (0 si le produit n'est plus vendu).
 	GetBackInStockContext(ctx context.Context, arg GetBackInStockContextParams) (GetBackInStockContextRow, error)
+	GetDataRequest(ctx context.Context, id uuid.UUID) (GetDataRequestRow, error)
 	GetExport(ctx context.Context, id uuid.UUID) (GetExportRow, error)
+	GetLatestPersonalExport(ctx context.Context, userID uuid.UUID) (PersonalExport, error)
+	GetManagedStationDocument(ctx context.Context, userID *uuid.UUID) (GetManagedStationDocumentRow, error)
 	GetPendingLocationRequest(ctx context.Context, stationID uuid.UUID) (GetPendingLocationRequestRow, error)
+	GetPersonalExport(ctx context.Context, id uuid.UUID) (PersonalExport, error)
 	GetProductForAdmin(ctx context.Context, id int16) (GetProductForAdminRow, error)
 	// Fiche publique : stations approuvées uniquement (404 sinon).
 	GetPublicStation(ctx context.Context, id uuid.UUID) (GetPublicStationRow, error)
@@ -169,20 +232,26 @@ type Querier interface {
 	// Lecture pour le login : le hash du mot de passe ne sort jamais du paquet auth.
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error)
+	GetUserContact(ctx context.Context, id uuid.UUID) (GetUserContactRow, error)
 	GetUserCredentials(ctx context.Context, id uuid.UUID) (GetUserCredentialsRow, error)
 	GetUserForAdmin(ctx context.Context, id uuid.UUID) (GetUserForAdminRow, error)
 	HasPendingBackInStock(ctx context.Context, arg HasPendingBackInStockParams) (bool, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertBackInStockAlert(ctx context.Context, arg InsertBackInStockAlertParams) error
+	// Étape 10A : demandes d'exercice des droits, export « mes données », effacement d'un compte.
+	InsertDataRequest(ctx context.Context, arg InsertDataRequestParams) (uuid.UUID, error)
 	InsertFavorite(ctx context.Context, arg InsertFavoriteParams) (int64, error)
 	InsertFavoriteAlerts(ctx context.Context, arg InsertFavoriteAlertsParams) error
 	// Rien n'est créé si l'utilisateur a désactivé ce type (opt-out) ou si son compte n'est plus actif.
 	InsertNotification(ctx context.Context, arg InsertNotificationParams) (uuid.UUID, error)
 	InsertOpeningHours(ctx context.Context, arg []InsertOpeningHoursParams) (int64, error)
+	InsertPersonalExport(ctx context.Context, arg InsertPersonalExportParams) (uuid.UUID, error)
 	InsertRecoveryCodes(ctx context.Context, arg []InsertRecoveryCodesParams) (int64, error)
 	InsertReport(ctx context.Context, arg InsertReportParams) (InsertReportRow, error)
 	InsertReportFlag(ctx context.Context, arg InsertReportFlagParams) error
 	InsertStockHistory(ctx context.Context, arg []InsertStockHistoryParams) (int64, error)
+	// Comptes inactifs à prévenir (30 jours avant la suppression).
+	ListAccountsToWarn(ctx context.Context, arg ListAccountsToWarnParams) ([]ListAccountsToWarnRow, error)
 	// Catalogue visible par les clients, dans l'ordre d'affichage.
 	ListActiveProducts(ctx context.Context) ([]ListActiveProductsRow, error)
 	ListAdminAlerts(ctx context.Context, arg ListAdminAlertsParams) ([]ListAdminAlertsRow, error)
@@ -196,12 +265,23 @@ type Querier interface {
 	// Fermetures à partir d'une date (le jour même compris).
 	ListClosures(ctx context.Context, arg ListClosuresParams) ([]ListClosuresRow, error)
 	ListClosuresForStations(ctx context.Context, arg ListClosuresForStationsParams) ([]ListClosuresForStationsRow, error)
+	// Liste admin, les plus récentes d'abord (curseur created_at, id). open_only : reçues ou en cours ;
+	// overdue_only : ouvertes et échues.
+	ListDataRequests(ctx context.Context, arg ListDataRequestsParams) ([]ListDataRequestsRow, error)
 	ListDevicesForUsers(ctx context.Context, userIds []uuid.UUID) ([]ListDevicesForUsersRow, error)
+	// Justificatifs : dossier refusé sans renvoi depuis 6 mois, ou compte du gérant supprimé depuis
+	// 12 mois. Celui d'une station active est conservé.
+	ListDocumentsToDelete(ctx context.Context, arg ListDocumentsToDeleteParams) ([]ListDocumentsToDeleteRow, error)
 	ListExpiredExports(ctx context.Context, now time.Time) ([]ListExpiredExportsRow, error)
+	// Fichiers prêts depuis plus de 24 h, demandes restées en attente ou échouées depuis plus d'une heure.
+	ListExpiredPersonalExports(ctx context.Context, arg ListExpiredPersonalExportsParams) ([]ListExpiredPersonalExportsRow, error)
 	ListExports(ctx context.Context, arg ListExportsParams) ([]ListExportsRow, error)
 	// Favoris et alertes « de retour en stock » (étape 6).
 	ListFavorites(ctx context.Context, userID uuid.UUID) ([]ListFavoritesRow, error)
 	ListHoursForStations(ctx context.Context, stationIds []uuid.UUID) ([]StationOpeningHour, error)
+	// Inactifs depuis la durée de conservation, prévenus depuis au moins 30 jours sans avoir réutilisé
+	// leur compte (une connexion remet inactivity_warned_at à NULL).
+	ListInactiveAccountsToDelete(ctx context.Context, arg ListInactiveAccountsToDeleteParams) ([]ListInactiveAccountsToDeleteRow, error)
 	ListNotificationOptOuts(ctx context.Context, userID uuid.UUID) ([]NotificationType, error)
 	// Boîte de réception, du plus récent au plus ancien (id UUIDv7), pagination par curseur.
 	ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]ListNotificationsRow, error)
@@ -223,6 +303,7 @@ type Querier interface {
 	//   * sinon : ouverte maintenant, sous le plafond du jour, rappels non arrêtés aujourd'hui.
 	ListReminderCandidates(ctx context.Context, arg ListReminderCandidatesParams) ([]ListReminderCandidatesRow, error)
 	ListReportsForAdmin(ctx context.Context, arg ListReportsForAdminParams) ([]ListReportsForAdminRow, error)
+	ListReportsToPseudonymize(ctx context.Context, arg ListReportsToPseudonymizeParams) ([]ListReportsToPseudonymizeRow, error)
 	// Catalogue actif, avec ce que la station vend (ligne présente) et son stock.
 	ListStationProducts(ctx context.Context, stationID uuid.UUID) ([]ListStationProductsRow, error)
 	ListStationReportFlags(ctx context.Context, stationID uuid.UUID) ([]ListStationReportFlagsRow, error)
@@ -243,16 +324,24 @@ type Querier interface {
 	// Stations les plus proches en stock frais, avec horaires, ouvertes ou non : le service garde
 	// les fermées (repli D19, triées par heure à laquelle on peut être servi).
 	ListStockedCandidatesKNN(ctx context.Context, arg ListStockedCandidatesKNNParams) ([]ListStockedCandidatesKNNRow, error)
+	ListUserDataRequests(ctx context.Context, userID *uuid.UUID) ([]ListUserDataRequestsRow, error)
+	ListUserPersonalExports(ctx context.Context, userID uuid.UUID) ([]ListUserPersonalExportsRow, error)
 	// Liste admin des comptes, les plus récents d'abord (curseur created_at, id). La recherche porte
 	// sur l'email, le prénom, le nom et « prénom nom ».
 	ListUsersForAdmin(ctx context.Context, arg ListUsersForAdminParams) ([]ListUsersForAdminRow, error)
+	// Prise en charge par un admin (ou action exécutée : export, suppression).
+	MarkDataRequestInProgress(ctx context.Context, arg MarkDataRequestInProgressParams) (int64, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
+	MarkInactivityWarned(ctx context.Context, arg MarkInactivityWarnedParams) (int64, error)
 	MarkNotificationsPushed(ctx context.Context, ids []uuid.UUID) error
 	MarkNotificationsRead(ctx context.Context, arg MarkNotificationsReadParams) (int64, error)
 	MuteReminders(ctx context.Context, arg MuteRemindersParams) (*time.Time, error)
 	OldestPendingApplication(ctx context.Context) (time.Time, error)
 	// Une seule alerte ouverte par cause : rien n'est créé si elle existe déjà.
 	OpenAdminAlert(ctx context.Context, arg OpenAdminAlertParams) (uuid.UUID, error)
+	PseudonymizeReports(ctx context.Context, arg PseudonymizeReportsParams) (int64, error)
+	// Effacement d'un compte : ses signalements gardent le pseudonyme de l'auteur, plus son compte.
+	PseudonymizeUserReports(ctx context.Context, arg PseudonymizeUserReportsParams) (int64, error)
 	ReactivateUser(ctx context.Context, id uuid.UUID) (int64, error)
 	// Compteurs du jour remis à zéro au changement de journée locale ; streak (rappels depuis la
 	// dernière mise à jour) n'est remis à zéro que par une mise à jour ou une escalade.
@@ -287,6 +376,10 @@ type Querier interface {
 	StopReminders(ctx context.Context, arg StopRemindersParams) error
 	SupersedeLocationRequests(ctx context.Context, stationID uuid.UUID) error
 	SuspendManagerStation(ctx context.Context, arg SuspendManagerStationParams) error
+	// Renouvellement de session : activité, au plus une écriture par heure (ou aussitôt si le compte
+	// avait été prévenu de sa suppression pour inactivité).
+	TouchLastActive(ctx context.Context, id uuid.UUID) error
+	// Une connexion compte comme activité et annule l'avertissement d'inactivité.
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
 	TouchStationStockActivity(ctx context.Context, id uuid.UUID) error
 	// Seuls le libellé, l'ordre et l'activation changent : type, unité, taille et code sont figés.
@@ -305,6 +398,7 @@ type Querier interface {
 	UpsertSearchStatsTotals(ctx context.Context, arg UpsertSearchStatsTotalsParams) error
 	// Consomme un code de secours (usage unique).
 	UseRecoveryCode(ctx context.Context, arg UseRecoveryCodeParams) (uuid.UUID, error)
+	VerifyDataRequest(ctx context.Context, arg VerifyDataRequestParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

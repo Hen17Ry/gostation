@@ -88,7 +88,7 @@ func (q *Queries) ExpireExport(ctx context.Context, id uuid.UUID) (int64, error)
 
 const exportReports = `-- name: ExportReports :many
 SELECT r.id, r.created_at, r.station_id, s.name AS station_name, r.reason, p.code AS product_code,
-       r.comment, r.status, r.abusive, r.resolved_at, r.resolution_note, r.reporter_id
+       r.comment, r.status, r.abusive, r.resolved_at, r.resolution_note, r.reporter_id, r.reporter_pseudonym
 FROM reports r
 JOIN stations s ON s.id = r.station_id
 LEFT JOIN products p ON p.id = r.product_id
@@ -104,18 +104,19 @@ type ExportReportsParams struct {
 }
 
 type ExportReportsRow struct {
-	ID             uuid.UUID    `json:"id"`
-	CreatedAt      time.Time    `json:"createdAt"`
-	StationID      uuid.UUID    `json:"stationId"`
-	StationName    string       `json:"stationName"`
-	Reason         ReportReason `json:"reason"`
-	ProductCode    *string      `json:"productCode"`
-	Comment        *string      `json:"comment"`
-	Status         ReportStatus `json:"status"`
-	Abusive        bool         `json:"abusive"`
-	ResolvedAt     *time.Time   `json:"resolvedAt"`
-	ResolutionNote *string      `json:"resolutionNote"`
-	ReporterID     *uuid.UUID   `json:"reporterId"`
+	ID                uuid.UUID    `json:"id"`
+	CreatedAt         time.Time    `json:"createdAt"`
+	StationID         uuid.UUID    `json:"stationId"`
+	StationName       string       `json:"stationName"`
+	Reason            ReportReason `json:"reason"`
+	ProductCode       *string      `json:"productCode"`
+	Comment           *string      `json:"comment"`
+	Status            ReportStatus `json:"status"`
+	Abusive           bool         `json:"abusive"`
+	ResolvedAt        *time.Time   `json:"resolvedAt"`
+	ResolutionNote    *string      `json:"resolutionNote"`
+	ReporterID        *uuid.UUID   `json:"reporterId"`
+	ReporterPseudonym *string      `json:"reporterPseudonym"`
 }
 
 // L'auteur sort pseudonymisé par le service (reporter_id ne quitte jamais le serveur, l'email
@@ -142,6 +143,7 @@ func (q *Queries) ExportReports(ctx context.Context, arg ExportReportsParams) ([
 			&i.ResolvedAt,
 			&i.ResolutionNote,
 			&i.ReporterID,
+			&i.ReporterPseudonym,
 		); err != nil {
 			return nil, err
 		}

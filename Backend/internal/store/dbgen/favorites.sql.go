@@ -67,19 +67,6 @@ func (q *Queries) CountUserBackInStockSentSince(ctx context.Context, arg CountUs
 	return count, err
 }
 
-const deleteBackInStockAlertsBefore = `-- name: DeleteBackInStockAlertsBefore :execrows
-DELETE FROM back_in_stock_alerts WHERE created_at < $1 AND status <> 'pending'
-`
-
-// Conservation : 30 jours (les limites ne regardent que les dernières 24 h).
-func (q *Queries) DeleteBackInStockAlertsBefore(ctx context.Context, before time.Time) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteBackInStockAlertsBefore, before)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const deleteFavorite = `-- name: DeleteFavorite :execrows
 DELETE FROM favorites WHERE user_id = $1 AND station_id = $2
 `

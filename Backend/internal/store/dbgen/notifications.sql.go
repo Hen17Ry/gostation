@@ -116,32 +116,6 @@ func (q *Queries) DeleteDevicesBySession(ctx context.Context, sessionID string) 
 	return result.RowsAffected(), nil
 }
 
-const deleteInactiveDevices = `-- name: DeleteInactiveDevices :execrows
-DELETE FROM device_tokens WHERE last_seen_at < $1
-`
-
-// Conservation (ARCHITECTURE §8) : 90 jours sans réenregistrement.
-func (q *Queries) DeleteInactiveDevices(ctx context.Context, before time.Time) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteInactiveDevices, before)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const deleteNotificationsBefore = `-- name: DeleteNotificationsBefore :execrows
-DELETE FROM notifications WHERE created_at < $1
-`
-
-// Conservation : 30 jours.
-func (q *Queries) DeleteNotificationsBefore(ctx context.Context, before time.Time) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteNotificationsBefore, before)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const deleteUserNotificationOptOuts = `-- name: DeleteUserNotificationOptOuts :exec
 DELETE FROM notification_opt_outs WHERE user_id = $1
 `

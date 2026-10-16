@@ -37,6 +37,11 @@ SET email                 = $1,
     email_verified_at     = NULL,
     totp_secret_encrypted = NULL,
     totp_enabled_at       = NULL,
+    disabled_at           = NULL,
+    disabled_reason       = NULL,
+    reporting_banned_at   = NULL,
+    reporting_ban_reason  = NULL,
+    inactivity_warned_at  = NULL,
     deletion_requested_at = now()
 WHERE id = $2
 `
@@ -46,7 +51,8 @@ type AnonymizeUserParams struct {
 	ID              uuid.UUID `json:"id"`
 }
 
-// Suppression de compte (étape 9 : purge définitive) : plus aucune donnée personnelle.
+// Suppression de compte : plus aucune donnée personnelle, motifs libres de l'admin compris (un
+// compte désactivé perd aussi sa désactivation, ck_users_disabled n'admettant pas pending_deletion).
 func (q *Queries) AnonymizeUser(ctx context.Context, arg AnonymizeUserParams) error {
 	_, err := q.db.Exec(ctx, anonymizeUser, arg.AnonymizedEmail, arg.ID)
 	return err
@@ -476,11 +482,24 @@ func (q *Queries) RehashUserPassword(ctx context.Context, arg RehashUserPassword
 	return err
 }
 
+const touchLastActive = `-- name: TouchLastActive :exec
+UPDATE users SET last_active_at = now(), inactivity_warned_at = NULL
+WHERE id = $1 AND (last_active_at < now() - interval '1 hour' OR inactivity_warned_at IS NOT NULL)
+`
+
+// Renouvellement de session : activité, au plus une écriture par heure (ou aussitôt si le compte
+// avait été prévenu de sa suppression pour inactivité).
+func (q *Queries) TouchLastActive(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchLastActive, id)
+	return err
+}
+
 const touchLastLogin = `-- name: TouchLastLogin :exec
-UPDATE users SET last_login_at = now()
+UPDATE users SET last_login_at = now(), last_active_at = now(), inactivity_warned_at = NULL
 WHERE id = $1
 `
 
+// Une connexion compte comme activité et annule l'avertissement d'inactivité.
 func (q *Queries) TouchLastLogin(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, touchLastLogin, id)
 	return err
