@@ -32,7 +32,7 @@ WHERE id = @id AND encode(sha256(convert_to(token, 'UTF8')), 'hex') = @token_has
 DELETE FROM device_tokens WHERE id = ANY(@ids::uuid[]);
 
 -- name: ListDevicesForUsers :many
-SELECT id, user_id, token, session_id, language
+SELECT id, user_id, token, session_id, language, platform
 FROM device_tokens
 WHERE user_id = ANY(@user_ids::uuid[])
 ORDER BY user_id, id;

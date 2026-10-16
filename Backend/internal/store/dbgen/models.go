@@ -449,6 +449,7 @@ const (
 	NotificationTypeStockReminder   NotificationType = "stock_reminder"
 	NotificationTypeStationReported NotificationType = "station_reported"
 	NotificationTypeBackInStock     NotificationType = "back_in_stock"
+	NotificationTypeStationDecision NotificationType = "station_decision"
 )
 
 func (e *NotificationType) Scan(src interface{}) error {
@@ -490,7 +491,8 @@ func (e NotificationType) Valid() bool {
 	switch e {
 	case NotificationTypeStockReminder,
 		NotificationTypeStationReported,
-		NotificationTypeBackInStock:
+		NotificationTypeBackInStock,
+		NotificationTypeStationDecision:
 		return true
 	}
 	return false
@@ -501,6 +503,7 @@ func AllNotificationTypeValues() []NotificationType {
 		NotificationTypeStockReminder,
 		NotificationTypeStationReported,
 		NotificationTypeBackInStock,
+		NotificationTypeStationDecision,
 	}
 }
 

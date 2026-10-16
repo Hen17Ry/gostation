@@ -183,18 +183,19 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 }
 
 const listDevicesForUsers = `-- name: ListDevicesForUsers :many
-SELECT id, user_id, token, session_id, language
+SELECT id, user_id, token, session_id, language, platform
 FROM device_tokens
 WHERE user_id = ANY($1::uuid[])
 ORDER BY user_id, id
 `
 
 type ListDevicesForUsersRow struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"userId"`
-	Token     string    `json:"token"`
-	SessionID string    `json:"sessionId"`
-	Language  string    `json:"language"`
+	ID        uuid.UUID      `json:"id"`
+	UserID    uuid.UUID      `json:"userId"`
+	Token     string         `json:"token"`
+	SessionID string         `json:"sessionId"`
+	Language  string         `json:"language"`
+	Platform  DevicePlatform `json:"platform"`
 }
 
 func (q *Queries) ListDevicesForUsers(ctx context.Context, userIds []uuid.UUID) ([]ListDevicesForUsersRow, error) {
@@ -212,6 +213,7 @@ func (q *Queries) ListDevicesForUsers(ctx context.Context, userIds []uuid.UUID) 
 			&i.Token,
 			&i.SessionID,
 			&i.Language,
+			&i.Platform,
 		); err != nil {
 			return nil, err
 		}
