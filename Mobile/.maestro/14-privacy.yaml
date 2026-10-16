@@ -1,0 +1,73 @@
+# Mes données (10A) : copie des données préparée par le worker puis partagée (feuille de partage
+# du système), demande d'opposition et son suivi, puis suppression du compte (ce qui est supprimé
+# et conservé, mot de passe).
+appId: bj.gostation.app
+name: Mes données
+---
+- runFlow: common/start.yaml
+- runFlow: common/sign-up.yaml
+- tapOn:
+    id: tab-account
+- scrollUntilVisible:
+    element:
+      id: account-data
+- tapOn:
+    id: account-data
+- extendedWaitUntil:
+    visible: Télécharger mes données
+    timeout: 10000
+
+# Copie : préparation, puis partage ; la feuille du système est refermée sans rien choisir.
+- tapOn:
+    id: data-export-prepare
+- extendedWaitUntil:
+    visible:
+      id: data-export-share
+    timeout: 30000
+- assertVisible: Votre copie est prête.*
+- tapOn:
+    id: data-export-share
+- waitForAnimationToEnd:
+    timeout: 5000
+- back
+- extendedWaitUntil:
+    visible:
+      id: data-export-share
+    timeout: 10000
+
+# Demande d'opposition : accusé de réception, puis suivi dans « Mes demandes ».
+- tapOn:
+    id: data-request
+- tapOn:
+    id: data-request-type-opposition
+- tapOn:
+    id: data-request-submit
+- extendedWaitUntil:
+    visible: Demande envoyée.*
+    timeout: 10000
+- scrollUntilVisible:
+    element: Opposition
+- assertVisible: Reçue
+- assertVisible: Réponse au plus tard le.*
+
+# Suppression du compte depuis Mes données.
+- scrollUntilVisible:
+    element:
+      id: data-delete
+- tapOn:
+    id: data-delete
+- assertVisible: Supprimé tout de suite
+- assertVisible: Conservé pour une durée limitée, et pourquoi
+- scrollUntilVisible:
+    element:
+      id: delete-password
+- tapOn:
+    id: delete-password
+- inputText: Cotonou-Fidjrosse-2026
+- hideKeyboard
+- tapOn:
+    id: delete-submit
+- extendedWaitUntil:
+    visible:
+      id: account-sign-up
+    timeout: 15000

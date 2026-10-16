@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Captures de référence de chaque écran (docs/screenshots/), en clair puis en sombre, sur l'appareil
 # branché (téléphone de préférence). Contre la pile API isolée (comptes jetables, cf. e2e.sh).
-# PARTS : « main » (parcours principal, 01 à 26), « manager » (espace gérant, 50 à 70) ; les deux
-# par défaut.
+# PARTS : « main » (parcours principal, 01 à 26), « manager » (espace gérant, 50 à 70), « privacy »
+# (données personnelles, 80 à 85) ; tous par défaut.
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 mkdir -p docs/screenshots
@@ -116,7 +116,7 @@ capture() {
   rm -rf "$out"
   return "$status"
 }
-parts=" ${PARTS:-main manager} "
+parts=" ${PARTS:-main manager privacy} "
 for theme in ${THEMES:-light dark}; do
   "$ADB" shell cmd uimode night "$([[ $theme == dark ]] && echo yes || echo no)" > /dev/null
   sleep 2
@@ -129,6 +129,10 @@ for theme in ${THEMES:-light dark}; do
     echo "▶ captures de l'espace gérant ($theme)"
     capture .maestro/screenshots/manager.yaml "$theme" -e REPORTS_EMAIL="$reports_email" -e REPORTS_PASSWORD="$reports_password" ||
       { echo "✗ captures du gérant ($theme) incomplètes"; exit 1; }
+  fi
+  if [[ $parts == *" privacy "* ]]; then
+    echo "▶ captures des données personnelles ($theme)"
+    capture .maestro/screenshots/privacy.yaml "$theme" || { echo "✗ captures des données ($theme) incomplètes"; exit 1; }
   fi
 done
 echo "✔ $(find docs/screenshots -name '*.png' | wc -l) captures dans docs/screenshots/"

@@ -136,7 +136,7 @@ Jamais à chaque toucher.
 
 Dans [`src/components/ui/`](../src/components/ui) : `Text`, `Button` (primaire, secondaire,
 contour, fantôme, destructif ; 3 tailles ; `iconOnly` : carré, libellé lu par le lecteur d'écran), `IconButton` (posé sur la carte : `floating`),
-`PressableScale`, `Spinner`, `ChoiceTile` et `Chip` (choix radio), `TextField` (libellé visible, aide, erreur,
+`PressableScale`, `Spinner`, `ChoiceTile`, `Chip` et `RadioCard` (choix radio ; `RadioCard` : carte libellé + précision, ≥ 64 dp, dans une vue `radiogroup`), `TextField` (libellé visible, aide, erreur,
 afficher/masquer le mot de passe), `OtpInput` (6 cases, un seul champ natif : saisie automatique et
 collage), `Badge`, `Banner`, `Card`, `Section` (lignes sur une carte ; `bare` : intitulé seul au-dessus de cartes, filtres ou texte), `ListRow`, `SwitchRow`, `Skeleton`, `EmptyState` et
 ses illustrations, `Toast`, `Screen` (zones sûres, en-tête, pied collant, clavier ; sans pied, le
@@ -259,3 +259,26 @@ Captures 70 à 74 ([`screenshots/`](screenshots)).
 - **Notification système** : petite icône blanche monochrome (épingle et éclair), accent orange
   brand 600 ; rappel avec ses deux actions « Mettre à jour » et « Rien n'a changé » ; confirmation
   sur un canal silencieux, qui remplace le rappel dans le volet.
+
+## 13. Données personnelles (10A)
+
+- **Mes données** (Compte, et écran de statut d'un gérant non approuvé) : carte « Télécharger mes
+  données » (pastille `FileJson` sur `primary-subtle`, état en texte : préparation avec `Spinner` et
+  région annoncée, prête avec la date limite dans un `Banner` de succès, échec ou expiration avec
+  « Préparer une nouvelle copie » en contour), puis `Section` « Vos droits » (rectifier, faire une
+  demande), « Mes demandes » (cartes : type, `Badge` de statut avec texte, référence, échéance ou
+  réponse) et la ligne destructive « Supprimer mon compte ». Le fichier passe par le cache de l'app
+  le temps de la feuille de partage du système, puis il est supprimé.
+- **Faire une demande** : `RadioCard` par type (libellé et précision), conseil en `Banner`
+  d'information pour la suppression et l'accès (le chemin immédiat existe), précisions en champ
+  multiligne (obligatoires pour rectification et autre, annoncé dans l'aide).
+- **Supprimer mon compte** : `Banner` de danger (immédiat et définitif), puis trois cartes à puces
+  « Supprimé tout de suite », « Conservé pour une durée limitée, et pourquoi », et pour un gérant
+  « Vous gérez une station » ; mot de passe ; bouton destructif dans le pied.
+- **Politique mise à jour** : écran seul tant qu'elle n'est pas acceptée (pastille `ShieldCheck`,
+  titre `title2` centré, versions), lien « Lire la politique », bouton principal « Accepter et
+  continuer » (désactivé, avec un `Banner` d'avertissement, si l'app ne contient pas la version),
+  « Se déconnecter » en fantôme et « Je refuse : supprimer mon compte ».
+- **Textes légaux** : rendus depuis le Markdown (`LegalScreen`) : titres annoncés, listes à puces,
+  tableaux en cartes (lisibles à 360 dp), encadré « PROJET » en `Banner` d'avertissement, liens en
+  `brand-text` soulignés.

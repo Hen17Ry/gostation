@@ -1,10 +1,15 @@
 import { queryOptions } from '@tanstack/react-query'
 
+import { privacyPolicy } from '@/features/legal/content.generated'
 import type { LatLng } from '@/lib/geo'
 
 import { api, session, unwrap } from './client'
 import { meKeys } from './keys'
 import {
+  type DataRequestType,
+  dataExportSchema,
+  dataRequestListSchema,
+  dataRequestSchema,
   favoriteListSchema,
   favoriteSchema,
   notificationPageSchema,
@@ -16,8 +21,11 @@ import {
 } from './schemas'
 import type { components } from './schema'
 
-/** Version de la politique de confidentialité acceptée à l'inscription (texte final à l'étape 10). */
-export const PRIVACY_POLICY_VERSION = '1.0'
+/**
+ * Version de la politique de confidentialité livrée avec l'app (en-tête de
+ * docs/legal/politique-confidentialite.md) : celle qu'accepte l'inscription et la réacceptation.
+ */
+export const PRIVACY_POLICY_VERSION = privacyPolicy.meta.version ?? '1.0'
 
 // --- Session -----------------------------------------------------------------------------------
 
@@ -138,6 +146,31 @@ export const notificationSettingsQuery = queryOptions({
 
 export const updateNotificationSettings = (settings: NotificationSettings['items']) =>
   unwrap(api.PUT('/api/v1/me/notification-settings', { body: { settings } }), notificationSettingsSchema)
+
+/** Accepte la version courante de la politique (réacceptation après un changement). */
+export const acceptPrivacyPolicy = (version: string) =>
+  unwrap(api.POST('/api/v1/me/accept-privacy-policy', { body: { version } }), profileSchema)
+
+// --- Données personnelles (droits des personnes, étape 10A) -------------------------------------
+
+/** Dernière copie des données ; suivie toutes les 3 s pendant sa génération. */
+export const dataExportQuery = queryOptions({
+  queryKey: meKeys.dataExport(),
+  queryFn: ({ signal }) => unwrap(api.GET('/api/v1/me/data-export', { signal }), dataExportSchema),
+  refetchInterval: (q) => (q.state.data?.status === 'pending' ? 3_000 : false),
+})
+
+/** Demande une copie : une copie en cours ou encore disponible est réutilisée. */
+export const requestDataExport = () => unwrap(api.POST('/api/v1/me/data-export'), dataExportSchema)
+
+export const dataRequestsQuery = queryOptions({
+  queryKey: meKeys.dataRequests(),
+  queryFn: ({ signal }) => unwrap(api.GET('/api/v1/me/data-requests', { signal }), dataRequestListSchema),
+  select: (d) => d.items,
+})
+
+export const createDataRequest = (type: Exclude<DataRequestType, 'export'>, details?: string) =>
+  unwrap(api.POST('/api/v1/me/data-requests', { body: { type, details } }), dataRequestSchema)
 
 // --- Signalements ------------------------------------------------------------------------------
 

@@ -3,6 +3,7 @@ import { router } from 'expo-router'
 import {
   BellRing,
   FileText,
+  FolderLock,
   KeyRound,
   LogOut,
   MailWarning,
@@ -143,6 +144,14 @@ export default function Account() {
               icon={KeyRound}
               title={t.account.password}
               onPress={() => router.push('/profile/password')}
+            />
+            <Divider className="ml-14" />
+            <ListRow
+              testID="account-data"
+              icon={FolderLock}
+              title={t.account.myData}
+              subtitle={t.account.myDataHint}
+              onPress={() => router.push('/profile/data')}
             />
             {me.emailVerified && (
               <>

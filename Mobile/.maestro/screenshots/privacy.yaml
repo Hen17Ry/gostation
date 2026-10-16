@@ -1,0 +1,78 @@
+# Captures des données personnelles (docs/screenshots/80 à 85, étape 10A), lancées par
+# scripts/screenshots.sh pour chaque thème (THEME), contre la pile E2E (comptes jetables, worker).
+# Jamais de capture de la feuille de partage du système (elle montre les applications du téléphone).
+appId: bj.gostation.app
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/sign-up.yaml
+- tapOn:
+    id: tab-account
+- scrollUntilVisible:
+    element:
+      id: account-data
+- tapOn:
+    id: account-data
+- extendedWaitUntil:
+    visible:
+      id: data-export-prepare
+    timeout: 10000
+- takeScreenshot: 80-my-data-${THEME}
+- tapOn:
+    id: data-export-prepare
+- extendedWaitUntil:
+    visible:
+      id: data-export-share
+    timeout: 30000
+- takeScreenshot: 81-my-data-ready-${THEME}
+- tapOn:
+    id: data-request
+- tapOn:
+    id: data-request-type-rectification
+- tapOn:
+    id: data-request-details
+- inputText: Mon nom est Kossou, avec deux s.
+- hideKeyboard
+- takeScreenshot: 82-data-request-${THEME}
+- tapOn:
+    id: data-request-submit
+- extendedWaitUntil:
+    visible: Demande envoyée.*
+    timeout: 10000
+- scrollUntilVisible:
+    element: Rectification
+- takeScreenshot: 83-my-requests-${THEME}
+- scrollUntilVisible:
+    element:
+      id: data-delete
+- tapOn:
+    id: data-delete
+- takeScreenshot: 84-delete-account-${THEME}
+- back
+- back
+- scrollUntilVisible:
+    element:
+      id: account-privacy
+- tapOn:
+    id: account-privacy
+- waitForAnimationToEnd
+- takeScreenshot: 85-privacy-policy-${THEME}
+- back
+# Le compte jetable est supprimé : rien ne reste sur la pile E2E.
+- scrollUntilVisible:
+    element:
+      id: account-delete
+- tapOn:
+    id: account-delete
+- scrollUntilVisible:
+    element:
+      id: delete-password
+- tapOn:
+    id: delete-password
+- inputText: Cotonou-Fidjrosse-2026
+- hideKeyboard
+- tapOn:
+    id: delete-submit
+- extendedWaitUntil:
+    visible:
+      id: account-sign-up
+    timeout: 15000

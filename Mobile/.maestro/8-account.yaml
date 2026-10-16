@@ -77,6 +77,9 @@ name: Gestion du compte
       id: account-delete
 - tapOn:
     id: account-delete
+- scrollUntilVisible:
+    element:
+      id: delete-password
 - tapOn:
     id: delete-password
 - inputText: Porto-Novo-Ouidah-2028

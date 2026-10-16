@@ -5,6 +5,7 @@ import {
   Ban,
   FilePen,
   FileUp,
+  FolderLock,
   Hourglass,
   LogOut,
   Mail,
@@ -185,6 +186,13 @@ export function StatusScreen() {
 
         <Card flush className="overflow-hidden">
           <ListRow icon={UserRound} title={t.account.editProfile} onPress={() => router.push('/profile/edit')} />
+          <ListRow
+            testID="status-data"
+            icon={FolderLock}
+            title={t.account.myData}
+            subtitle={t.account.myDataHint}
+            onPress={() => router.push('/profile/data')}
+          />
           <ListRow
             icon={LogOut}
             title={t.account.signOut}

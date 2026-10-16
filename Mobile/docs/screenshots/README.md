@@ -14,6 +14,7 @@ d'état de démonstration. Parcours principal (01 à 26) : Galaxy S10 (Android 1
 | 46      | Vitrine `/design` (dev build seulement)                                            | à la main : Compte → Design system           |
 | 50 à 69 | Espace gérant (Galaxy S10) : inscription, statuts, configuration, stocks, station  | `PARTS=manager npm run screenshots`          |
 | 70 à 74 | Notifications (9C) : explication des rappels, autorisation refusée, push           | voir « Notifications » ci-dessous            |
+| 80 à 85 | Données personnelles (10A) : Mes données, copie prête, demande, suivi, suppression, politique | `PARTS=privacy npm run screenshots` |
 
 ## États (27 à 45)
 

@@ -139,6 +139,33 @@ export const profileSchema = z.object({
 }) satisfies z.ZodMiniType<Schemas['Profile']>
 export type Profile = z.infer<typeof profileSchema>
 
+/** Copie des données personnelles (« Télécharger mes données »), lien signé de 15 min si prête. */
+export const dataExportSchema = z.object({
+  status: z.enum(['none', 'pending', 'ready', 'failed', 'expired']),
+  createdAt: z.nullable(isoDate),
+  expiresAt: z.nullable(isoDate),
+  sizeBytes: z.nullable(z.int()),
+  downloadUrl: nullableString,
+}) satisfies z.ZodMiniType<Schemas['DataExport']>
+export type DataExport = z.infer<typeof dataExportSchema>
+
+export const dataRequestTypes = ['access', 'export', 'rectification', 'deletion', 'opposition', 'other'] as const
+export type DataRequestType = (typeof dataRequestTypes)[number]
+
+export const dataRequestSchema = z.object({
+  id: z.string(),
+  reference: z.string(),
+  type: z.enum(dataRequestTypes),
+  status: z.enum(['pending', 'in_progress', 'completed', 'rejected']),
+  source: z.enum(['app', 'email']),
+  createdAt: isoDate,
+  dueAt: isoDate,
+  completedAt: z.nullable(isoDate),
+  response: nullableString,
+}) satisfies z.ZodMiniType<Schemas['DataRequest']>
+export type DataRequest = z.infer<typeof dataRequestSchema>
+export const dataRequestListSchema = z.object({ items: z.array(dataRequestSchema) })
+
 export const tokenPairSchema = z.object({
   accessToken: z.string().check(z.minLength(1)),
   tokenType: z.literal('Bearer'),
