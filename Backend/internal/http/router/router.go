@@ -79,9 +79,11 @@ func New(cfg Config, d Deps) http.Handler {
 	h := func(fn handler.Func) http.HandlerFunc { return handler.Handle(rs, fn) }
 	r := chi.NewRouter()
 
-	// Ordre : l'identifiant et l'IP d'abord, puis le journal (qui voit le statut final),
-	// puis recover (dont le 500 est journalisé).
+	// Ordre : les en-têtes de sécurité (présents sur toute réponse, 404 et 500 compris),
+	// l'identifiant et l'IP, puis le journal (qui voit le statut final), puis recover (dont le 500
+	// est journalisé).
 	r.Use(
+		middleware.SecurityHeaders,
 		middleware.RequestID,
 		middleware.RealIP(cfg.TrustedProxies),
 		middleware.AccessLog(d.Log),
