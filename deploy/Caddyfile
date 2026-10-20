@@ -34,6 +34,7 @@ admin.{$DOMAIN} {
 		X-Frame-Options "DENY"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "require-corp"
 		Cross-Origin-Resource-Policy "same-origin"
 		-Server
 	}

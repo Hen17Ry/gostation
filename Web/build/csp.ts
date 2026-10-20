@@ -25,6 +25,9 @@ export const ADMIN_HEADERS: Record<string, string> = {
   'X-Frame-Options': 'DENY',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
   'Cross-Origin-Opener-Policy': 'same-origin',
+  // Isolation inter-origines complète : tout sous-ressource d'une autre origine doit être servie
+  // en CORS (tuiles OpenFreeMap) ou l'autoriser explicitement.
+  'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'same-origin',
 }
 
