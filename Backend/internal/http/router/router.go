@@ -116,7 +116,7 @@ func New(cfg Config, d Deps) http.Handler {
 
 	products := handler.NewProducts(rs, d.Products)
 	registerRL := middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
-		Name: "register", Limit: registerLimit, Window: registerWindow, Key: d.ClientKeys.ByClientIP,
+		Name: "register", Limit: registerLimit, Window: registerWindow, Key: d.ClientKeys.ByClientIP, FailClosed: true,
 	}, d.Log, rs)
 
 	r.Route("/api/v1", func(api chi.Router) {

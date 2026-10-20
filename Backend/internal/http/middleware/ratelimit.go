@@ -32,11 +32,14 @@ type RateLimitPolicy struct {
 	Window time.Duration
 	// Key renvoie l'identifiant à limiter ; "" exempte la requête.
 	Key func(*http.Request) string
+	// FailClosed refuse la requête (503) si le limiteur est indisponible : pour les routes qui
+	// ne peuvent pas aboutir sans Redis et dont l'abus coûte cher (inscription).
+	FailClosed bool
 }
 
 // RateLimit applique la politique et pose les en-têtes RateLimit-Limit/Remaining/Reset
 // (et Retry-After sur 429). Si Redis est indisponible, la requête passe (fail open) avec un
-// avertissement : la disponibilité du service prime sur le quota.
+// avertissement : la disponibilité du service prime sur le quota (sauf FailClosed).
 func RateLimit(l Limiter, p RateLimitPolicy, log *slog.Logger, rs *respond.Responder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +50,12 @@ func RateLimit(l Limiter, p RateLimitPolicy, log *slog.Logger, rs *respond.Respo
 			}
 			res, err := l.Allow(r.Context(), p.Name+":"+key, p.Limit, p.Window)
 			if err != nil {
+				if p.FailClosed {
+					log.WarnContext(r.Context(), "rate limiter unavailable, request refused",
+						slog.String("policy", p.Name), slog.Any("err", err))
+					rs.Error(w, r, apperr.Unavailable("Service temporarily unavailable, retry later.").Wrap(err))
+					return
+				}
 				log.WarnContext(r.Context(), "rate limiter unavailable, request allowed",
 					slog.String("policy", p.Name), slog.Any("err", err))
 				next.ServeHTTP(w, r)

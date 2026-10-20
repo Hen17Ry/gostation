@@ -233,6 +233,16 @@ func TestRateLimit(t *testing.T) {
 			t.Fatalf("got %d, want 200 (fail open)", rec.Code)
 		}
 	})
+	t.Run("fail-closed policy refuses when the limiter is down", func(t *testing.T) {
+		l := &fakeLimiter{err: errors.New("redis down")}
+		closed := policy
+		closed.FailClosed = true
+		rec := httptest.NewRecorder()
+		middleware.RateLimit(l, closed, discardLogger(), rs)(ok).ServeHTTP(rec, withIP())
+		if rec.Code != http.StatusServiceUnavailable || problemCode(t, rec) != apperr.CodeUnavailable {
+			t.Fatalf("got %d %s, want 503", rec.Code, rec.Body.String())
+		}
+	})
 	t.Run("request without client IP is not limited", func(t *testing.T) {
 		l := &fakeLimiter{}
 		rec := httptest.NewRecorder()

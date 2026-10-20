@@ -74,15 +74,18 @@ func clientMeta(r *http.Request, client string) auth.ClientMeta {
 	return auth.ClientMeta{Client: client, UserAgent: r.UserAgent()}
 }
 
-// limit applique un quota ; refus → 429 avec Retry-After. Redis indisponible → la requête passe.
+// limit applique un quota ; refus → 429 avec Retry-After. Redis indisponible → 503 : ces routes
+// (connexion, codes, emails) échouent fermées, sinon une panne de Redis ouvrirait l'essai de mots
+// de passe sans limite, la vérification en base continuant de répondre (ASVS 2.2.1). Elles ne
+// peuvent de toute façon pas aboutir sans Redis (sessions, codes).
 func (h *Auth) limit(w http.ResponseWriter, r *http.Request, name, key string, n int, window time.Duration) error {
 	if key == "" {
 		return nil
 	}
 	res, err := h.limiter.Allow(r.Context(), name+":"+key, n, window)
 	if err != nil {
-		h.log.WarnContext(r.Context(), "auth rate limiter unavailable", slog.String("policy", name), slog.Any("err", err))
-		return nil
+		h.log.WarnContext(r.Context(), "auth rate limiter unavailable, request refused", slog.String("policy", name), slog.Any("err", err))
+		return apperr.Unavailable("Service temporarily unavailable, retry later.").Wrap(err)
 	}
 	if !res.Allowed {
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(res.RetryAfter.Seconds()+0.999))))

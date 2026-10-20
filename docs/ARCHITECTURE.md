@@ -1115,7 +1115,7 @@ sequenceDiagram
   W->>A: POST /auth/admin/2fa { mfaToken, code | recoveryCode }
   A->>R: anti-rejeu : pas TOTP > dernier pas accepté
   A->>P: (mise en place) secret chiffré + 10 codes de secours hachés
-  A->>R: session admin (mfa = true, 12 h glissantes)
+  A->>R: session admin (mfa = true, 12 h au plus depuis la connexion)
   A-->>W: 200 { user, csrfToken, recoveryCodes? } + Set-Cookie __Host-gs_at, __Secure-gs_rt, gs_csrf
   W->>A: POST /me/... (cookie + X-CSRF-Token)
   A->>R: session encore active ?
@@ -1133,7 +1133,7 @@ sequenceDiagram
   - `auth:rt:{sha256(token)}` → sid, puis `used:{sid}` après rotation ;
   - `auth:user:{uid}:sess` (SET des sids).
 
-  Le token est opaque (256 bits, préfixe `gsr_`), stocké uniquement haché, renouvelé à chaque usage par un script Lua atomique. **Présenter un token déjà consommé révoque toute la session.** Durée : 30 j glissants (utilisateurs), 12 h (admins).
+  Le token est opaque (256 bits, préfixe `gsr_`), stocké uniquement haché, renouvelé à chaque usage par un script Lua atomique. **Présenter un token déjà consommé révoque toute la session.** Durée : 30 j glissants (utilisateurs et gérants) ; admins : 12 h au plus depuis la connexion, même en activité (`deadline_ms`, ASVS 3.3.2).
   Chaque requête authentifiée vérifie que la session existe encore : logout, changement de mot de passe et révocation prennent effet immédiatement, sans attendre l'expiration de l'access token. Les clients doivent sérialiser leurs appels à `/auth/refresh`.
 - **Stockage côté client** :
   - mobile : access et refresh tokens dans `expo-secure-store`, refresh transmis dans le corps des requêtes ;
@@ -1165,7 +1165,7 @@ sequenceDiagram
   | Signalements | 1 par station et par motif toutes les 2 h, 10 par jour et par utilisateur : comptés en base sur les signalements acceptés, sous verrou consultatif |
   | Favoris | 20 par compte |
 
-  Les IP ne sont jamais écrites en clair dans Redis : empreinte HMAC-SHA256 sous `RATE_LIMIT_KEY` (comme celles du compte et de l'installation), clé distincte d'`APP_SECRET`, remplaçable seule (les compteurs repartent de zéro). Redis indisponible → la requête passe (fail open), mais l'authentification, elle, échoue (sessions indisponibles).
+  Les IP ne sont jamais écrites en clair dans Redis : empreinte HMAC-SHA256 sous `RATE_LIMIT_KEY` (comme celles du compte et de l'installation), clé distincte d'`APP_SECRET`, remplaçable seule (les compteurs repartent de zéro). Redis indisponible → la requête passe (fail open) pour le quota global et la recherche ; connexion, inscription, codes et emails répondent 503 `service.unavailable` (fail closed : sans quota, la vérification du mot de passe en base resterait un oracle illimité ; ces routes ne peuvent de toute façon pas aboutir sans Redis).
 - **Justificatifs IFU** :
   - type contrôlé par les magic bytes : PDF, JPEG ou PNG, 5 Mo max, lecture en flux (jamais de fichier temporaire en clair) ;
   - images débarrassées de leurs métadonnées sans recompression : segments EXIF, XMP, IPTC et COM pour le JPEG, chunks `eXIf`, `tEXt`, `zTXt`, `iTXt` et `tIME` pour le PNG ;
