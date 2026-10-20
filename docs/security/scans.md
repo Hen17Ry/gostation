@@ -7,6 +7,7 @@
 | Outil | Périmètre | Résultat | Action |
 |---|---|---|---|
 | govulncheck v1.9.0 | `Backend/` (`./...`, avec et sans le tag `integration`) | 0 vulnérabilité atteinte par le code | `github.com/moby/sys/user` 0.4.0 → 0.4.1 (GO-2026-6686, dépendance des tests via testcontainers) ; GO-2026-5932 non corrigible (voir plus bas) |
+| trivy v0.76.0 (`fs`) | Lockfiles (`go.sum`, `package-lock.json`), failles corrigées en amont | 1 élevée : `github.com/moby/go-archive` 0.2.0 (CVE-2026-17106, tests seulement, non appelée donc absente de govulncheck) | 0.2.0 → 0.3.0 ; la CI échoue désormais sur toute faille haute corrigée en amont |
 | gosec (dernière version) | `Backend/`, hors code généré | 8 alertes, toutes des faux positifs déjà justifiés par un `//nolint:gosec` commenté | Aucune (détail plus bas) ; golangci-lint (gosec compris) : 0 problème |
 | npm audit | `Web/` | 0 | — |
 | npm audit | `Mobile/` | 77 (56 élevées, 21 modérées), issues de 6 paquets d'outillage | Aucune correction publiée pour les 2 élevées ; aucune ne part dans l'APK (détail plus bas) |
