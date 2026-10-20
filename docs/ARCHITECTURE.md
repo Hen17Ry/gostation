@@ -1165,7 +1165,7 @@ sequenceDiagram
   | Signalements | 1 par station et par motif toutes les 2 h, 10 par jour et par utilisateur : comptés en base sur les signalements acceptés, sous verrou consultatif |
   | Favoris | 20 par compte |
 
-  Les IP ne sont jamais écrites en clair dans Redis : empreinte HMAC-SHA256 sous `RATE_LIMIT_KEY` (comme celles du compte et de l'installation), clé distincte d'`APP_SECRET`, remplaçable seule (les compteurs repartent de zéro). Redis indisponible → la requête passe (fail open) pour le quota global et la recherche ; connexion, inscription, codes et emails répondent 503 `service.unavailable` (fail closed : sans quota, la vérification du mot de passe en base resterait un oracle illimité ; ces routes ne peuvent de toute façon pas aboutir sans Redis).
+  Une adresse IPv6 compte pour son /64 (un abonné peut changer d'adresse dans son préfixe). Les IP ne sont jamais écrites en clair dans Redis : empreinte HMAC-SHA256 sous `RATE_LIMIT_KEY` (comme celles du compte et de l'installation), clé distincte d'`APP_SECRET`, remplaçable seule (les compteurs repartent de zéro). Redis indisponible → la requête passe (fail open) pour le quota global et la recherche ; connexion, inscription, codes et emails répondent 503 `service.unavailable` (fail closed : sans quota, la vérification du mot de passe en base resterait un oracle illimité ; ces routes ne peuvent de toute façon pas aboutir sans Redis).
 - **Justificatifs IFU** :
   - type contrôlé par les magic bytes : PDF, JPEG ou PNG, 5 Mo max, lecture en flux (jamais de fichier temporaire en clair) ;
   - images débarrassées de leurs métadonnées sans recompression : segments EXIF, XMP, IPTC et COM pour le JPEG, chunks `eXIf`, `tEXt`, `zTXt`, `iTXt` et `tIME` pour le PNG ;

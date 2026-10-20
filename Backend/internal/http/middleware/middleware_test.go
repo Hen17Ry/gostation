@@ -339,3 +339,25 @@ func TestClientKeysAreKeyed(t *testing.T) {
 		t.Error("the fingerprint must not be an unkeyed SHA-256 of the IP")
 	}
 }
+
+// IPv6 : un même /64 partage le quota (un abonné peut changer d'adresse dans son préfixe) ; une
+// adresse IPv4 et sa forme IPv6 mappée aussi.
+func TestClientIPKeyGroupsIPv6By64(t *testing.T) {
+	keys := middleware.NewClientKeys([]byte("ipv6-test-key"))
+	key := func(addr string) string {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		return keys.ByClientIP(r.WithContext(httpctx.WithClientIP(r.Context(), netip.MustParseAddr(addr))))
+	}
+	if key("2001:db8:1:2::1") != key("2001:db8:1:2:ffff:ffff:ffff:fffe") {
+		t.Error("two addresses of the same /64 must share a quota")
+	}
+	if key("2001:db8:1:2::1") == key("2001:db8:1:3::1") {
+		t.Error("two /64 must not share a quota")
+	}
+	if key("203.0.113.7") != key("::ffff:203.0.113.7") {
+		t.Error("an IPv4-mapped address must count as its IPv4 address")
+	}
+	if key("203.0.113.7") == key("203.0.113.8") {
+		t.Error("IPv4 addresses are limited one by one")
+	}
+}

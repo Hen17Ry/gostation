@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -89,11 +90,16 @@ func NewClientKeys(key []byte) *ClientKeys {
 	return &ClientKeys{key: key}
 }
 
-// ByClientIP identifie le client par une empreinte de son IP.
+// ByClientIP identifie le client par une empreinte de son IP. En IPv6, un abonné reçoit en général
+// un /64 entier et peut changer d'adresse à chaque requête : le quota porte donc sur le /64.
 func (k *ClientKeys) ByClientIP(r *http.Request) string {
 	ip, ok := httpctx.ClientIP(r.Context())
 	if !ok {
 		return ""
+	}
+	ip = ip.Unmap()
+	if ip.Is6() {
+		ip = netip.PrefixFrom(ip, 64).Masked().Addr()
 	}
 	return k.fingerprint(ip.AsSlice())
 }
