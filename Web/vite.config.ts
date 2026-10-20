@@ -7,6 +7,7 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
 
+import { securityHeaders } from './build/csp.ts'
 import { routePreload } from './build/route-preload.ts'
 
 export default defineConfig(({ mode }) => {
@@ -26,6 +27,8 @@ export default defineConfig(({ mode }) => {
         { '/login': /src\/routes\/login\.tsx\?tsr-split/, '/': /src\/routes\/_app\/index\.tsx\?tsr-split/ },
         /geist-latin-wght-normal-[\w-]+\.woff2$/,
       ),
+      // Après routePreload : la CSP porte l'empreinte de son script en ligne.
+      securityHeaders(env.VITE_API_BASE_URL),
     ],
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
@@ -41,7 +44,7 @@ export default defineConfig(({ mode }) => {
     build: { target: 'es2022', sourcemap: false },
     test: {
       environment: 'jsdom',
-      include: ['src/**/*.test.{ts,tsx}'],
+      include: ['src/**/*.test.{ts,tsx}', 'build/**/*.test.ts'],
       setupFiles: ['src/test/setup.ts'],
       css: { include: [/globals\.css/] },
       restoreMocks: true,

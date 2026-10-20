@@ -1,0 +1,49 @@
+# GoStation — reverse proxy de production (docker-compose.prod.yml, docs/DEPLOY.md).
+# TLS automatique (Let's Encrypt) pour chaque site ; DOMAIN et ACME_EMAIL viennent de
+# .env.production. Aucun journal d'accès (pas de directive log) : ni IP ni query string chez le
+# proxy ; le journal d'accès de l'API masque déjà les paramètres (règles 2 et 10). Les en-têtes de l'admin doivent rester identiques à ADMIN_HEADERS
+# (Web/build/csp.ts) : un test les compare.
+{
+	email {$ACME_EMAIL}
+	# Pas d'API d'administration de Caddy : la configuration ne change qu'au redéploiement.
+	admin off
+}
+
+# API : l'API pose elle-même ses en-têtes de sécurité (middleware.SecurityHeaders). Caddy remplace
+# tout X-Forwarded-For venu du client par l'IP de connexion ; l'API ne le lit que depuis le réseau
+# du proxy (HTTP_TRUSTED_PROXIES).
+api.{$DOMAIN} {
+	request_body {
+		max_size 6MB
+	}
+	# Pas de sonde active : /readyz échoue quand OSRM est en panne, alors que l'API se replie
+	# sur le vol d'oiseau. Le healthcheck Docker redémarre l'API si besoin.
+	reverse_proxy api:8080
+	header -Server
+}
+
+# Admin web : build statique de Web/ (dist/), application monopage.
+admin.{$DOMAIN} {
+	root * /srv/admin
+	encode zstd gzip
+	header {
+		Content-Security-Policy "{file./srv/admin/csp.txt}"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		-Server
+	}
+	# Fichiers du build nommés par empreinte : cache d'un an ; le reste (index.html) revalidé.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@spa not path /assets/*
+	header @spa Cache-Control "no-cache"
+	try_files {path} /index.html
+	file_server {
+		hide csp.txt
+	}
+}
