@@ -1,0 +1,4 @@
+# Faux positifs gitleaks (empreintes : commit:fichier:règle:ligne). Revoir chaque ajout.
+# Mots de passe de comptes jetables créés par les tests d'intégration (testcontainers) : jamais un vrai secret.
+222131b932645d8425d831a4980b8afd2891eb95:Backend/internal/app/user_integration_test.go:generic-api-key:208
+222131b932645d8425d831a4980b8afd2891eb95:Backend/internal/app/user_integration_test.go:generic-api-key:211

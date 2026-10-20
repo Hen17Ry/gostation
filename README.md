@@ -137,7 +137,7 @@ Exposés uniquement sur `127.0.0.1` ; ports modifiables dans `.env`.
 | API (profil `api`) | `gostation-api` (build `Backend/Dockerfile`) | 8080 | `make api-up`, puis `curl localhost:8080/readyz` |
 | Worker (profil `api`) | `gostation-api`, entrypoint `/app/worker` | — | `make worker-up` ; une seule instance |
 | asynqmon (profil `dev`) | `hibiken/asynqmon:0.7.2` | 8090 | <http://127.0.0.1:8090> |
-| Mailpit (profil `dev`) | `axllent/mailpit:v1.31.4` | 1025 (SMTP), 8025 (web) | <http://127.0.0.1:8025> |
+| Mailpit (profil `dev`) | `axllent/mailpit:v1.31.6` | 1025 (SMTP), 8025 (web) | <http://127.0.0.1:8025> |
 
 ## Commandes
 

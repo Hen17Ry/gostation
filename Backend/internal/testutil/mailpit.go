@@ -18,7 +18,7 @@ import (
 )
 
 // DefaultMailpitImage est aligné sur .env.example (MAILPIT_IMAGE).
-const DefaultMailpitImage = "axllent/mailpit:v1.31.4"
+const DefaultMailpitImage = "axllent/mailpit:v1.31.6"
 
 // Mailpit est un serveur SMTP de test dont l'API permet de lire les emails reçus.
 type Mailpit struct {

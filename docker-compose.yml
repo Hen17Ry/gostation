@@ -192,7 +192,7 @@ services:
 
   # Serveur SMTP de dev (profil « dev ») : capture tous les emails, interface web sur :8025.
   mailpit:
-    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.4}
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.6}
     profiles: [dev]
     restart: unless-stopped
     environment:
