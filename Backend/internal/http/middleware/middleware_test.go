@@ -269,7 +269,16 @@ func TestAccessLogMasksCoordinates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
 			var logs bytes.Buffer
-			log := slog.New(slog.NewJSONHandler(&logs, nil))
+			// Sans l'heure ni la durée : leurs chiffres contiennent parfois une valeur interdite
+			// (« 6.5 » dans « 22:03:26.528… »), ce qui faisait échouer le test au hasard.
+			log := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{
+				ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+					if a.Key == slog.TimeKey || a.Key == "duration_ms" {
+						return slog.Attr{}
+					}
+					return a
+				},
+			}))
 			h := middleware.AccessLog(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusTeapot)
 			}))
