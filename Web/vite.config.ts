@@ -44,6 +44,10 @@ export default defineConfig(({ mode }) => {
     build: { target: 'es2022', sourcemap: false },
     test: {
       environment: 'jsdom',
+      // La moitié des cœurs : Go, Web et Mobile tournent souvent ensemble (et la CI a 2 vCPU).
+      // Avec un worker par cœur chacun, la machine était trois fois surchargée et des tests
+      // d'interface de moins de 2 s dépassaient leurs 5 s.
+      maxWorkers: '50%',
       include: ['src/**/*.test.{ts,tsx}', 'build/**/*.test.ts'],
       setupFiles: ['src/test/setup.ts'],
       css: { include: [/globals\.css/] },
