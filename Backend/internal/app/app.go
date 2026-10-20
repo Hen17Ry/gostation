@@ -297,7 +297,8 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog
 		"osrm":     svc.OSRM.Ping,
 	})
 	cookies := handler.Cookies{Secure: cfg.Auth.CookieSecure}
-	authHandler := handler.NewAuth(rs, svc.Auth, svc.Limiter, cookies, svc.CSRFKey, svc.EmailKey, log)
+	clientKeys := middleware.NewClientKeys(cfg.RateLimit.Key)
+	authHandler := handler.NewAuth(rs, svc.Auth, svc.Limiter, clientKeys, cookies, svc.CSRFKey, svc.EmailKey, log)
 
 	h := router.New(router.Config{
 		RequestTimeout:     cfg.HTTP.RequestTimeout,
@@ -315,6 +316,7 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog
 		Health:        health,
 		Products:      svc.Store,
 		Limiter:       svc.Limiter,
+		ClientKeys:    clientKeys,
 		Authenticator: middleware.NewAuthenticator(svc.Tokens, svc.Sessions, svc.CSRFKey, cookies.Access(), rs),
 		Auth:          authHandler,
 		Me:            handler.NewMe(rs, svc.Auth, authHandler, svc.Privacy),

@@ -48,13 +48,14 @@ func TestRoutesMatchOpenAPISpec(t *testing.T) {
 	// Routeur complet : les handlers sont construits sans services (seule la table de routage compte).
 	log := slog.New(slog.DiscardHandler)
 	rs := respond.New(log)
-	authHandler := handler.NewAuth(rs, nil, allowAll{}, handler.Cookies{Secure: true}, nil, nil, log)
+	keys := middleware.NewClientKeys([]byte("openapi-test-key"))
+	authHandler := handler.NewAuth(rs, nil, allowAll{}, keys, handler.Cookies{Secure: true}, nil, nil, log)
 	h := router.New(router.Config{
 		RequestTimeout: time.Second, MaxBodyBytes: 1 << 10, DocumentBodyBytes: 1 << 10,
 		IPRateLimit: 1, IPRateWindow: time.Minute,
 	}, router.Deps{
 		Log: log, Responder: rs, Health: handler.NewHealth(rs, log, time.Second, nil), Products: noProducts{},
-		Limiter: allowAll{}, Authenticator: middleware.NewAuthenticator(nil, nil, nil, "gs_at", rs),
+		Limiter: allowAll{}, ClientKeys: keys, Authenticator: middleware.NewAuthenticator(nil, nil, nil, "gs_at", rs),
 		Auth: authHandler, Me: handler.NewMe(rs, nil, authHandler, nil), Stations: handler.NewStations(rs, nil),
 		Search: handler.NewSearch(rs, nil), Notifications: handler.NewNotifications(rs, nil),
 		Favorites: handler.NewFavorites(rs, nil), Reports: handler.NewReports(rs, nil), Reminders: handler.NewReminders(rs, nil),

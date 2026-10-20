@@ -1165,7 +1165,7 @@ sequenceDiagram
   | Signalements | 1 par station et par motif toutes les 2 h, 10 par jour et par utilisateur : comptés en base sur les signalements acceptés, sous verrou consultatif |
   | Favoris | 20 par compte |
 
-  Les IP ne sont jamais écrites en clair dans Redis (empreinte SHA-256). Redis indisponible → la requête passe (fail open), mais l'authentification, elle, échoue (sessions indisponibles).
+  Les IP ne sont jamais écrites en clair dans Redis : empreinte HMAC-SHA256 sous `RATE_LIMIT_KEY` (comme celles du compte et de l'installation), clé distincte d'`APP_SECRET`, remplaçable seule (les compteurs repartent de zéro). Redis indisponible → la requête passe (fail open), mais l'authentification, elle, échoue (sessions indisponibles).
 - **Justificatifs IFU** :
   - type contrôlé par les magic bytes : PDF, JPEG ou PNG, 5 Mo max, lecture en flux (jamais de fichier temporaire en clair) ;
   - images débarrassées de leurs métadonnées sans recompression : segments EXIF, XMP, IPTC et COM pour le JPEG, chunks `eXIf`, `tEXt`, `zTXt`, `iTXt` et `tIME` pour le PNG ;

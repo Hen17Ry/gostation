@@ -3,6 +3,8 @@ package middleware_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -197,7 +199,8 @@ func (f *fakeLimiter) Allow(_ context.Context, key string, _ int, _ time.Duratio
 func TestRateLimit(t *testing.T) {
 	rs := respond.New(discardLogger())
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	policy := middleware.RateLimitPolicy{Name: "ip", Limit: 10, Window: time.Minute, Key: middleware.ByClientIP}
+	keys := middleware.NewClientKeys([]byte("test-rate-limit-key-of-32-bytes!"))
+	policy := middleware.RateLimitPolicy{Name: "ip", Limit: 10, Window: time.Minute, Key: keys.ByClientIP}
 	withIP := func() *http.Request {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		return req.WithContext(httpctx.WithClientIP(req.Context(), netip.MustParseAddr("203.0.113.9")))
@@ -290,16 +293,39 @@ func TestByInstallOrUser(t *testing.T) {
 	installA, installB := "7f9c1a52-3e0b-4a8e-9d55-0d6f0a1b2c3d", "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 	user := &httpctx.Principal{UserID: uuid.MustParse("01920000-0000-7000-8000-000000000001"), Role: "user"}
 
-	a, b := middleware.ByInstallOrUser(req(installA, nil)), middleware.ByInstallOrUser(req(installB, nil))
+	keys := middleware.NewClientKeys([]byte("test-rate-limit-key-of-32-bytes!"))
+	a, b := keys.ByInstallOrUser(req(installA, nil)), keys.ByInstallOrUser(req(installB, nil))
 	if a == b || !strings.HasPrefix(a, "i:") || strings.Contains(a, installA) {
 		t.Errorf("install keys %q %q", a, b)
 	}
-	if u := middleware.ByInstallOrUser(req(installA, user)); !strings.HasPrefix(u, "u:") || strings.Contains(u, user.UserID.String()) {
+	if u := keys.ByInstallOrUser(req(installA, user)); !strings.HasPrefix(u, "u:") || strings.Contains(u, user.UserID.String()) {
 		t.Errorf("a signed-in user is limited by account, got %q", u)
 	}
 	for _, bad := range []string{"", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
-		if k := middleware.ByInstallOrUser(req(bad, nil)); !strings.HasPrefix(k, "ip:") || strings.Contains(k, "203.0.113.7") {
+		if k := keys.ByInstallOrUser(req(bad, nil)); !strings.HasPrefix(k, "ip:") || strings.Contains(k, "203.0.113.7") {
 			t.Errorf("install %q: key %q, want the IP fallback", bad, k)
 		}
+	}
+}
+
+// E1 : l'empreinte d'une IP dépend de la clé secrète. Sans elle, on ne la retrouve pas en
+// hachant l'espace IPv4 ; une nouvelle clé (rotation) donne d'autres empreintes.
+func TestClientKeysAreKeyed(t *testing.T) {
+	ip := netip.MustParseAddr("203.0.113.7")
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(httpctx.WithClientIP(r.Context(), ip))
+
+	k1 := middleware.NewClientKeys([]byte("first-rate-limit-key-of-32-bytes"))
+	k2 := middleware.NewClientKeys([]byte("second-rate-limit-key-of-32-byte"))
+	a, b := k1.ByClientIP(r), k2.ByClientIP(r)
+	if a == "" || a == b {
+		t.Fatalf("fingerprints %q and %q must differ between keys", a, b)
+	}
+	if a != k1.ByClientIP(r) {
+		t.Error("a fingerprint must be stable for a given key")
+	}
+	plain := sha256.Sum256(ip.AsSlice())
+	if a == hex.EncodeToString(plain[:12]) {
+		t.Error("the fingerprint must not be an unkeyed SHA-256 of the IP")
 	}
 }

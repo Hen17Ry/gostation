@@ -40,11 +40,12 @@ func newTestRouter(origins ...string) http.Handler {
 		IPRateLimit:        100,
 		IPRateWindow:       time.Minute,
 	}, router.Deps{
-		Log:       log,
-		Responder: rs,
-		Health:    handler.NewHealth(rs, log, time.Second, map[string]handler.Check{}),
-		Products:  noProducts{},
-		Limiter:   allowAll{},
+		Log:        log,
+		Responder:  rs,
+		Health:     handler.NewHealth(rs, log, time.Second, map[string]handler.Check{}),
+		Products:   noProducts{},
+		Limiter:    allowAll{},
+		ClientKeys: middleware.NewClientKeys([]byte("router-test-key")),
 	})
 }
 

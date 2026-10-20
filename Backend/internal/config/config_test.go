@@ -19,6 +19,7 @@ func env(overrides map[string]string) func(string) string {
 		"OSRM_URL":                 "http://localhost:5000",
 		"JWT_SIGNING_KEYS":         "k2:" + strings.Repeat("ab", 32) + ",k1:" + strings.Repeat("cd", 32),
 		"APP_SECRET":               strings.Repeat("ef", 32),
+		"RATE_LIMIT_KEY":           strings.Repeat("ab", 32),
 		"DOCUMENTS_ENCRYPTION_KEY": strings.Repeat("01", 32),
 	}
 	for k, v := range overrides {
@@ -139,6 +140,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"JWT_SIGNING_KEYS", "k1:abcd"},
 		{"JWT_SIGNING_KEYS", "k1:" + strings.Repeat("ab", 32) + ",k1:" + strings.Repeat("cd", 32)},
 		{"APP_SECRET", "tooshort"},
+		{"RATE_LIMIT_KEY", "tooshort"},
 		{"APP_SECRET", strings.Repeat("zz", 32)},
 		{"DOCUMENTS_ENCRYPTION_KEY", strings.Repeat("ab", 16)},
 		{"COOKIE_SECURE", "maybe"},

@@ -167,6 +167,9 @@ type OSRM struct {
 type RateLimit struct {
 	IPRequests int
 	IPWindow   time.Duration
+	// Key est la clé HMAC des empreintes des limiteurs (IP, compte, installation : E1). Distincte
+	// d'APP_SECRET pour tourner seule : la changer ne fait que remettre les compteurs à zéro.
+	Key []byte
 }
 
 // SigningKey est une clé de signature Ed25519 des access tokens (graine de 32 octets).
@@ -257,6 +260,7 @@ func Load(getenv func(string) string) (Config, error) {
 	c.RateLimit = RateLimit{
 		IPRequests: l.integer("RATE_LIMIT_IP_REQUESTS", 1200, 1, 1_000_000),
 		IPWindow:   l.duration("RATE_LIMIT_IP_WINDOW", time.Minute),
+		Key:        l.hexKey("RATE_LIMIT_KEY", 32, 64),
 	}
 	if c.RateLimit.IPWindow < time.Second {
 		l.fail("RATE_LIMIT_IP_WINDOW", "must be at least 1s")

@@ -45,7 +45,7 @@
 | `auth:sess:<id>`, `auth:rt:<empreinte>`, `auth:user:<uid>:sess` | Session : identifiant du compte, rôle, client, user agent (version de l'app, système, modèle d'appareil), dates ; empreinte du refresh token | 30 jours glissants (12 h pour un admin) ; supprimées à la déconnexion et à la révocation |
 | `auth:mfa:<jeton>`, `auth:totp:last:<uid>` | Défi 2FA admin, dernier pas TOTP accepté (anti-rejeu) | 5 minutes ; durée d'un pas TOTP |
 | `otp:<usage>:<uid>`, `otp:cooldown:…` | Empreinte HMAC du code à 6 chiffres (vérification de l'email, mot de passe oublié) | 15 minutes ; détruit après usage ou 5 échecs |
-| `rl:{ip:…}`, `rl:{u:…}`, `rl:{i:…}`, connexion par email | Compteurs de limitation : empreinte SHA-256 tronquée de l'IP, du compte ou de l'installation ; email en HMAC à clé | De 1 minute à 1 heure (fenêtres) |
+| `rl:{ip:…}`, `rl:{u:…}`, `rl:{i:…}`, connexion par email | Compteurs de limitation : empreinte HMAC-SHA256 tronquée (clé `RATE_LIMIT_KEY`) de l'IP, du compte ou de l'installation ; email en HMAC à clé | De 1 minute à 1 heure (fenêtres) |
 | `privacy:code:<id>`, `privacy:code:attempts:<id>` | Empreinte HMAC du code de confirmation d'une demande reçue par email, essais | 7 jours ; 5 essais |
 | `stats:search:<heure>` | Compteurs anonymes (cellule, produit) | Jusqu'au vidage en base (5 minutes) |
 | `search:v1:…`, `search:gen:…` | Cache des résultats par cellule et produit (stations, sans utilisateur) | Quelques minutes ; invalidé à chaque changement |
@@ -94,7 +94,7 @@ Aucun outil d'analyse d'audience, de publicité ni de suivi des plantages n'est 
 
 | # | Constat | Risque | Proposition |
 |---|---|---|---|
-| E1 | L'empreinte d'IP des limiteurs (`rl:{ip:…}`) est un SHA-256 tronqué **sans clé** : l'espace IPv4 se parcourt en quelques secondes, l'IP est donc retrouvable par qui lit Redis | Faible (Redis privé, TTL ≤ 1 h) | HMAC avec une sous-clé HKDF dédiée (comme l'email de connexion) : 10B |
+| E1 | Corrigé en 10B : l'empreinte d'IP des limiteurs (`rl:{ip:…}`) était un SHA-256 tronqué **sans clé**, donc retrouvable en parcourant l'espace IPv4 | — | HMAC-SHA256 sous la clé `RATE_LIMIT_KEY`, distincte d'`APP_SECRET` et remplaçable seule (`TestClientKeysAreKeyed`) |
 | E2 | `user_id` (UUID) figure dans les journaux applicatifs | Pseudonyme, utile au support ; journaux gardés 30 jours | À valider par le juriste ; sinon HMAC du `user_id` |
 | E3 | Le commentaire libre d'un signalement est conservé 12 mois après la pseudonymisation de l'auteur | La personne peut s'y être identifiée | Proposer l'effacement du commentaire à 90 jours avec l'auteur (question au juriste) |
 | E4 | Les comptes désactivés par un admin ne sont pas concernés par la purge d'inactivité | Conservation sans limite d'un compte inutilisable | Durée propre aux comptes désactivés (question au juriste) |

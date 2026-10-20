@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
@@ -65,14 +66,27 @@ func RateLimit(l Limiter, p RateLimitPolicy, log *slog.Logger, rs *respond.Respo
 	}
 }
 
-// ByClientIP identifie le client par une empreinte de son IP : l'adresse en clair n'est
-// jamais écrite dans Redis.
-func ByClientIP(r *http.Request) string {
+// ClientKeys calcule les clés des limiteurs : empreintes HMAC-SHA256 de l'IP, du compte ou de
+// l'installation, sous la clé secrète RATE_LIMIT_KEY. Ni l'adresse IP ni l'identifiant ne sont
+// écrits en clair dans Redis, et sans la clé l'empreinte d'une IP ne se retrouve pas en
+// parcourant l'espace IPv4 (E1). Rotation : changer la clé remet seulement les compteurs à zéro
+// (fenêtres d'une heure au plus) ; rien d'autre n'est conservé sous cette clé.
+type ClientKeys struct {
+	key []byte
+}
+
+// NewClientKeys construit le calculateur de clés à partir de RATE_LIMIT_KEY.
+func NewClientKeys(key []byte) *ClientKeys {
+	return &ClientKeys{key: key}
+}
+
+// ByClientIP identifie le client par une empreinte de son IP.
+func (k *ClientKeys) ByClientIP(r *http.Request) string {
 	ip, ok := httpctx.ClientIP(r.Context())
 	if !ok {
 		return ""
 	}
-	return fingerprint(ip.AsSlice())
+	return k.fingerprint(ip.AsSlice())
 }
 
 // HeaderInstallID porte l'identifiant d'installation de l'app mobile (UUID généré au premier
@@ -82,22 +96,23 @@ const HeaderInstallID = "X-Install-Id"
 // ByInstallOrUser identifie le client par l'utilisateur connecté, sinon par l'en-tête
 // X-Install-Id (D22). Sans en-tête valide, le quota s'applique par IP : omettre l'en-tête ne
 // permet pas d'y échapper. À placer après Authenticator.Optional.
-func ByInstallOrUser(r *http.Request) string {
+func (k *ClientKeys) ByInstallOrUser(r *http.Request) string {
 	if p, ok := httpctx.PrincipalFrom(r.Context()); ok {
-		return "u:" + fingerprint(p.UserID[:])
+		return "u:" + k.fingerprint(p.UserID[:])
 	}
 	if id, err := uuid.Parse(strings.TrimSpace(r.Header.Get(HeaderInstallID))); err == nil && id != uuid.Nil {
-		return "i:" + fingerprint(id[:])
+		return "i:" + k.fingerprint(id[:])
 	}
-	if ip := ByClientIP(r); ip != "" {
+	if ip := k.ByClientIP(r); ip != "" {
 		return "ip:" + ip
 	}
 	return ""
 }
 
-func fingerprint(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:12])
+func (k *ClientKeys) fingerprint(b []byte) string {
+	m := hmac.New(sha256.New, k.key)
+	m.Write(b)
+	return hex.EncodeToString(m.Sum(nil)[:12])
 }
 
 func ceilSeconds(d time.Duration) string {

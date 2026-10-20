@@ -58,6 +58,7 @@ type Auth struct {
 	rs       *respond.Responder
 	svc      *auth.Service
 	limiter  middleware.Limiter
+	keys     *middleware.ClientKeys
 	cookies  Cookies
 	csrfKey  []byte
 	emailKey []byte
@@ -65,8 +66,8 @@ type Auth struct {
 }
 
 // NewAuth construit le handler.
-func NewAuth(rs *respond.Responder, svc *auth.Service, l middleware.Limiter, c Cookies, csrfKey, emailKey []byte, log *slog.Logger) *Auth {
-	return &Auth{rs: rs, svc: svc, limiter: l, cookies: c, csrfKey: csrfKey, emailKey: emailKey, log: log}
+func NewAuth(rs *respond.Responder, svc *auth.Service, l middleware.Limiter, keys *middleware.ClientKeys, c Cookies, csrfKey, emailKey []byte, log *slog.Logger) *Auth {
+	return &Auth{rs: rs, svc: svc, limiter: l, keys: keys, cookies: c, csrfKey: csrfKey, emailKey: emailKey, log: log}
 }
 
 func clientMeta(r *http.Request, client string) auth.ClientMeta {
@@ -91,7 +92,7 @@ func (h *Auth) limit(w http.ResponseWriter, r *http.Request, name, key string, n
 }
 
 func (h *Auth) limitLogin(w http.ResponseWriter, r *http.Request, prefix, email string) error {
-	if err := h.limit(w, r, prefix+"-ip", middleware.ByClientIP(r), loginLimit, loginWindow); err != nil {
+	if err := h.limit(w, r, prefix+"-ip", h.keys.ByClientIP(r), loginLimit, loginWindow); err != nil {
 		return err
 	}
 	return h.limit(w, r, prefix+"-email", auth.EmailFingerprint(h.emailKey, email), loginLimit, loginWindow)
@@ -322,7 +323,7 @@ func (h *Auth) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.limit(w, r, "code-ip", middleware.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
+	if err := h.limit(w, r, "code-ip", h.keys.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
 		return err
 	}
 	if err := h.svc.VerifyEmail(r.Context(), req.Email, req.Code); err != nil {
@@ -337,7 +338,7 @@ func (h *Auth) acceptEmailRequest(w http.ResponseWriter, r *http.Request, do fun
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.limit(w, r, "email-ip", middleware.ByClientIP(r), emailIPLimit, emailIPWindow); err != nil {
+	if err := h.limit(w, r, "email-ip", h.keys.ByClientIP(r), emailIPLimit, emailIPWindow); err != nil {
 		return err
 	}
 	if err := do(req.Email); err != nil {
@@ -370,7 +371,7 @@ func (h *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.limit(w, r, "code-ip", middleware.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
+	if err := h.limit(w, r, "code-ip", h.keys.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
 		return err
 	}
 	if err := h.svc.ResetPassword(r.Context(), req.Email, req.Code, req.NewPassword); err != nil {
@@ -578,7 +579,7 @@ func (h *Auth) AdminSecondFactor(w http.ResponseWriter, r *http.Request) error {
 			Message: "mfaToken and exactly one of code or recoveryCode are required",
 		})
 	}
-	if err := h.limit(w, r, "code-ip", middleware.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
+	if err := h.limit(w, r, "code-ip", h.keys.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
 		return err
 	}
 	t, p, recovery, err := h.svc.AdminSecondFactor(r.Context(), req.MFAToken, req.Code, req.RecoveryCode, clientMeta(r, auth.ClientWeb))
