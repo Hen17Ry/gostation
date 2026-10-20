@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -118,6 +119,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, 
 	ttl := s.cfg.RefreshTTL
 	if sess.Role == string(dbgen.UserRoleAdmin) {
 		ttl = s.cfg.AdminRefreshTTL
+	}
+	if sess.MaxAge > 0 {
+		// Session plafonnée : les cookies expirent avec elle.
+		ttl = min(ttl, time.Until(sess.CreatedAt.Add(sess.MaxAge)))
 	}
 	return TokenPair{
 		AccessToken: access, ExpiresIn: s.Tokens.TTL(), RefreshToken: newRefresh,
