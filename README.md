@@ -4,11 +4,11 @@ Trouver la station la plus proche qui a **en stock** le produit recherché (gaz 
 
 | Dossier | Contenu | État |
 |---|---|---|
-| `Backend/` | API Go (chi, pgx/sqlc, goose, Redis) : socle, migrations, authentification et rôles, spec [OpenAPI 3.1](Backend/api/openapi.yaml) | ✔ socle + auth |
-| `Mobile/` | App Expo React Native (user + gérant) | à initialiser |
-| `Web/` | Admin React (Vite, Tailwind, shadcn/ui) : connexion + 2FA, coquille, tableau de bord ; [design system](Web/docs/design-system.md) | ✔ socle (étape 8A) |
-| `docs/` | [Architecture](docs/ARCHITECTURE.md) : modèle de données, endpoints, algorithme de recherche | ✔ |
-| `scripts/` | Préparation OSRM, vérification de l'infra | ✔ |
+| `Backend/` | API Go (chi, pgx/sqlc, goose, Redis, asynq) et worker : auth et rôles, stations et stocks, recherche et itinéraire (OSRM), notifications et rappels, signalements, favoris, API admin, droits des personnes et purges ; spec [OpenAPI 3.1](Backend/api/openapi.yaml) | ✔ V1 complète |
+| `Mobile/` | App Expo React Native unique (utilisateur + gérant) : recherche, carte, guidage, compte, favoris, signalements, espace gérant, push, « Mes données » ; [design system](Mobile/docs/design-system.md), [perf](Mobile/docs/performance.md) | ✔ Android (builds EAS `preview`) ; iOS jamais construit |
+| `Web/` | Admin React (Vite, Tailwind, shadcn/ui) : connexion + 2FA, tableau de bord, stations, carte, signalements, comptes, catalogue, stats et pénuries, audit, exports, demandes de données ; [design system](Web/docs/design-system.md) | ✔ toutes les sections |
+| `docs/` | [Architecture](docs/ARCHITECTURE.md) (modèle de données, endpoints, algorithme, décisions), [état des lieux](docs/STATUS.md), [textes légaux](docs/legal/) (projets) | ✔ |
+| `scripts/` | Préparation OSRM, vérification de l'infra, `.env`, pile E2E isolée, plans et bench de la recherche et des stats | ✔ |
 
 Conventions et règles du projet : [`CLAUDE.md`](CLAUDE.md).
 
@@ -112,7 +112,18 @@ make bench-stats     # p50/p95/p99 du tableau de bord, des stats et des cartes (
 ```
 
 `make bench` lance une API dédiée sur le port 18080 (quotas levés, logs en `warn`), vide le cache de recherche, puis rapporte p50/p95/p99 : HTTP de bout en bout, temps serveur hors OSRM (avec et sans cache), OSRM à part, taux de cache. Les résultats JSON complets vont dans `bench/results/` (ignoré par git). `RESET=1 make seed-dev` supprime les stations fictives.
-- **Contrat d'API** : [`Backend/api/openapi.yaml`](Backend/api/openapi.yaml) (OpenAPI 3.1). Les types TypeScript des clients se génèrent avec `npx openapi-typescript Backend/api/openapi.yaml -o api.d.ts`.
+
+**Contrat d'API** : [`Backend/api/openapi.yaml`](Backend/api/openapi.yaml) (OpenAPI 3.1). Les types TypeScript des clients se régénèrent avec `npm run gen:api` (dans `Web/` et `Mobile/`).
+
+### App mobile
+
+```bash
+cd Mobile && npm install
+npm run android      # compile et installe le dev build (MapLibre est natif : pas d'Expo Go), puis Metro
+adb reverse tcp:8080 tcp:8080 && adb reverse tcp:8081 tcp:8081   # API et Metro vus du téléphone
+```
+
+URL de l'API : `EXPO_PUBLIC_API_URL` (`Mobile/.env`, `http://127.0.0.1:8080` par défaut). Tests : `npm test` (Jest), `npm run e2e` (Maestro sur la pile isolée, build release installé). Builds : profils EAS `development`, `preview` (APK) et `production` (AAB), voir [CLAUDE.md](CLAUDE.md) (règles mobile).
 
 ## Services locaux
 
