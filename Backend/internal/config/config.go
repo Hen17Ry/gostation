@@ -93,6 +93,7 @@ type Retention struct {
 	DataRequests            time.Duration // demandes d'exercice des droits closes
 	AdminAlerts             time.Duration // alertes admin résolues
 	ExportRecords           time.Duration // métadonnées des exports admin
+	LocationRequests        time.Duration // demandes de déplacement d'épingle décidées (E6)
 }
 
 // Privacy regroupe les réglages des demandes d'exercice des droits (étape 10A).
@@ -336,6 +337,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DataRequests:            l.retention("RETENTION_DATA_REQUESTS", 3*365*24*time.Hour),
 		AdminAlerts:             l.retention("RETENTION_ADMIN_ALERTS", 365*24*time.Hour),
 		ExportRecords:           l.retention("RETENTION_EXPORT_RECORDS", 365*24*time.Hour),
+		LocationRequests:        l.retention("RETENTION_LOCATION_REQUESTS", 365*24*time.Hour),
 	}
 	if c.Retention.InactivityWarning >= c.Retention.InactiveAccounts {
 		l.fail("RETENTION_INACTIVITY_WARNING", "must be shorter than RETENTION_INACTIVE_ACCOUNTS")

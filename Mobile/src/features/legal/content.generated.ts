@@ -682,6 +682,18 @@ export const privacyPolicy: LegalDocument = {
         [
           [
             {
+              text: "Demandes de déplacement de l'épingle d'une station",
+            },
+          ],
+          [
+            {
+              text: '12 mois après la décision',
+            },
+          ],
+        ],
+        [
+          [
+            {
               text: 'Journal de sécurité (actions sur les comptes et les stations)',
             },
           ],

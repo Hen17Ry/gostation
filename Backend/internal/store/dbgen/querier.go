@@ -90,6 +90,7 @@ type Querier interface {
 	// Alertes envoyées pour un couple (station, produit) depuis since (limite des 6 h).
 	CountBackInStockSentSince(ctx context.Context, arg CountBackInStockSentSinceParams) (int64, error)
 	CountClosedDataRequestsBefore(ctx context.Context, before *time.Time) (int64, error)
+	CountDecidedLocationRequestsBefore(ctx context.Context, before time.Time) (int64, error)
 	CountDocumentsToDelete(ctx context.Context, arg CountDocumentsToDeleteParams) (int64, error)
 	CountExpiredPersonalExports(ctx context.Context, arg CountExpiredPersonalExportsParams) (int64, error)
 	CountExportRecordsBefore(ctx context.Context, before time.Time) (int64, error)
@@ -143,6 +144,10 @@ type Querier interface {
 	// Preuve de conformité : demandes closes depuis 3 ans.
 	DeleteClosedDataRequestsBatch(ctx context.Context, arg DeleteClosedDataRequestsBatchParams) (int64, error)
 	DeleteClosure(ctx context.Context, arg DeleteClosureParams) (int64, error)
+	// Demandes de déplacement d'épingle décidées (validées, refusées) ou remplacées, 12 mois après la
+	// décision (E6). Une demande remplacée n'a pas de date de décision : sa création fait foi. Les
+	// demandes en attente restent (l'admin doit encore trancher).
+	DeleteDecidedLocationRequestsBatch(ctx context.Context, arg DeleteDecidedLocationRequestsBatchParams) (int64, error)
 	DeleteDevice(ctx context.Context, arg DeleteDeviceParams) (int64, error)
 	// DeviceNotRegistered : on ne supprime la ligne que si elle porte encore le token signalé
 	// (empreinte SHA-256), l'installation ayant pu se réenregistrer entre-temps.

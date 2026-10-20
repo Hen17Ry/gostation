@@ -64,7 +64,7 @@ Mesures de sécurité communes à tous les traitements : HTTPS, mots de passe ar
 | Personnes | Gérants |
 | Données | Station (nom, marque, IFU, RCCM, adresse, ville, téléphone, position), justificatif IFU ou RCCM, distance et précision GPS à l'épinglage, historique des stocks |
 | Destinataires | Public (fiche de station : nom, marque, adresse, ville, position, horaires, stocks ; ni IFU, ni RCCM, ni téléphone) ; administrateurs |
-| Conservation | Station : durée de son activité [à fixer après suppression du gérant] ; justificatif : station active, 6 mois après un refus, 12 mois après la suppression du gérant ; historique des stocks : 12 mois puis agrégé sans auteur |
+| Conservation | Station : durée de son activité [à fixer après suppression du gérant] ; justificatif : station active, 6 mois après un refus, 12 mois après la suppression du gérant ; historique des stocks : 12 mois puis agrégé sans auteur ; demandes de déplacement de l'épingle : 12 mois après la décision |
 
 ## T6. Signalements et modération
 

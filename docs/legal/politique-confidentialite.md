@@ -98,6 +98,7 @@ Nous ne communiquons pas vos données à d'autres tiers, sauf obligation légale
 | Signalements | Votre nom en est retiré au bout de 90 jours (remplacé par un pseudonyme) ; le signalement est supprimé au bout de 12 mois |
 | Justificatif d'un gérant | Tant que la station est active ; 6 mois après le refus d'un dossier non renvoyé ; 12 mois après la suppression du compte du gérant |
 | Historique des stocks | 12 mois, puis regroupé par jour, sans lien avec le gérant |
+| Demandes de déplacement de l'épingle d'une station | 12 mois après la décision |
 | Journal de sécurité (actions sur les comptes et les stations) | 12 mois |
 | Demandes concernant vos données | 3 ans après leur clôture, pour prouver qu'elles ont été traitées |
 | Copie de vos données | 24 heures après sa préparation |

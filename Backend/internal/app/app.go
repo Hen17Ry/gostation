@@ -229,6 +229,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 			Reports: cfg.Retention.Reports, AuditLogs: cfg.Retention.AuditLogs, RejectedDocuments: cfg.Retention.RejectedDocuments,
 			DeletedStationDocuments: cfg.Retention.DeletedStationDocuments, StockHistory: cfg.Retention.StockHistory,
 			DataRequests: cfg.Retention.DataRequests, AdminAlerts: cfg.Retention.AdminAlerts, ExportRecords: cfg.Retention.ExportRecords,
+			LocationRequests: cfg.Retention.LocationRequests,
 		}, retention.Deps{
 			Store: st, Storage: infra.Storage, Privacy: privacySvc, Mailer: emails, Templates: renderer,
 			PseudonymKey: pseudonymKey, Log: log, Clock: infra.Clock,

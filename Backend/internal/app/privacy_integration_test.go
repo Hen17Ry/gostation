@@ -746,6 +746,22 @@ func TestRetentionPurges(t *testing.T) {
 		VALUES ($1, 'access', 'completed', 'app', $2, $2, 'Copie transmise.', $2, $2) RETURNING id`, uid, now.AddDate(-3, 0, -1)).Scan(&oldRequest); err != nil {
 		t.Fatal(err)
 	}
+	// Demandes de déplacement (E6) : décidée ou remplacée il y a plus de 12 mois → supprimée ;
+	// décidée il y a moins de 12 mois, ou encore en attente → conservée.
+	at := func(t time.Time) *time.Time { return &t }
+	locationRequest := func(status string, created time.Time, reviewed *time.Time) string {
+		var id string
+		if err := it.pool.QueryRow(ctx, `INSERT INTO station_location_requests (station_id, location, h3_r8, distance_m, status, reviewed_at, created_at)
+			VALUES ($1, ST_SetSRID(ST_MakePoint(2.35, 6.45), 4326)::geography, 0, 350, $2, $3, $4) RETURNING id`,
+			stationID, status, reviewed, created).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	oldMove := locationRequest("approved", days(380), at(days(366)))
+	oldSuperseded := locationRequest("superseded", days(366), nil)
+	recentMove := locationRequest("rejected", days(380), at(days(364)))
+	pendingMove := locationRequest("pending", days(400), nil)
 	// Deux comptes inactifs depuis 701 jours ; le second se reconnecte après l'avertissement.
 	execSQL(t, `UPDATE users SET last_active_at = $2 WHERE id = ANY($1)`, []string{si.User.ID, sb.User.ID}, days(701))
 
@@ -760,7 +776,7 @@ func TestRetentionPurges(t *testing.T) {
 	}
 	for _, rule := range []string{
 		"notifications", "back_in_stock_alerts", "device_tokens", "inactive_accounts_warning", "report_authors", "reports",
-		"audit_logs", "station_documents", "stock_history", "data_requests",
+		"audit_logs", "station_documents", "stock_history", "data_requests", "location_requests",
 	} {
 		if counts[rule] < 1 {
 			t.Errorf("dry run: %s = %d, want ≥ 1", rule, counts[rule])
@@ -836,6 +852,12 @@ func TestRetentionPurges(t *testing.T) {
 	}
 	if n := queryInt64(t, `SELECT count(*) FROM data_requests WHERE id = $1`, oldRequest); n != 0 {
 		t.Error("3-year-old closed request kept")
+	}
+	if n := queryInt64(t, `SELECT count(*) FROM station_location_requests WHERE id = ANY($1)`, []string{oldMove, oldSuperseded}); n != 0 {
+		t.Errorf("%d location requests decided over 12 months ago kept", n)
+	}
+	if n := queryInt64(t, `SELECT count(*) FROM station_location_requests WHERE id = ANY($1)`, []string{recentMove, pendingMove}); n != 2 {
+		t.Errorf("recent or pending location requests deleted: %d left, want 2", n)
 	}
 
 	// Avertissement d'inactivité : email, puis une connexion annule l'avertissement.
