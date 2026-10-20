@@ -10,7 +10,9 @@ import "net/http"
 //   - no-referrer : aucune URL (identifiants, filtres) ne fuit vers un tiers ;
 //   - CSP default-src 'none' et frame-ancestors 'none' (doublée de X-Frame-Options) : une réponse
 //     ouverte directement n'exécute rien et ne peut pas être encadrée ;
-//   - CORP same-site : lisible par l'admin (admin.<domaine>, même site, D43), pas par un autre site.
+//   - CORP same-origin : aucune page d'une autre origine ne peut charger une réponse en no-cors
+//     (image, script). L'admin (admin.<domaine>) n'est pas gêné : ses appels passent par fetch
+//     en mode CORS, que CORP ne concerne pas, et les téléchargements sont des navigations.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -19,7 +21,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Cross-Origin-Resource-Policy", "same-site")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		next.ServeHTTP(w, r)
 	})
 }

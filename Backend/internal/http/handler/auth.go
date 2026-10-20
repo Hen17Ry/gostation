@@ -200,7 +200,8 @@ func (h *Auth) setSessionCookies(w http.ResponseWriter, t auth.TokenPair) string
 func (h *Auth) clearSessionCookies(w http.ResponseWriter) {
 	http.SetCookie(w, h.cookie(h.cookies.Access(), "", "/", -1, true))
 	http.SetCookie(w, h.cookie(h.cookies.Refresh(), "", "/api/v1/auth", -1, true))
-	http.SetCookie(w, h.cookie(h.cookies.CSRF(), "", "/", -1, false))
+	// Effacement : HttpOnly sans effet sur la suppression, et rien à lire pour le JavaScript.
+	http.SetCookie(w, h.cookie(h.cookies.CSRF(), "", "/", -1, true))
 }
 
 type adminSessionResponse struct {

@@ -130,7 +130,7 @@ func TestSecurityHeaders(t *testing.T) {
 		"Referrer-Policy":              "no-referrer",
 		"Content-Security-Policy":      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 		"X-Frame-Options":              "DENY",
-		"Cross-Origin-Resource-Policy": "same-site",
+		"Cross-Origin-Resource-Policy": "same-origin",
 	}
 	preflight := http.Header{
 		"Origin":                        {"https://admin.gostation.test"},
