@@ -78,10 +78,11 @@ afterEach(() => {
 })
 
 describe('LoginPage', () => {
-  // Les étapes 2FA sont préchargées dès la saisie (import dynamique) : leur transformation par
-  // Vitest se fait ici, hors du délai des tests.
+  // Modules chargés à la demande pendant le parcours (étapes 2FA, QR code, toast de bienvenue) :
+  // leur transformation par Vitest se fait ici, hors du délai des tests. Sous charge, un import
+  // dynamique en plein test dépassait le délai d'attente du QR code.
   beforeAll(async () => {
-    await import('./steps')
+    await Promise.all([import('./steps'), import('./qr-code'), import('sonner')])
   }, 30_000)
 
   it('compte désactivé : message dédié, mot de passe effacé', async () => {
