@@ -1,0 +1,47 @@
+# App mobile : lint, types, types d'API et textes générés à jour, tests. Ne tourne que si Mobile/,
+# la spec OpenAPI, les tokens du web (source des couleurs) ou les textes légaux changent.
+name: Mobile
+
+on:
+  push:
+    paths:
+      - "Mobile/**"
+      - "Backend/api/openapi.yaml"
+      - "Web/src/styles/globals.css"
+      - "docs/legal/**"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: Mobile
+
+jobs:
+  mobile:
+    name: Lint, types, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Mobile/package-lock.json
+      - run: npm ci
+      - name: Code généré à jour (types d'API, tokens, textes légaux)
+        run: |
+          npm run gen:api
+          npm run gen:tokens
+          npm run gen:legal
+          git diff --exit-code -- src || { echo "::error::code généré pas à jour : npm run gen:api, gen:tokens, gen:legal"; exit 1; }
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test

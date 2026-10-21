@@ -1,0 +1,46 @@
+# Admin web : lint, types, types d'API à jour, tests, build et budget JS. Ne tourne que si Web/,
+# la spec OpenAPI ou le Caddyfile (en-têtes comparés par un test) changent.
+name: Web
+
+on:
+  push:
+    paths:
+      - "Web/**"
+      - "Backend/api/openapi.yaml"
+      - "deploy/Caddyfile"
+      - ".github/workflows/web.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: Web
+
+jobs:
+  web:
+    name: Lint, types, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+      - run: npm ci
+      - name: Types d'API à jour (Backend/api/openapi.yaml)
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/schema.d.ts || { echo "::error::src/api/schema.d.ts n'est pas à jour : npm run gen:api"; exit 1; }
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build et budget du JS initial (< 200 Ko gzip)
+        run: npm run build && npm run check:bundle
