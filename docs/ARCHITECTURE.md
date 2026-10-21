@@ -1171,7 +1171,7 @@ sequenceDiagram
   - images débarrassées de leurs métadonnées sans recompression : segments EXIF, XMP, IPTC et COM pour le JPEG, chunks `eXIf`, `tEXt`, `zTXt`, `iTXt` et `tIME` pour le PNG ;
   - chiffrement par enveloppe : une DEK AES-256-GCM par fichier, chiffrée par la KEK `DOCUMENTS_ENCRYPTION_KEY` (versionnée pour la rotation, KMS en prod), avec la clé de stockage comme AAD ;
   - empreinte SHA-256 vérifiée à la lecture ;
-  - interface `Storage` : disque local (0600), S3 compatible au déploiement ;
+  - interface `Storage` : disque local (0600) en dev, stockage objet compatible S3 en production (`STORAGE_DRIVER=s3`, minio-go, tout fournisseur ; bucket existant, préfixe par environnement, TLS imposé en prod ; testé sur SeaweedFS) ;
   - lecture réservée aux admins, auditée.
 - **Secrets dérivés** : `APP_SECRET` → sous-clés HKDF-SHA256 distinctes (`otp-hmac`, `csrf`, `email-fingerprint`, `totp-encryption`).
 - **Audit** (`audit_logs`, en ajout seul) :

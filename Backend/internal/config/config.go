@@ -207,6 +207,21 @@ type Documents struct {
 	EncryptionKey []byte
 	StorageDir    string
 	MaxBytes      int64
+	// Storage choisit où vivent les fichiers chiffrés (justificatifs, exports, copies).
+	Storage Storage
+}
+
+// Storage : disque local (StorageDir) ou stockage objet compatible S3.
+type Storage struct {
+	Driver      string // local | s3
+	S3Endpoint  string
+	S3Region    string
+	S3Bucket    string
+	S3AccessKey string
+	S3SecretKey string
+	S3TLS       bool
+	S3PathStyle bool
+	S3Prefix    string
 }
 
 // SMTP regroupe les réglages d'envoi des emails.
@@ -290,6 +305,30 @@ func Load(getenv func(string) string) (Config, error) {
 		EncryptionKey: l.hexKey("DOCUMENTS_ENCRYPTION_KEY", 32, 32),
 		StorageDir:    l.str("DOCUMENTS_STORAGE_DIR", "./var/documents"),
 		MaxBytes:      int64(l.integer("DOCUMENTS_MAX_BYTES", 5<<20, 1024, 20<<20)),
+		Storage: Storage{
+			Driver:      l.oneOf("STORAGE_DRIVER", "local", "local", "s3"),
+			S3Endpoint:  l.raw("S3_ENDPOINT"),
+			S3Region:    l.raw("S3_REGION"),
+			S3Bucket:    l.raw("S3_BUCKET"),
+			S3AccessKey: l.raw("S3_ACCESS_KEY_ID"),
+			S3SecretKey: l.raw("S3_SECRET_ACCESS_KEY"),
+			S3TLS:       l.boolean("S3_TLS", true),
+			S3PathStyle: l.boolean("S3_PATH_STYLE", false),
+			S3Prefix:    l.raw("S3_PREFIX"),
+		},
+	}
+	if st := c.Documents.Storage; st.Driver == "s3" {
+		for key, v := range map[string]string{
+			"S3_ENDPOINT": st.S3Endpoint, "S3_BUCKET": st.S3Bucket,
+			"S3_ACCESS_KEY_ID": st.S3AccessKey, "S3_SECRET_ACCESS_KEY": st.S3SecretKey,
+		} {
+			if v == "" {
+				l.fail(key, "is required when STORAGE_DRIVER=s3")
+			}
+		}
+		if strings.Contains(st.S3Endpoint, "://") {
+			l.fail("S3_ENDPOINT", "must be host[:port], without scheme (S3_TLS chooses https)")
+		}
 	}
 	c.SMTP = SMTP{
 		Host:     l.str("SMTP_HOST", "localhost"),
@@ -374,6 +413,9 @@ func Load(getenv func(string) string) (Config, error) {
 		if !c.Auth.CookieSecure {
 			l.fail("COOKIE_SECURE", "must be true in production")
 		}
+		if c.Documents.Storage.Driver == "s3" && !c.Documents.Storage.S3TLS {
+			l.fail("S3_TLS", "must be true in production")
+		}
 	}
 
 	if len(l.problems) > 0 {
@@ -398,6 +440,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("expo_push", c.Push.ExpoAccessToken != ""),
 		slog.Int("worker_concurrency", c.Jobs.Concurrency),
 		slog.Bool("error_tracking", c.ErrorTracking.DSN != ""),
+		slog.String("storage", c.Documents.Storage.Driver),
 	)
 }
 

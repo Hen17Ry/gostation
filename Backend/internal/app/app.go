@@ -255,6 +255,20 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	}, nil
 }
 
+// OpenStorage ouvre le stockage des fichiers chiffrés choisi par STORAGE_DRIVER (cmd/api,
+// cmd/worker et cmd/e2efixtures partagent ainsi le même choix).
+func OpenStorage(ctx context.Context, cfg config.Config) (storage.Storage, error) {
+	st := cfg.Documents.Storage
+	if st.Driver != "s3" {
+		return storage.NewLocal(cfg.Documents.StorageDir)
+	}
+	return storage.NewS3(ctx, storage.S3Config{
+		Endpoint: st.S3Endpoint, Region: st.S3Region, Bucket: st.S3Bucket,
+		AccessKey: st.S3AccessKey, SecretKey: st.S3SecretKey,
+		TLS: st.S3TLS, PathStyle: st.S3PathStyle, Prefix: st.S3Prefix,
+	})
+}
+
 // newPusher choisit Expo si EXPO_ACCESS_TOKEN est défini, le Pusher factice sinon (journal du
 // seul type de notification, sans donnée personnelle).
 func newPusher(cfg config.Config, log *slog.Logger) (push.Pusher, error) {

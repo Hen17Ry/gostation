@@ -1,6 +1,7 @@
-// Package storage abstrait le stockage d'objets binaires (justificatifs chiffrés).
-// Implémentation actuelle : disque local. Une implémentation S3 compatible viendra au
-// déploiement, derrière la même interface.
+// Package storage abstrait le stockage d'objets binaires (justificatifs, exports et copies de
+// données, tous chiffrés par l'application). Deux implémentations derrière la même interface :
+// disque local (développement, tests) et stockage objet compatible S3 (production), choisies par
+// STORAGE_DRIVER.
 package storage
 
 import (
@@ -41,17 +42,25 @@ func NewLocal(root string) (*Local, error) {
 	return &Local{root: abs}, nil
 }
 
-// path valide la clé (pas de « .. », pas de chemin absolu, caractères sûrs) et la résout.
-func (l *Local) path(key string) (string, error) {
+// validKey refuse une clé vide, absolue, contenant « .. » ou un caractère hors [A-Za-z0-9/._-].
+func validKey(key string) error {
 	if key == "" || strings.HasPrefix(key, "/") || strings.Contains(key, "..") {
-		return "", fmt.Errorf("storage: invalid key %q", key)
+		return fmt.Errorf("storage: invalid key %q", key)
 	}
 	for _, c := range key {
 		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
 			c == '/' || c == '-' || c == '_' || c == '.'
 		if !ok {
-			return "", fmt.Errorf("storage: invalid key %q", key)
+			return fmt.Errorf("storage: invalid key %q", key)
 		}
+	}
+	return nil
+}
+
+// path valide la clé et la résout sous la racine.
+func (l *Local) path(key string) (string, error) {
+	if err := validKey(key); err != nil {
+		return "", err
 	}
 	return filepath.Join(l.root, filepath.FromSlash(key)), nil
 }

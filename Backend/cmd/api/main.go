@@ -28,7 +28,6 @@ import (
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
-	"gostation/backend/internal/platform/storage"
 )
 
 // version est injectée au build (-ldflags "-X main.version=…"). Seule variable de paquet,
@@ -78,7 +77,7 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
-	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
+	docs, err := app.OpenStorage(ctx, cfg)
 	if err != nil {
 		return err
 	}

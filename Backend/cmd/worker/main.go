@@ -33,7 +33,6 @@ import (
 	"gostation/backend/internal/platform/logging"
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
-	"gostation/backend/internal/platform/storage"
 )
 
 // version est injectée au build (-ldflags "-X main.version=…").
@@ -98,7 +97,7 @@ func connect(ctx context.Context, getenv func(string) string, stdout io.Writer) 
 	if err != nil {
 		return
 	}
-	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
+	docs, err := app.OpenStorage(ctx, cfg)
 	if err != nil {
 		return
 	}
