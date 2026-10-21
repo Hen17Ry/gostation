@@ -5,6 +5,7 @@
 //	worker healthcheck   interroge /readyz en local ; code de sortie 0 si prêt (healthcheck Docker)
 //	worker purge-dry-run affiche, règle par règle, ce que les purges traiteraient maintenant, sans
 //	                     rien modifier (make purge-dry-run)
+//	worker errtrack-test envoie un événement de test à GlitchTip (SENTRY_DSN), après un déploiement
 //
 // Une seule instance tant que le scheduler n'est pas séparé (ARCHITECTURE §7).
 package main
@@ -19,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -48,9 +50,12 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	var err error
-	if len(os.Args) > 1 && os.Args[1] == "purge-dry-run" {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "purge-dry-run":
 		err = purgeDryRun(ctx, os.Getenv, os.Stdout)
-	} else {
+	case len(os.Args) > 1 && os.Args[1] == "errtrack-test":
+		err = errtrackTest(os.Getenv, os.Stdout)
+	default:
 		err = run(ctx, os.Getenv, os.Stdout)
 	}
 	stop()
@@ -90,10 +95,7 @@ func connect(ctx context.Context, getenv func(string) string, stdout io.Writer) 
 		return
 	}
 	closers = append(closers, func() { _ = rdb.Close() })
-	smtp, err := mail.NewSMTP(mail.SMTPConfig{
-		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
-		From: cfg.SMTP.From, TLSMode: cfg.SMTP.TLSMode,
-	})
+	mailer, err := newMailer(cfg)
 	if err != nil {
 		return
 	}
@@ -108,12 +110,57 @@ func connect(ctx context.Context, getenv func(string) string, stdout io.Writer) 
 		return
 	}
 	closers = append(closers, func() { errs.Flush(2 * time.Second) })
-	infra = app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs, Errors: errs}
+	infra = app.Infra{Pool: pool, Redis: rdb, Mailer: mailer, Storage: docs, Errors: errs}
 	if svc, err = app.NewServices(cfg, infra, log); err != nil {
 		return
 	}
 	closers = append(closers, func() { _ = svc.Jobs.Close() })
 	return cfg, log, infra, svc, closeAll, nil
+}
+
+// errtrackTest envoie un événement de test (service « worker ») et affiche son identifiant.
+func errtrackTest(getenv func(string) string, stdout io.Writer) error {
+	cfg, err := config.Load(getenv)
+	if err != nil {
+		return err
+	}
+	errs, err := errtrack.New(errtrack.Config{
+		DSN: cfg.ErrorTracking.DSN, Environment: cfg.ErrorTracking.Environment, Release: version, Service: "worker",
+	})
+	if err != nil {
+		return err
+	}
+	id, err := errs.SendTest("worker", 10*time.Second)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "test event %s sent (worker, %s)\n", id, cfg.ErrorTracking.Environment)
+	return nil
+}
+
+// newMailer : le fournisseur SMTP, et le serveur de capture des domaines de test s'il est
+// configuré (SMTP_SINK_ADDR, staging).
+func newMailer(cfg config.Config) (mail.Mailer, error) {
+	smtp, err := mail.NewSMTP(mail.SMTPConfig{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
+		From: cfg.SMTP.From, TLSMode: cfg.SMTP.TLSMode,
+	})
+	if err != nil || cfg.SMTP.SinkAddr == "" {
+		return smtp, err
+	}
+	host, port, err := net.SplitHostPort(cfg.SMTP.SinkAddr)
+	if err != nil {
+		return nil, fmt.Errorf("SMTP_SINK_ADDR: %w", err)
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, fmt.Errorf("SMTP_SINK_ADDR: %w", err)
+	}
+	sink, err := mail.NewSMTP(mail.SMTPConfig{Host: host, Port: p, From: cfg.SMTP.From, TLSMode: mail.TLSNone})
+	if err != nil {
+		return nil, err
+	}
+	return mail.NewRouter(smtp, sink, cfg.SMTP.SinkDomains), nil
 }
 
 // purgeDryRun affiche, pour chaque règle de conservation, le nombre de lignes qu'elle traiterait
