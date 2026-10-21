@@ -7,6 +7,7 @@ import { t } from '@/i18n'
 import { isMac, modKey } from '@/lib/platform'
 
 import { Breadcrumbs } from './breadcrumbs'
+import { EnvBadge } from './env-badge'
 import { ThemeToggle } from './theme-toggle'
 import { UserMenu } from './user-menu'
 
@@ -52,6 +53,7 @@ export function Topbar({
       </Tooltip>
       <span aria-hidden className="mr-1 hidden h-5 w-px bg-border md:block" />
       <Breadcrumbs />
+      <EnvBadge className="ml-1" />
       <div className="ml-auto flex items-center gap-1">
         <Button
           variant="outline"

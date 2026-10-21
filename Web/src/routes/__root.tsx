@@ -3,6 +3,8 @@ import { createRootRouteWithContext, Outlet } from '@tanstack/react-router'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import { EnvRibbon } from '@/components/layout/env-badge'
+
 // Conteneur des toasts monté hors du premier rendu : sonner reste hors du JS initial et ne
 // retarde pas l'affichage de la page (un Suspense en attente dans le premier rendu le ferait).
 const Toaster = lazy(() => import('@/components/ui/sonner').then((m) => ({ default: m.Toaster })))
@@ -48,6 +50,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function Root() {
   return (
     <>
+      <EnvRibbon />
       <Outlet />
       <DeferredToaster />
     </>

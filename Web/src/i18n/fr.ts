@@ -9,6 +9,10 @@ export const fr = {
     skipToContent: 'Aller au contenu',
     loading: 'Chargement…',
   },
+  env: {
+    staging: 'Staging',
+    stagingDescription: 'environnement de test, données fictives',
+  },
   nav: {
     label: 'Navigation principale',
     overview: 'Pilotage',

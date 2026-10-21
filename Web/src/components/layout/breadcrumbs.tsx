@@ -10,6 +10,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { t } from '@/i18n'
+import { pageTitle } from '@/lib/app-env'
 
 /** Fil d'Ariane depuis les `staticData.title` des routes ; met aussi à jour le titre de l'onglet. */
 export function Breadcrumbs() {
@@ -20,7 +21,7 @@ export function Breadcrumbs() {
   const current = crumbs.at(-1)?.title
 
   useEffect(() => {
-    document.title = current ? `${current} · ${t.app.name}` : `${t.app.name} · ${t.app.product}`
+    document.title = pageTitle(current ? `${current} · ${t.app.name}` : `${t.app.name} · ${t.app.product}`)
   }, [current])
 
   return (
