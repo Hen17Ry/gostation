@@ -1,0 +1,14 @@
+# Contexte de deploy/proxy.Dockerfile (racine du dépôt) : seulement ce que l'image utilise.
+**
+!Web/**
+!Mobile/package.json
+!Mobile/scripts/gen-legal.mts
+!Mobile/src/features/legal/markdown.ts
+!docs/legal/**
+!deploy/Caddyfile
+Web/node_modules
+Web/dist
+Web/.env*
+Web/playwright-report
+Web/test-results
+Web/playwright/.auth

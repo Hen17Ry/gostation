@@ -1115,7 +1115,7 @@ sequenceDiagram
   W->>A: POST /auth/admin/2fa { mfaToken, code | recoveryCode }
   A->>R: anti-rejeu : pas TOTP > dernier pas accepté
   A->>P: (mise en place) secret chiffré + 10 codes de secours hachés
-  A->>R: session admin (mfa = true, 12 h glissantes)
+  A->>R: session admin (mfa = true, 12 h au plus depuis la connexion)
   A-->>W: 200 { user, csrfToken, recoveryCodes? } + Set-Cookie __Host-gs_at, __Secure-gs_rt, gs_csrf
   W->>A: POST /me/... (cookie + X-CSRF-Token)
   A->>R: session encore active ?
@@ -1133,7 +1133,7 @@ sequenceDiagram
   - `auth:rt:{sha256(token)}` → sid, puis `used:{sid}` après rotation ;
   - `auth:user:{uid}:sess` (SET des sids).
 
-  Le token est opaque (256 bits, préfixe `gsr_`), stocké uniquement haché, renouvelé à chaque usage par un script Lua atomique. **Présenter un token déjà consommé révoque toute la session.** Durée : 30 j glissants (utilisateurs), 12 h (admins).
+  Le token est opaque (256 bits, préfixe `gsr_`), stocké uniquement haché, renouvelé à chaque usage par un script Lua atomique. **Présenter un token déjà consommé révoque toute la session.** Durée : 30 j glissants (utilisateurs et gérants) ; admins : 12 h au plus depuis la connexion, même en activité (`deadline_ms`, ASVS 3.3.2).
   Chaque requête authentifiée vérifie que la session existe encore : logout, changement de mot de passe et révocation prennent effet immédiatement, sans attendre l'expiration de l'access token. Les clients doivent sérialiser leurs appels à `/auth/refresh`.
 - **Stockage côté client** :
   - mobile : access et refresh tokens dans `expo-secure-store`, refresh transmis dans le corps des requêtes ;
@@ -1165,13 +1165,13 @@ sequenceDiagram
   | Signalements | 1 par station et par motif toutes les 2 h, 10 par jour et par utilisateur : comptés en base sur les signalements acceptés, sous verrou consultatif |
   | Favoris | 20 par compte |
 
-  Les IP ne sont jamais écrites en clair dans Redis (empreinte SHA-256). Redis indisponible → la requête passe (fail open), mais l'authentification, elle, échoue (sessions indisponibles).
+  Une adresse IPv6 compte pour son /64 (un abonné peut changer d'adresse dans son préfixe). Les IP ne sont jamais écrites en clair dans Redis : empreinte HMAC-SHA256 sous `RATE_LIMIT_KEY` (comme celles du compte et de l'installation), clé distincte d'`APP_SECRET`, remplaçable seule (les compteurs repartent de zéro). Redis indisponible → la requête passe (fail open) pour le quota global et la recherche ; connexion, inscription, codes et emails répondent 503 `service.unavailable` (fail closed : sans quota, la vérification du mot de passe en base resterait un oracle illimité ; ces routes ne peuvent de toute façon pas aboutir sans Redis).
 - **Justificatifs IFU** :
   - type contrôlé par les magic bytes : PDF, JPEG ou PNG, 5 Mo max, lecture en flux (jamais de fichier temporaire en clair) ;
   - images débarrassées de leurs métadonnées sans recompression : segments EXIF, XMP, IPTC et COM pour le JPEG, chunks `eXIf`, `tEXt`, `zTXt`, `iTXt` et `tIME` pour le PNG ;
   - chiffrement par enveloppe : une DEK AES-256-GCM par fichier, chiffrée par la KEK `DOCUMENTS_ENCRYPTION_KEY` (versionnée pour la rotation, KMS en prod), avec la clé de stockage comme AAD ;
   - empreinte SHA-256 vérifiée à la lecture ;
-  - interface `Storage` : disque local (0600), S3 compatible au déploiement ;
+  - interface `Storage` : disque local (0600) en dev, stockage objet compatible S3 en production (`STORAGE_DRIVER=s3`, minio-go, tout fournisseur ; bucket existant, préfixe par environnement, TLS imposé en prod ; testé sur SeaweedFS) ;
   - lecture réservée aux admins, auditée.
 - **Secrets dérivés** : `APP_SECRET` → sous-clés HKDF-SHA256 distinctes (`otp-hmac`, `csrf`, `email-fingerprint`, `totp-encryption`).
 - **Audit** (`audit_logs`, en ajout seul) :
@@ -1182,6 +1182,9 @@ sequenceDiagram
   - changement et réinitialisation de mot de passe ;
   - suppression de compte ;
   - actions admin : création et reset 2FA par la CLI, lecture de justificatif, décisions et corrections de station (motif, avant/après), modération des signalements (traité, classé, abusif), retrait et rétablissement du droit de signaler (motif), clôture des alertes, désactivation et réactivation de compte, renvoi du code de vérification (motif), création et modification de produit (avant/après), demande et téléchargement d'export.
+- **En-têtes de sécurité** (10B) :
+  - API (`middleware.SecurityHeaders`, toute réponse) : HSTS 2 ans, `nosniff`, `Referrer-Policy: no-referrer`, CSP `default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin` ;
+  - admin web (Caddy, et `vite preview` pour les E2E) : CSP générée à la build (`Web/build/csp.ts` → `dist/csp.txt`), scripts en ligne autorisés par empreinte SHA-256, ni `unsafe-inline` ni `unsafe-eval` pour les scripts, `worker-src 'self' blob:` (MapLibre, pdf.js), `connect-src` limité à l'API et à OpenFreeMap, `frame-ancestors 'none'` ; plus HSTS, `nosniff`, `no-referrer`, `Permissions-Policy`, COOP, COEP (`require-corp` : page isolée, tuiles OpenFreeMap en CORS) et CORP. Les styles gardent `unsafe-inline` (feuilles injectées par Radix, sonner et le graphique). Les E2E échouent sur toute violation (`e2e/a11y.spec.ts`).
 - **Divers** : CORS limité à `CORS_ALLOWED_ORIGINS`, avec credentials. Corps bornés (1 Mo en JSON, 5 Mo + 256 Ko pour l'inscription gérant). `Cache-Control: no-store` sur les réponses contenant des tokens.
 
 ## 7. Jobs asynchrones (asynq)
@@ -1202,7 +1205,7 @@ L'API ne fait que mettre en file (`jobs.Client`) : une panne SMTP ou Expo ne ral
 | `stats:freshness` | `0 * * * *` | low | ✅ Relevé de la fraîcheur des stocks par produit (frais, stale, exclus) dans `stock_freshness_stats` (séries du tableau de bord) |
 | `export:generate` | À la demande (`POST /admin/exports`) | default | ✅ Lit le jeu de données, écrit le CSV (BOM, « ; ») ou le JSON, chiffre (enveloppe), stocke, marque l'export prêt (fichier supprimé à +24 h). 3 retries ; au dernier échec, ou au-delà de 200 000 lignes, l'export est marqué échoué |
 | `export:purge` | `*/15 * * * *` | low | ✅ Supprime les fichiers d'export de 24 h ou plus (statut `expired`) et déclare échouées les demandes en attente depuis plus d'une heure |
-| `retention:<règle>` | Une tâche par règle, chaque nuit entre 3 h 00 et 3 h 12 (`personal_exports` : `*/15 * * * *`) | low | ✅ 14 règles de conservation (§8) : par lots de 500, idempotentes, horloge injectable ; ne journalisent que des compteurs. `make purge-dry-run` affiche ce que chaque règle traiterait, sans rien modifier |
+| `retention:<règle>` | Une tâche par règle, chaque nuit entre 3 h 00 et 3 h 13 (`personal_exports` : `*/15 * * * *`) | low | ✅ 15 règles de conservation (§8) : par lots de 500, idempotentes, horloge injectable ; ne journalisent que des compteurs. `make purge-dry-run` affiche ce que chaque règle traiterait, sans rien modifier |
 | `privacy:export` | À la demande (`POST /me/data-export`, ou l'admin pour une demande confirmée) | default | ✅ Copie des données de la personne : JSON lisible (explications en français, ce qui n'est pas conservé), chiffrée (enveloppe), disponible 24 h ; email « copie prête » ; une demande d'export faite depuis l'app est close |
 
 Les horaires du scheduler sont en heure locale (`Africa/Porto-Novo`). **Retries** : backoff exponentiel `JOBS_RETRY_BASE_DELAY × 2^n` (± 25 %), plafonné à `JOBS_RETRY_MAX_DELAY` ; une charge utile illisible part aux archives sans retry. Les tâches périodiques portent une clé d'unicité (pas d'empilement si le worker prend du retard) et peu de retries (la suivante repasse). Files pondérées `critical` 6, `default` 3, `low` 1. Les tâches réussies ne sont pas conservées ; les archivées (échec définitif) le sont par asynq (90 j au plus), sans donnée personnelle en clair.
@@ -1227,6 +1230,7 @@ Source détaillée : [`docs/legal/inventaire-donnees.md`](legal/inventaire-donne
 | Historique des stocks | 12 mois, puis agrégé par jour sans lien avec le gérant (`stock_history_daily`) | `RETENTION_STOCK_HISTORY` | `stock_history` |
 | Demandes d'exercice des droits | 3 ans après la clôture | `RETENTION_DATA_REQUESTS` | `data_requests` |
 | Alertes de modération | 12 mois après la résolution | `RETENTION_ADMIN_ALERTS` | `admin_alerts` |
+| Demandes de déplacement de l'épingle (décidées ou remplacées) | 12 mois après la décision ; en attente : conservées | `RETENTION_LOCATION_REQUESTS` | `location_requests` |
 | Exports admin : fichiers / métadonnées | 24 h / 12 mois | — / `RETENTION_EXPORT_RECORDS` | `export:purge` / `export_records` |
 | Copie « Mes données » | 24 h | — | `personal_exports` (toutes les 15 min) |
 | Statistiques H3 (recherches, fraîcheur) | Sans limite : anonymes (k ≥ 5 à l'affichage et à l'export) | — | — |
@@ -1234,14 +1238,15 @@ Source détaillée : [`docs/legal/inventaire-donnees.md`](legal/inventaire-donne
 | Codes à 6 chiffres, défis 2FA, codes de confirmation des demandes | 15 min, 5 min, 7 j (TTL Redis), détruits après usage ou 5 échecs | — | — |
 | Limiteurs (empreintes d'IP, de compte, d'installation) | 1 min à 1 h (TTL Redis) | — | — |
 | Logs applicatifs (sans IP, position, email ni token) | 30 j, chez l'hébergeur | 10C | — |
+| Rapports de plantage (GlitchTip, D90) | 30 j | `GLITCHTIP_RETENTION_DAYS` | GlitchTip |
 
 Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire) ; alerte de l'admin `PRIVACY_REQUEST_DUE_SOON` (168 h) ; contact indiqué dans les emails : `PRIVACY_CONTACT_EMAIL`.
 
-**Purges** : une tâche asynq quotidienne par règle (D82), par lots, idempotente, qui ne journalise que des compteurs ; `make purge-dry-run` simule. **Sauvegardes** : une donnée purgée disparaît des sauvegardes à l'expiration de la dernière sauvegarde qui la contient ; la rotation (et donc ce délai maximal) est fixée à l'étape 10C et indiquée dans la politique.
+**Purges** : une tâche asynq quotidienne par règle (D82), par lots, idempotente, qui ne journalise que des compteurs ; `make purge-dry-run` simule. **Sauvegardes** (`scripts/backup.sh`, quotidiennes, restic chiffré vers S3, docs/DEPLOY.md §10) : base (pg_dump), fichiers et `.env.production` ; rotation 7 quotidiennes, 4 hebdomadaires, 3 mensuelles, donc une donnée purgée disparaît des sauvegardes 3 mois au plus après (indiqué dans la politique). Redis et GlitchTip ne sont pas sauvegardés.
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D79 : 2026-10-15 ; D80 à D89 : 2026-10-16)
+### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D79 : 2026-10-15 ; D80 à D89 : 2026-10-16 ; D90 et suivantes : 2026-10-21)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1326,7 +1331,7 @@ Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire)
 | D79 | Données des essais sur téléphone | Les essais sur un vrai téléphone passent par l'API de dev (jeton Expo réel) avec des comptes synthétiques créés par l'API réelle, supprimés avec leurs données liées (base, sessions, emails, fichiers) avant la fin de l'étape : aucune donnée de test ne reste dans la base de dev (CLAUDE.md, Tests). |
 | D80 | Copie des données | `POST /me/data-export` met en file `privacy:export` : JSON lisible (rubriques de l'inventaire, explications en français, ce qui n'est pas conservé ; jeton push tronqué ; justificatif en base64 pour un gérant ; sessions Redis), chiffré comme les justificatifs, **24 h**. Téléchargement : lien signé (HMAC, sous-clé `privacy-export-link`, 15 min) **et** session de la personne ; l'app l'enregistre dans son cache, ouvre la feuille de partage (`expo-sharing`) puis supprime le fichier. L'admin peut la générer pour une demande confirmée ; il n'en voit jamais le contenu. Une demande `export` est tracée et close à la génération. |
 | D81 | Demandes de données | `data_requests` : depuis l'app (authentifiée, vérifiée d'office) ou reçues par email et saisies par l'admin, alors confirmées par un code à 6 chiffres envoyé à l'adresse du compte (HMAC dans Redis, sous-clé `privacy-request-code`, 7 j, 5 essais) : aucune action avant. Statuts reçue → en cours → traitée / refusée (réponse ou motif de 3 à 2 000 caractères, envoyé par email), échéance à 30 j (provisoire), accusé de réception avec une référence `DR-XXXXXXXX`, 5 demandes ouvertes au plus par compte, actions admin avec `If-Match` et auditées. Alerte par les compteurs (`/admin/counters`, badge, bandeau du tableau de bord et de l'écran) plutôt que par `admin_alerts` (liées à une station). |
-| D82 | Purges | Une tâche par règle (`retention:<règle>`), planifiées de 3 h 00 à 3 h 12 (une minute d'écart), clé d'unicité de 23 h ; `personal_exports` toutes les 15 min. Chaque règle a un `Count` (simulation) et un `Batch` (lot de 500, au plus 2 000 lots), à horloge injectable ; `TestRetentionPurges` vieillit des lignes et vérifie chaque règle, la simulation sans effet et l'idempotence. |
+| D82 | Purges | Une tâche par règle (`retention:<règle>`), planifiées de 3 h 00 à 3 h 13 (une minute d'écart), clé d'unicité de 23 h ; `personal_exports` toutes les 15 min. Chaque règle a un `Count` (simulation) et un `Batch` (lot de 500, au plus 2 000 lots), à horloge injectable ; `TestRetentionPurges` vieillit des lignes et vérifie chaque règle, la simulation sans effet et l'idempotence. |
 | D83 | Suppression du compte | Anonymisation immédiate dans une transaction (identité, mot de passe, 2FA, motifs libres de l'admin et désactivation), suppression des appareils, favoris, notifications, préférences, alertes et copies, signalements pseudonymisés ; puis révocation des sessions, invalidation du cache de recherche, audit (`cause` : self, request, inactivity) et email de confirmation. Gérant : station approuvée **ou en attente** suspendue avec le motif « Compte du gérant supprimé. », `manager_id` effacé, `manager_deleted_at` posé (départ des 12 mois du justificatif). |
 | D84 | Activité du compte | `last_active_at` : connexion, ou renouvellement de session (au plus une écriture par heure, aussitôt si le compte avait été prévenu) ; une connexion efface l'avertissement d'inactivité. Les admins et les comptes désactivés ne sont pas concernés par la purge d'inactivité. |
 | D85 | Pseudonymes | `pseudonym.Of` : « u_ » + 16 hex de HMAC-SHA256 (sous-clé `export-pseudonym`), le même dans les exports admin et dans `reports.reporter_pseudonym` : les signalements d'un même auteur restent rapprochables sans l'identifier. |
@@ -1334,6 +1339,9 @@ Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire)
 | D87 | Réacceptation | Quand le serveur publie une version (`PRIVACY_POLICY_VERSION`) que le compte n'a pas acceptée, l'app n'ouvre plus que l'écran `policy-update` (lire, accepter, se déconnecter, supprimer le compte). Si l'app ne contient pas cette version, elle demande d'être mise à jour au lieu de faire accepter un texte qu'elle ne montre pas. Testé avec une version 1.1 fictive (`TestPrivacyPolicyNewVersion`, `policy-gate.test.ts`). |
 | D88 | Écran « Mes données » | Compte › Mes données (et l'écran de statut d'un gérant non approuvé) : copie (préparer, suivi toutes les 3 s, partager, nouvelle copie), rectifier (profil), faire une demande (type et précisions), mes demandes (statut, échéance, réponse), supprimer le compte (ce qui est supprimé, conservé et pourquoi ; variante gérant). |
 | D89 | Admin « Demandes de données » | Section des opérations : liste filtrable (À traiter, Traitées, Refusées, Toutes ; type ; en retard), échéance et retard en texte et badge, panneau de détail (personne, précisions, vérification d'identité avec saisie du code, réponse) et actions (prendre en charge, générer la copie, supprimer le compte, clore, refuser) ; enregistrement d'une demande reçue par email. Badge : demandes ouvertes. Jeu d'export `data_requests` : le suivi seulement (type, origine, statut, dates, vérifiée, retard). |
+| D90 | Suivi des plantages | **GlitchTip** auto-hébergé (open source, compatible Sentry) dans le compose de prod (`errors.<domaine>`, une base `glitchtip` dédiée sur le même PostgreSQL, sans Valkey, rôle `all_in_one`, événements gardés 30 jours, inscription fermée). SDK Sentry dans l'API et le worker (5xx et panics, tâches en échec définitif), l'admin (chargé à la demande, erreurs JavaScript seulement, pas les erreurs d'API) et l'app (erreurs JavaScript non attrapées, plantages natifs). Désactivé si le DSN est vide (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). Aucune donnée personnelle : requête, utilisateur et fil d'Ariane retirés, emails, jetons, coordonnées, IP et téléphones masqués avant envoi (tests dans les trois projets) ; utilisateur constant sur mobile (pas d'identifiant d'installation) ; l'IP du client n'atteint jamais GlitchTip (le proxy la remplace). Pas d'envoi des source maps en V1. Inventaire §3 bis, registre, politique. |
+| D91 | Déploiement | Un serveur, `docker-compose.prod.yml` : Caddy (TLS automatique pour `<domaine>`, `api.`, `admin.`, `errors.` ; admin et site public servis en statique depuis l'image `gostation-proxy`), API, worker (une instance), PostGIS, Redis (AOF), OSRM, GlitchTip. Seul Caddy publie des ports ; réseau interne fixe, Caddy seul proxy de confiance ; limites de mémoire et redémarrage automatique pour chaque service. Fichiers chiffrés sur un stockage objet compatible S3 (`STORAGE_DRIVER=s3`). Migrations par `api migrate` dans un conteneur jetable. Exploitation par `scripts/prod.sh` (vérification, déploiement versionné par `git describe`, retour arrière sur images, comptes admin), secrets générés par `scripts/gen-prod-secrets.sh`. Indépendant du fournisseur ; répétable en local (`deploy/rehearsal.compose.yml`). Runbook : `docs/DEPLOY.md`. |
+| D92 | Sauvegardes | Quotidiennes (cron), restic chiffré (AES-256) vers un bucket S3 dédié : `pg_dump -Fc`, fichiers (miroir rclone du bucket ou volume local) et `.env.production`. Rotation 7 quotidiennes, 4 hebdomadaires, 3 mensuelles ; `restic check` partiel chaque jour. Redis et GlitchTip non sauvegardés (une restauration vide Redis : tout le monde se reconnecte). Restauration scriptée et répétée de bout en bout (`scripts/restore.sh`). |
 
 ### Questions ouvertes
 

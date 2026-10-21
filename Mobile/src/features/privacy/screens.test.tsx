@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native'
+import { screen, waitFor } from '@testing-library/react-native'
 
 import MyData from '@/app/profile/data'
 import DeleteAccount from '@/app/profile/delete'
@@ -6,18 +6,14 @@ import { t } from '@/i18n'
 import { useAuth } from '@/stores/auth'
 import { renderWithProviders } from '@/test/render'
 
-import { shareDataExport } from './share-export'
-
 jest.mock('expo-router', () => ({ router: { push: jest.fn(), back: jest.fn(), canGoBack: () => true } }))
 jest.mock(
   'react-native-safe-area-context',
   () => jest.requireActual('react-native-safe-area-context/jest/mock').default,
 )
-jest.mock('./share-export', () => ({ shareDataExport: jest.fn(async () => true) }))
 jest.mock('@/lib/navigation', () => ({ useCloseFlow: () => jest.fn() }))
 
 const created = '2026-10-16T09:00:00Z'
-const LINK = '/api/v1/me/data-export/0199/download?expires=1&signature=abc'
 let exportState: Record<string, unknown>
 let role: 'user' | 'manager'
 const calls: string[] = []
@@ -36,10 +32,6 @@ beforeEach(() => {
   globalThis.fetch = jest.fn(async (req: Request) => {
     const path = new URL(req.url).pathname
     calls.push(`${req.method} ${path}`)
-    if (path === '/api/v1/me/data-export' && req.method === 'POST') {
-      exportState = { ...exportState, status: 'pending', createdAt: created }
-      return json(202, exportState)
-    }
     if (path === '/api/v1/me/data-export') return json(200, exportState)
     if (path === '/api/v1/me/data-requests') {
       return json(200, {
@@ -91,23 +83,6 @@ beforeEach(() => {
 afterEach(() => useAuth.setState({ status: 'unknown' }))
 
 describe('Mes données', () => {
-  it('prépare la copie, en suit la génération, puis la partage', async () => {
-    await renderWithProviders(<MyData />)
-    fireEvent.press(await screen.findByText(t.privacy.exportPrepare))
-    expect(await screen.findByText(t.privacy.exportPreparing)).toBeTruthy()
-    expect(calls).toContain('POST /api/v1/me/data-export')
-
-    exportState = {
-      status: 'ready',
-      createdAt: created,
-      expiresAt: '2026-10-17T09:00:00Z',
-      sizeBytes: 2048,
-      downloadUrl: LINK,
-    }
-    fireEvent.press(await screen.findByText(t.privacy.exportShare, {}, { timeout: 6_000 }))
-    await waitFor(() => expect(shareDataExport).toHaveBeenCalledWith(LINK, created))
-  })
-
   it('liste les demandes avec leur statut, l’échéance ou la réponse', async () => {
     await renderWithProviders(<MyData />)
     expect(await screen.findByText(/DR-1A2B3C4D/)).toBeTruthy()

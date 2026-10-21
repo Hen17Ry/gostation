@@ -15,6 +15,7 @@ import { useMustAcceptPolicy } from '@/features/legal/policy-gate'
 import { useSpace } from '@/features/manager/space'
 import { NotificationsRuntime } from '@/features/notifications/runtime'
 import { bindQueryManagers, createQueryClient, persistOptions } from '@/lib/query-client'
+import { startErrorTracking } from '@/lib/error-tracking'
 import { splashReady } from '@/lib/splash'
 import { configureMapCache } from '@/map/config'
 import { useAuth } from '@/stores/auth'
@@ -27,6 +28,9 @@ SplashScreen.setOptions({ fade: true, duration: 180 })
 const queryClient = createQueryClient()
 bindQueryManagers()
 configureMapCache()
+
+// Suivi des plantages (D90) : actif seulement si EXPO_PUBLIC_SENTRY_DSN est défini.
+startErrorTracking()
 
 export default function RootLayout() {
   return (

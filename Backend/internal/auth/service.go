@@ -116,12 +116,14 @@ func (s *Service) emailFP(email string) string { return EmailFingerprint(s.Email
 
 // openSession crée la session Redis et signe l'access token.
 func (s *Service) openSession(ctx context.Context, uid uuid.UUID, role string, mfa bool, meta ClientMeta) (TokenPair, error) {
-	ttl := s.cfg.RefreshTTL
+	// Admin : 12 h au plus depuis la connexion, même en activité (ASVS 3.3.2) ; utilisateurs et
+	// gérants : durée glissante (l'app reste connectée tant qu'elle sert).
+	ttl, maxAge := s.cfg.RefreshTTL, time.Duration(0)
 	if role == string(dbgen.UserRoleAdmin) {
-		ttl = s.cfg.AdminRefreshTTL
+		ttl, maxAge = s.cfg.AdminRefreshTTL, s.cfg.AdminRefreshTTL
 	}
 	sess, refresh, err := s.Sessions.Create(ctx, Session{
-		UserID: uid, Role: role, Client: meta.Client, UserAgent: meta.UserAgent, MFA: mfa,
+		UserID: uid, Role: role, Client: meta.Client, UserAgent: meta.UserAgent, MFA: mfa, MaxAge: maxAge,
 	}, ttl)
 	if err != nil {
 		return TokenPair{}, err

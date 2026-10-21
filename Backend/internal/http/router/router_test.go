@@ -40,11 +40,12 @@ func newTestRouter(origins ...string) http.Handler {
 		IPRateLimit:        100,
 		IPRateWindow:       time.Minute,
 	}, router.Deps{
-		Log:       log,
-		Responder: rs,
-		Health:    handler.NewHealth(rs, log, time.Second, map[string]handler.Check{}),
-		Products:  noProducts{},
-		Limiter:   allowAll{},
+		Log:        log,
+		Responder:  rs,
+		Health:     handler.NewHealth(rs, log, time.Second, map[string]handler.Check{}),
+		Products:   noProducts{},
+		Limiter:    allowAll{},
+		ClientKeys: middleware.NewClientKeys([]byte("router-test-key")),
 	})
 }
 
@@ -117,5 +118,38 @@ func TestCORS(t *testing.T) {
 	rec = do(h, http.MethodGet, "/api/v1/products", http.Header{"Origin": {"https://evil.example"}})
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("foreign origin must not be allowed, got %q", got)
+	}
+}
+
+// En-têtes de sécurité sur toute réponse : sonde, réponse de l'API, erreur de routage, préflight CORS.
+func TestSecurityHeaders(t *testing.T) {
+	h := newTestRouter("https://admin.gostation.test")
+	want := map[string]string{
+		"Strict-Transport-Security":    "max-age=63072000; includeSubDomains",
+		"X-Content-Type-Options":       "nosniff",
+		"Referrer-Policy":              "no-referrer",
+		"Content-Security-Policy":      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+		"X-Frame-Options":              "DENY",
+		"Cross-Origin-Resource-Policy": "same-origin",
+	}
+	preflight := http.Header{
+		"Origin":                        {"https://admin.gostation.test"},
+		"Access-Control-Request-Method": {http.MethodPost},
+	}
+	for _, tc := range []struct {
+		method, path string
+		header       http.Header
+	}{
+		{http.MethodGet, "/healthz", nil},
+		{http.MethodGet, "/api/v1/products", nil},
+		{http.MethodGet, "/api/v1/nope", nil},
+		{http.MethodOptions, "/api/v1/auth/login", preflight},
+	} {
+		rec := do(h, tc.method, tc.path, tc.header)
+		for k, v := range want {
+			if got := rec.Header().Get(k); got != v {
+				t.Errorf("%s %s: %s = %q, want %q", tc.method, tc.path, k, got, v)
+			}
+		}
 	}
 }

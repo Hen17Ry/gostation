@@ -19,6 +19,7 @@ func env(overrides map[string]string) func(string) string {
 		"OSRM_URL":                 "http://localhost:5000",
 		"JWT_SIGNING_KEYS":         "k2:" + strings.Repeat("ab", 32) + ",k1:" + strings.Repeat("cd", 32),
 		"APP_SECRET":               strings.Repeat("ef", 32),
+		"RATE_LIMIT_KEY":           strings.Repeat("ab", 32),
 		"DOCUMENTS_ENCRYPTION_KEY": strings.Repeat("01", 32),
 	}
 	for k, v := range overrides {
@@ -139,6 +140,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"JWT_SIGNING_KEYS", "k1:abcd"},
 		{"JWT_SIGNING_KEYS", "k1:" + strings.Repeat("ab", 32) + ",k1:" + strings.Repeat("cd", 32)},
 		{"APP_SECRET", "tooshort"},
+		{"RATE_LIMIT_KEY", "tooshort"},
 		{"APP_SECRET", strings.Repeat("zz", 32)},
 		{"DOCUMENTS_ENCRYPTION_KEY", strings.Repeat("ab", 16)},
 		{"COOKIE_SECURE", "maybe"},
@@ -218,5 +220,36 @@ func TestSecretsNeverLeak(t *testing.T) {
 	if out := buf.String(); strings.Contains(out, "s3cret") || strings.Contains(out, strings.Repeat("ef", 32)) ||
 		!strings.Contains(out, `"http_addr":":8080"`) || !strings.Contains(out, `"expo_push":true`) {
 		t.Fatalf("LogValue must hide secrets and keep safe fields, got %s", out)
+	}
+}
+
+func TestStorageDriver(t *testing.T) {
+	cfg, err := config.Load(env(nil))
+	if err != nil || cfg.Documents.Storage.Driver != "local" {
+		t.Fatalf("default storage = %q, %v; want local", cfg.Documents.Storage.Driver, err)
+	}
+	_, err = config.Load(env(map[string]string{"STORAGE_DRIVER": "s3", "S3_ENDPOINT": "https://s3.example.com"}))
+	for _, key := range []string{"S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_ENDPOINT"} {
+		if err == nil || !strings.Contains(err.Error(), key+":") {
+			t.Errorf("incomplete S3 config must report %s, got %v", key, err)
+		}
+	}
+	s3 := map[string]string{
+		"STORAGE_DRIVER": "s3", "S3_ENDPOINT": "s3.fr-par.scw.cloud", "S3_REGION": "fr-par", "S3_BUCKET": "gostation",
+		"S3_ACCESS_KEY_ID": "key", "S3_SECRET_ACCESS_KEY": "secret", "S3_PREFIX": "prod",
+	}
+	cfg, err = config.Load(env(s3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := cfg.Documents.Storage; !st.S3TLS || st.S3PathStyle || st.S3Bucket != "gostation" || st.S3Prefix != "prod" {
+		t.Errorf("s3 storage = %+v", st)
+	}
+	s3["APP_ENV"], s3["SMTP_TLS"], s3["S3_TLS"] = "production", "tls", "false"
+	if _, err := config.Load(env(s3)); err == nil || !strings.Contains(err.Error(), "S3_TLS:") {
+		t.Fatalf("production must require S3 TLS, got %v", err)
+	}
+	if _, err := config.Load(env(map[string]string{"STORAGE_DRIVER": "ftp"})); err == nil {
+		t.Fatal("unknown storage driver accepted")
 	}
 }

@@ -19,6 +19,7 @@ import (
 
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/http/handler"
+	"gostation/backend/internal/http/middleware"
 	"gostation/backend/internal/http/respond"
 	"gostation/backend/internal/http/router"
 	"gostation/backend/internal/platform/osrm"
@@ -100,11 +101,12 @@ func newStack(t *testing.T, ipLimit int) (http.Handler, *atomic.Bool) {
 		IPRateLimit:    ipLimit,
 		IPRateWindow:   time.Minute,
 	}, router.Deps{
-		Log:       log,
-		Responder: rs,
-		Health:    health,
-		Products:  st,
-		Limiter:   ratelimit.New(itRedis, ratelimit.WithPrefix("it:"+t.Name())),
+		Log:        log,
+		Responder:  rs,
+		Health:     health,
+		Products:   st,
+		Limiter:    ratelimit.New(itRedis, ratelimit.WithPrefix("it:"+t.Name())),
+		ClientKeys: middleware.NewClientKeys([]byte("router-integration-test-key")),
 	})
 	return h, osrmHealthy
 }

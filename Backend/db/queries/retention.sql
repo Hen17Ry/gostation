@@ -160,3 +160,16 @@ SELECT count(*) FROM exports WHERE created_at < @before AND status <> 'ready';
 DELETE FROM exports
 WHERE id IN (SELECT e.id FROM exports e WHERE e.created_at < @before AND e.status <> 'ready'
              ORDER BY e.created_at LIMIT @batch_size);
+
+-- name: CountDecidedLocationRequestsBefore :one
+SELECT count(*) FROM station_location_requests
+WHERE status <> 'pending' AND coalesce(reviewed_at, created_at) < @before::timestamptz;
+
+-- name: DeleteDecidedLocationRequestsBatch :execrows
+-- Demandes de déplacement d'épingle décidées (validées, refusées) ou remplacées, 12 mois après la
+-- décision (E6). Une demande remplacée n'a pas de date de décision : sa création fait foi. Les
+-- demandes en attente restent (l'admin doit encore trancher).
+DELETE FROM station_location_requests
+WHERE id IN (SELECT r.id FROM station_location_requests r
+             WHERE r.status <> 'pending' AND coalesce(r.reviewed_at, r.created_at) < @before::timestamptz
+             ORDER BY r.created_at LIMIT @batch_size);

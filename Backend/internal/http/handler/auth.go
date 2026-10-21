@@ -58,6 +58,7 @@ type Auth struct {
 	rs       *respond.Responder
 	svc      *auth.Service
 	limiter  middleware.Limiter
+	keys     *middleware.ClientKeys
 	cookies  Cookies
 	csrfKey  []byte
 	emailKey []byte
@@ -65,23 +66,26 @@ type Auth struct {
 }
 
 // NewAuth construit le handler.
-func NewAuth(rs *respond.Responder, svc *auth.Service, l middleware.Limiter, c Cookies, csrfKey, emailKey []byte, log *slog.Logger) *Auth {
-	return &Auth{rs: rs, svc: svc, limiter: l, cookies: c, csrfKey: csrfKey, emailKey: emailKey, log: log}
+func NewAuth(rs *respond.Responder, svc *auth.Service, l middleware.Limiter, keys *middleware.ClientKeys, c Cookies, csrfKey, emailKey []byte, log *slog.Logger) *Auth {
+	return &Auth{rs: rs, svc: svc, limiter: l, keys: keys, cookies: c, csrfKey: csrfKey, emailKey: emailKey, log: log}
 }
 
 func clientMeta(r *http.Request, client string) auth.ClientMeta {
 	return auth.ClientMeta{Client: client, UserAgent: r.UserAgent()}
 }
 
-// limit applique un quota ; refus → 429 avec Retry-After. Redis indisponible → la requête passe.
+// limit applique un quota ; refus → 429 avec Retry-After. Redis indisponible → 503 : ces routes
+// (connexion, codes, emails) échouent fermées, sinon une panne de Redis ouvrirait l'essai de mots
+// de passe sans limite, la vérification en base continuant de répondre (ASVS 2.2.1). Elles ne
+// peuvent de toute façon pas aboutir sans Redis (sessions, codes).
 func (h *Auth) limit(w http.ResponseWriter, r *http.Request, name, key string, n int, window time.Duration) error {
 	if key == "" {
 		return nil
 	}
 	res, err := h.limiter.Allow(r.Context(), name+":"+key, n, window)
 	if err != nil {
-		h.log.WarnContext(r.Context(), "auth rate limiter unavailable", slog.String("policy", name), slog.Any("err", err))
-		return nil
+		h.log.WarnContext(r.Context(), "auth rate limiter unavailable, request refused", slog.String("policy", name), slog.Any("err", err))
+		return apperr.Unavailable("Service temporarily unavailable, retry later.").Wrap(err)
 	}
 	if !res.Allowed {
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(res.RetryAfter.Seconds()+0.999))))
@@ -91,7 +95,7 @@ func (h *Auth) limit(w http.ResponseWriter, r *http.Request, name, key string, n
 }
 
 func (h *Auth) limitLogin(w http.ResponseWriter, r *http.Request, prefix, email string) error {
-	if err := h.limit(w, r, prefix+"-ip", middleware.ByClientIP(r), loginLimit, loginWindow); err != nil {
+	if err := h.limit(w, r, prefix+"-ip", h.keys.ByClientIP(r), loginLimit, loginWindow); err != nil {
 		return err
 	}
 	return h.limit(w, r, prefix+"-email", auth.EmailFingerprint(h.emailKey, email), loginLimit, loginWindow)
@@ -196,7 +200,8 @@ func (h *Auth) setSessionCookies(w http.ResponseWriter, t auth.TokenPair) string
 func (h *Auth) clearSessionCookies(w http.ResponseWriter) {
 	http.SetCookie(w, h.cookie(h.cookies.Access(), "", "/", -1, true))
 	http.SetCookie(w, h.cookie(h.cookies.Refresh(), "", "/api/v1/auth", -1, true))
-	http.SetCookie(w, h.cookie(h.cookies.CSRF(), "", "/", -1, false))
+	// Effacement : HttpOnly sans effet sur la suppression, et rien à lire pour le JavaScript.
+	http.SetCookie(w, h.cookie(h.cookies.CSRF(), "", "/", -1, true))
 }
 
 type adminSessionResponse struct {
@@ -322,7 +327,7 @@ func (h *Auth) VerifyEmail(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.limit(w, r, "code-ip", middleware.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
+	if err := h.limit(w, r, "code-ip", h.keys.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
 		return err
 	}
 	if err := h.svc.VerifyEmail(r.Context(), req.Email, req.Code); err != nil {
@@ -337,7 +342,7 @@ func (h *Auth) acceptEmailRequest(w http.ResponseWriter, r *http.Request, do fun
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.limit(w, r, "email-ip", middleware.ByClientIP(r), emailIPLimit, emailIPWindow); err != nil {
+	if err := h.limit(w, r, "email-ip", h.keys.ByClientIP(r), emailIPLimit, emailIPWindow); err != nil {
 		return err
 	}
 	if err := do(req.Email); err != nil {
@@ -370,7 +375,7 @@ func (h *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeJSON(r, &req, false); err != nil {
 		return err
 	}
-	if err := h.limit(w, r, "code-ip", middleware.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
+	if err := h.limit(w, r, "code-ip", h.keys.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
 		return err
 	}
 	if err := h.svc.ResetPassword(r.Context(), req.Email, req.Code, req.NewPassword); err != nil {
@@ -578,7 +583,7 @@ func (h *Auth) AdminSecondFactor(w http.ResponseWriter, r *http.Request) error {
 			Message: "mfaToken and exactly one of code or recoveryCode are required",
 		})
 	}
-	if err := h.limit(w, r, "code-ip", middleware.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
+	if err := h.limit(w, r, "code-ip", h.keys.ByClientIP(r), codeIPLimit, codeIPWindow); err != nil {
 		return err
 	}
 	t, p, recovery, err := h.svc.AdminSecondFactor(r.Context(), req.MFAToken, req.Code, req.RecoveryCode, clientMeta(r, auth.ClientWeb))

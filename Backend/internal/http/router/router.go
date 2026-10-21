@@ -37,11 +37,13 @@ type Config struct {
 // Deps regroupe les dépendances injectées. Les groupes auth, me, manager et admin ne sont
 // montés que si leurs handlers sont fournis (tests unitaires du socle).
 type Deps struct {
-	Log           *slog.Logger
-	Responder     *respond.Responder
-	Health        *handler.Health
-	Products      handler.ProductLister
-	Limiter       middleware.Limiter
+	Log       *slog.Logger
+	Responder *respond.Responder
+	Health    *handler.Health
+	Products  handler.ProductLister
+	Limiter   middleware.Limiter
+	// ClientKeys calcule les clés des limiteurs (empreintes HMAC de l'IP, du compte, de l'installation).
+	ClientKeys    *middleware.ClientKeys
 	Authenticator *middleware.Authenticator
 	Auth          *handler.Auth
 	Me            *handler.Me
@@ -77,9 +79,11 @@ func New(cfg Config, d Deps) http.Handler {
 	h := func(fn handler.Func) http.HandlerFunc { return handler.Handle(rs, fn) }
 	r := chi.NewRouter()
 
-	// Ordre : l'identifiant et l'IP d'abord, puis le journal (qui voit le statut final),
-	// puis recover (dont le 500 est journalisé).
+	// Ordre : les en-têtes de sécurité (présents sur toute réponse, 404 et 500 compris),
+	// l'identifiant et l'IP, puis le journal (qui voit le statut final), puis recover (dont le 500
+	// est journalisé).
 	r.Use(
+		middleware.SecurityHeaders,
 		middleware.RequestID,
 		middleware.RealIP(cfg.TrustedProxies),
 		middleware.AccessLog(d.Log),
@@ -112,7 +116,7 @@ func New(cfg Config, d Deps) http.Handler {
 
 	products := handler.NewProducts(rs, d.Products)
 	registerRL := middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
-		Name: "register", Limit: registerLimit, Window: registerWindow, Key: middleware.ByClientIP,
+		Name: "register", Limit: registerLimit, Window: registerWindow, Key: d.ClientKeys.ByClientIP, FailClosed: true,
 	}, d.Log, rs)
 
 	r.Route("/api/v1", func(api chi.Router) {
@@ -120,7 +124,7 @@ func New(cfg Config, d Deps) http.Handler {
 			middleware.Timeout(cfg.RequestTimeout),
 			chimw.Compress(5, "application/json", respond.ContentTypeProblem, respond.ContentTypeGeoJSON, "text/csv"),
 			middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
-				Name: "ip", Limit: cfg.IPRateLimit, Window: cfg.IPRateWindow, Key: middleware.ByClientIP,
+				Name: "ip", Limit: cfg.IPRateLimit, Window: cfg.IPRateWindow, Key: d.ClientKeys.ByClientIP,
 			}, d.Log, rs),
 		)
 
@@ -145,10 +149,10 @@ func New(cfg Config, d Deps) http.Handler {
 					}
 					sr.Use(
 						middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
-							Name: "search-ip", Limit: cfg.SearchIPLimit, Window: time.Minute, Key: middleware.ByClientIP,
+							Name: "search-ip", Limit: cfg.SearchIPLimit, Window: time.Minute, Key: d.ClientKeys.ByClientIP,
 						}, d.Log, rs),
 						middleware.RateLimit(d.Limiter, middleware.RateLimitPolicy{
-							Name: "search-client", Limit: cfg.SearchClientLimit, Window: time.Minute, Key: middleware.ByInstallOrUser,
+							Name: "search-client", Limit: cfg.SearchClientLimit, Window: time.Minute, Key: d.ClientKeys.ByInstallOrUser,
 						}, d.Log, rs),
 					)
 					sr.Get("/search", h(d.Search.Search))

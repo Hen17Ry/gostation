@@ -55,6 +55,7 @@ type Config struct {
 	DataRequests            time.Duration
 	AdminAlerts             time.Duration
 	ExportRecords           time.Duration
+	LocationRequests        time.Duration
 }
 
 // Privacy supprime les comptes inactifs et les copies « mes données » expirées (*privacy.Service).
@@ -307,6 +308,17 @@ func (p *Purger) build() []Rule {
 			},
 			Batch: func(ctx context.Context, now time.Time) (int64, error) {
 				return st.DeleteExportRecordsBatch(ctx, dbgen.DeleteExportRecordsBatchParams{Before: now.Add(-cfg.ExportRecords), BatchSize: BatchSize})
+			},
+		},
+		{
+			Name: "location_requests",
+			Count: func(ctx context.Context, now time.Time) (int64, error) {
+				return st.CountDecidedLocationRequestsBefore(ctx, now.Add(-cfg.LocationRequests))
+			},
+			Batch: func(ctx context.Context, now time.Time) (int64, error) {
+				return st.DeleteDecidedLocationRequestsBatch(ctx, dbgen.DeleteDecidedLocationRequestsBatchParams{
+					Before: now.Add(-cfg.LocationRequests), BatchSize: BatchSize,
+				})
 			},
 		},
 	}

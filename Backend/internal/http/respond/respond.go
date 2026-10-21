@@ -24,14 +24,32 @@ const (
 // problemTypePrefix forme l'URI `type` du problem+json à partir du code stable.
 const problemTypePrefix = "urn:gostation:problem:"
 
+// Reporter envoie une erreur serveur au suivi des plantages (*errtrack.Tracker, D90).
+type Reporter interface {
+	Report(ctx context.Context, err error, tags map[string]string)
+}
+
 // Responder écrit les réponses et journalise les erreurs serveur.
 type Responder struct {
-	log *slog.Logger
+	log      *slog.Logger
+	reporter Reporter
+}
+
+// Option configure le Responder.
+type Option func(*Responder)
+
+// WithReporter envoie aussi chaque erreur serveur (5xx, panics compris) au suivi des plantages.
+func WithReporter(r Reporter) Option {
+	return func(rs *Responder) { rs.reporter = r }
 }
 
 // New construit un Responder.
-func New(log *slog.Logger) *Responder {
-	return &Responder{log: log}
+func New(log *slog.Logger, opts ...Option) *Responder {
+	rs := &Responder{log: log}
+	for _, opt := range opts {
+		opt(rs)
+	}
+	return rs
 }
 
 // JSON écrit v en JSON avec le statut donné.
@@ -66,6 +84,13 @@ func (rs *Responder) Error(w http.ResponseWriter, r *http.Request, err error) {
 			slog.String("code", appErr.Code),
 			slog.String("path", r.URL.Path),
 			slog.Any("err", err))
+		if rs.reporter != nil {
+			// Le chemin peut porter des identifiants : seul le modèle de route est transmis.
+			rs.reporter.Report(ctx, err, map[string]string{
+				"route": routePattern(r), "method": r.Method, "code": appErr.Code,
+				"status": fmt.Sprint(appErr.Status), "request_id": httpctx.RequestID(ctx),
+			})
+		}
 	}
 	rs.WriteProblem(w, r, appErr)
 }

@@ -41,7 +41,6 @@ import (
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
-	"gostation/backend/internal/platform/storage"
 	"gostation/backend/internal/privacy"
 	"gostation/backend/internal/report"
 	"gostation/backend/internal/station"
@@ -136,7 +135,7 @@ func setup(ctx context.Context, getenv func(string) string) (*fixer, func(), err
 		closeAll()
 		return nil, nil, err
 	}
-	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
+	docs, err := app.OpenStorage(ctx, cfg)
 	if err != nil {
 		closeAll()
 		return nil, nil, err

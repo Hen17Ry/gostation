@@ -64,7 +64,7 @@ Mesures de sécurité communes à tous les traitements : HTTPS, mots de passe ar
 | Personnes | Gérants |
 | Données | Station (nom, marque, IFU, RCCM, adresse, ville, téléphone, position), justificatif IFU ou RCCM, distance et précision GPS à l'épinglage, historique des stocks |
 | Destinataires | Public (fiche de station : nom, marque, adresse, ville, position, horaires, stocks ; ni IFU, ni RCCM, ni téléphone) ; administrateurs |
-| Conservation | Station : durée de son activité [à fixer après suppression du gérant] ; justificatif : station active, 6 mois après un refus, 12 mois après la suppression du gérant ; historique des stocks : 12 mois puis agrégé sans auteur |
+| Conservation | Station : durée de son activité [à fixer après suppression du gérant] ; justificatif : station active, 6 mois après un refus, 12 mois après la suppression du gérant ; historique des stocks : 12 mois puis agrégé sans auteur ; demandes de déplacement de l'épingle : 12 mois après la décision |
 
 ## T6. Signalements et modération
 
@@ -108,3 +108,14 @@ Mesures de sécurité communes à tous les traitements : HTTPS, mots de passe ar
 | Données | Identifiant de requête, route, statut, durée, identifiant du compte (UUID) ; jamais IP, position, email, token ni contenu de notification |
 | Destinataires | Équipe technique ; hébergeur |
 | Conservation | 30 jours (10C) |
+
+## T10. Suivi des plantages
+
+| Rubrique | Contenu |
+|---|---|
+| Finalité | Détecter et corriger les erreurs de l'API, du worker, de l'admin et de l'application |
+| Base légale | Intérêt légitime (sécurité et fiabilité du service) |
+| Personnes | Utilisateurs de l'application et de l'admin dont l'appareil rencontre une erreur |
+| Données | Trace technique de l'erreur, modèle et système de l'appareil ou du navigateur, version ; ni position, ni email, ni identifiant de compte ou d'appareil, ni adresse IP (masquage avant envoi, IP retirée par le proxy) |
+| Destinataires | Équipe technique (GlitchTip auto-hébergé, aucun sous-traitant) |
+| Conservation | 30 jours |

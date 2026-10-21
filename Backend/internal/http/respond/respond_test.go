@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/http/httpctx"
 	"gostation/backend/internal/http/respond"
@@ -155,5 +157,45 @@ func TestJSON(t *testing.T) {
 	if rec.Code != http.StatusCreated || rec.Header().Get("Content-Type") != respond.ContentTypeJSON ||
 		strings.TrimSpace(rec.Body.String()) != `{"n":1}` {
 		t.Errorf("got %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+type fakeReporter struct {
+	errs []error
+	tags []map[string]string
+}
+
+func (f *fakeReporter) Report(_ context.Context, err error, tags map[string]string) {
+	f.errs = append(f.errs, err)
+	f.tags = append(f.tags, tags)
+}
+
+// Suivi des plantages (D90) : seules les erreurs serveur partent, avec le modèle de route et
+// jamais le chemin réel ni la query string.
+func TestErrorReportsServerErrorsOnly(t *testing.T) {
+	rep := &fakeReporter{}
+	rs := respond.New(slog.New(slog.DiscardHandler), respond.WithReporter(rep))
+	r := chi.NewRouter()
+	r.Get("/api/v1/stations/{id}", func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Query().Get("fail") == "server" {
+			rs.Error(w, req, errors.New("db down"))
+			return
+		}
+		rs.Error(w, req, apperr.New(http.StatusNotFound, apperr.CodeRouteNotFound, "nope"))
+	})
+	for _, target := range []string{"/api/v1/stations/0190?fail=client", "/api/v1/stations/0190?fail=server&lat=6.3703"} {
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil))
+	}
+	if len(rep.errs) != 1 || rep.errs[0].Error() != "db down" {
+		t.Fatalf("reported %v, want only the 500", rep.errs)
+	}
+	tags := rep.tags[0]
+	if tags["route"] != "/api/v1/stations/{id}" || tags["status"] != "500" || tags["method"] != http.MethodGet {
+		t.Errorf("tags = %v", tags)
+	}
+	for _, v := range tags {
+		if strings.Contains(v, "0190") || strings.Contains(v, "6.3703") {
+			t.Errorf("tag leaks the path or query: %v", tags)
+		}
 	}
 }

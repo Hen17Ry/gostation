@@ -18,7 +18,8 @@ import (
 
 // Structure Redis des sessions (une session = une famille de refresh tokens) :
 //
-//	auth:sess:{sid}           HASH  uid, role, client, ua, mfa, created_at, last_used_at, current (hash du token courant)
+//	auth:sess:{sid}           HASH  uid, role, client, ua, mfa, created_at, last_used_at, current (hash du token courant),
+//	                                ttl_ms (durée glissante), deadline_ms (fin absolue, si MaxAge)
 //	auth:rt:{sha256(token)}   STR   sid tant que le token est courant, puis « used:{sid} » après rotation
 //	auth:user:{uid}:sess      SET   sids de l'utilisateur
 //
@@ -54,6 +55,10 @@ type Session struct {
 	MFA        bool
 	CreatedAt  time.Time
 	LastUsedAt time.Time
+	// MaxAge plafonne la durée de vie de la session depuis sa création (0 : glissante sans
+	// plafond). Les sessions admin l'utilisent : un admin actif se reconnecte au bout de 12 h
+	// (ASVS 3.3.2).
+	MaxAge time.Duration
 }
 
 // RevokeHook est appelé après la révocation d'une session (suppression de son appareil push).
@@ -111,13 +116,18 @@ func (s *SessionStore) Create(ctx context.Context, sess Session, ttl time.Durati
 	token := newRefreshToken()
 	th := hashToken(token)
 	ms := strconv.FormatInt(now.UnixMilli(), 10)
+	fields := map[string]any{
+		"uid": sess.UserID.String(), "role": sess.Role, "client": sess.Client, "ua": sess.UserAgent,
+		"mfa": strconv.FormatBool(sess.MFA), "created_at": ms, "last_used_at": ms, "current": th,
+		"ttl_ms": strconv.FormatInt(ttl.Milliseconds(), 10),
+	}
+	if sess.MaxAge > 0 {
+		ttl = min(ttl, sess.MaxAge)
+		fields["deadline_ms"] = strconv.FormatInt(now.Add(sess.MaxAge).UnixMilli(), 10)
+	}
 
 	_, err := s.rdb.TxPipelined(ctx, func(p goredis.Pipeliner) error {
-		p.HSet(ctx, sessionPrefix+sess.ID, map[string]any{
-			"uid": sess.UserID.String(), "role": sess.Role, "client": sess.Client, "ua": sess.UserAgent,
-			"mfa": strconv.FormatBool(sess.MFA), "created_at": ms, "last_used_at": ms, "current": th,
-			"ttl_ms": strconv.FormatInt(ttl.Milliseconds(), 10),
-		})
+		p.HSet(ctx, sessionPrefix+sess.ID, fields)
 		p.PExpire(ctx, sessionPrefix+sess.ID, ttl)
 		p.Set(ctx, refreshPrefix+th, sess.ID, ttl)
 		p.SAdd(ctx, userSessKey(sess.UserID), sess.ID)
@@ -132,7 +142,7 @@ func (s *SessionStore) Create(ctx context.Context, sess Session, ttl time.Durati
 
 // Rotation atomique. KEYS[1] = auth:rt:{ancien hash}. ARGV : nouveau hash, now (ms).
 // Retourne {"ok", sid} | {"reused", sid} | {"invalid"}. La durée de vie de la session est
-// glissante : chaque rotation la repousse de ttl_ms.
+// glissante : chaque rotation la repousse de ttl_ms, sans dépasser deadline_ms s'il existe.
 const rotateScript = `
 local v = redis.call('GET', KEYS[1])
 if not v then return {'invalid'} end
@@ -140,6 +150,12 @@ if string.sub(v, 1, 5) == 'used:' then return {'reused', string.sub(v, 6)} end
 local skey = 'auth:sess:' .. v
 local ttl = tonumber(redis.call('HGET', skey, 'ttl_ms'))
 if not ttl then return {'invalid'} end
+local deadline = tonumber(redis.call('HGET', skey, 'deadline_ms'))
+if deadline then
+  local left = deadline - tonumber(ARGV[2])
+  if left <= 0 then return {'invalid'} end
+  if left < ttl then ttl = left end
+end
 local remaining = redis.call('PTTL', KEYS[1])
 if remaining < 1000 then remaining = 1000 end
 redis.call('SET', KEYS[1], 'used:' .. v, 'PX', remaining)
@@ -217,10 +233,14 @@ func parseSession(sid string, m map[string]string) (Session, error) {
 	}
 	created, _ := strconv.ParseInt(m["created_at"], 10, 64)
 	used, _ := strconv.ParseInt(m["last_used_at"], 10, 64)
-	return Session{
+	sess := Session{
 		ID: sid, UserID: uid, Role: m["role"], Client: m["client"], UserAgent: m["ua"],
 		MFA: m["mfa"] == "true", CreatedAt: time.UnixMilli(created), LastUsedAt: time.UnixMilli(used),
-	}, nil
+	}
+	if deadline, err := strconv.ParseInt(m["deadline_ms"], 10, 64); err == nil {
+		sess.MaxAge = time.UnixMilli(deadline).Sub(sess.CreatedAt)
+	}
+	return sess, nil
 }
 
 // Exists indique si la session est toujours active (vérifié à chaque requête authentifiée :

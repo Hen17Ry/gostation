@@ -1,0 +1,70 @@
+# Backend Go : lint, code généré à jour, tests unitaires et d'intégration (testcontainers),
+# govulncheck. Ne tourne que si Backend/ (ou ce fichier) change.
+name: Backend
+
+on:
+  push:
+    paths:
+      - "Backend/**"
+      - ".github/workflows/backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: Backend
+
+env:
+  # Versions figées, identiques au Makefile (make tools).
+  GOLANGCI_VERSION: v2.14.0
+  SQLC_VERSION: v1.31.1
+  GOVULNCHECK_VERSION: v1.9.0
+
+jobs:
+  checks:
+    name: Lint, code généré, govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: Backend/go.mod
+          cache-dependency-path: Backend/go.sum
+      - name: golangci-lint (lint + formatage gci/gofumpt)
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ env.GOLANGCI_VERSION }}
+          working-directory: Backend
+      - name: sqlc à jour
+        run: |
+          go run github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION} generate
+          git diff --exit-code -- internal/store/dbgen || { echo "::error::internal/store/dbgen n'est pas à jour : make sqlc"; exit 1; }
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+
+  test:
+    name: Tests (unitaires + intégration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: Backend/go.mod
+          cache-dependency-path: Backend/go.sum
+      # PostGIS, Redis et Mailpit jetables (mêmes images que le compose), démarrés par les tests.
+      # La concordance spec OpenAPI ↔ routes servies est vérifiée par internal/http/router.
+      - name: go test -race (tag integration)
+        # Ryuk (le conteneur de nettoyage de testcontainers) dépassait son délai de démarrage
+        # quand une trentaine de paquets lancent leurs conteneurs ensemble sur 2 vCPU. Le runner
+        # est jetable et chaque paquet arrête ses conteneurs (TestMain) : il est inutile ici.
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "true"
+        run: go test -race -count=1 -tags integration ./...

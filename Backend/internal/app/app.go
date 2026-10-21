@@ -31,6 +31,7 @@ import (
 	"gostation/backend/internal/mail"
 	"gostation/backend/internal/notification"
 	"gostation/backend/internal/platform/crypto"
+	"gostation/backend/internal/platform/errtrack"
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/storage"
 	"gostation/backend/internal/privacy"
@@ -59,6 +60,9 @@ type Infra struct {
 	OSRM *osrm.Client
 	// Pusher remplace celui de la configuration (Expo si EXPO_ACCESS_TOKEN, factice sinon).
 	Pusher push.Pusher
+	// Errors envoie les erreurs serveur au suivi des plantages (GlitchTip, D90) ; nil ou sans DSN :
+	// rien n'est envoyé.
+	Errors *errtrack.Tracker
 	// Clock remplace l'horloge des rappels, des alertes favoris, des stats admin, des exports et
 	// des quotas (tests d'intégration).
 	Clock func() time.Time
@@ -91,6 +95,8 @@ type Services struct {
 	Audit     *audit.Reader
 	// Étape 10A : droits des personnes (demandes, copie des données, suppression du compte).
 	Privacy *privacy.Service
+	// Suivi des plantages (Infra.Errors).
+	Errors *errtrack.Tracker
 	// Clés dérivées d'APP_SECRET (une par usage).
 	CSRFKey  []byte
 	EmailKey []byte
@@ -209,7 +215,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	}, st, infra.Redis, cache, osrmClient, searchstats.NewRecorder(infra.Redis), log)
 
 	return &Services{
-		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient,
+		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient, Errors: infra.Errors,
 		Stats: searchstats.NewFlusher(infra.Redis, st, cfg.Timezone, log), Limiter: limiter,
 		Sessions: sessions, Tokens: tokens, CSRFKey: csrfKey, EmailKey: emailKey,
 		Jobs: jobsClient, Emails: emails, Pusher: pusher, Notifications: notifSvc,
@@ -229,6 +235,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 			Reports: cfg.Retention.Reports, AuditLogs: cfg.Retention.AuditLogs, RejectedDocuments: cfg.Retention.RejectedDocuments,
 			DeletedStationDocuments: cfg.Retention.DeletedStationDocuments, StockHistory: cfg.Retention.StockHistory,
 			DataRequests: cfg.Retention.DataRequests, AdminAlerts: cfg.Retention.AdminAlerts, ExportRecords: cfg.Retention.ExportRecords,
+			LocationRequests: cfg.Retention.LocationRequests,
 		}, retention.Deps{
 			Store: st, Storage: infra.Storage, Privacy: privacySvc, Mailer: emails, Templates: renderer,
 			PseudonymKey: pseudonymKey, Log: log, Clock: infra.Clock,
@@ -246,6 +253,20 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 		Audit:   audit.NewReader(st),
 		Privacy: privacySvc,
 	}, nil
+}
+
+// OpenStorage ouvre le stockage des fichiers chiffrés choisi par STORAGE_DRIVER (cmd/api,
+// cmd/worker et cmd/e2efixtures partagent ainsi le même choix).
+func OpenStorage(ctx context.Context, cfg config.Config) (storage.Storage, error) {
+	st := cfg.Documents.Storage
+	if st.Driver != "s3" {
+		return storage.NewLocal(cfg.Documents.StorageDir)
+	}
+	return storage.NewS3(ctx, storage.S3Config{
+		Endpoint: st.S3Endpoint, Region: st.S3Region, Bucket: st.S3Bucket,
+		AccessKey: st.S3AccessKey, SecretKey: st.S3SecretKey,
+		TLS: st.S3TLS, PathStyle: st.S3PathStyle, Prefix: st.S3Prefix,
+	})
 }
 
 // newPusher choisit Expo si EXPO_ACCESS_TOKEN est défini, le Pusher factice sinon (journal du
@@ -281,7 +302,7 @@ func NewWorker(cfg config.Config, svc *Services, infra Infra, log *slog.Logger, 
 	}, infra.Redis, worker.Tasks{
 		SMTP: infra.Mailer, Emails: svc.Emails, Stats: svc.Stats, Notifications: svc.Notifications,
 		Reminders: svc.Reminders, Favorites: svc.Favorites, Retention: svc.Retention,
-		Analytics: svc.Analytics, Exports: svc.Exports, Privacy: svc.Privacy,
+		Analytics: svc.Analytics, Exports: svc.Exports, Privacy: svc.Privacy, Errors: svc.Errors,
 	}, log)
 }
 
@@ -290,14 +311,15 @@ const readinessTimeout = 2 * time.Second
 
 // NewHandler construit le handler HTTP et les sondes de santé.
 func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog.Logger) (http.Handler, *handler.Health) {
-	rs := respond.New(log)
+	rs := respond.New(log, respond.WithReporter(svc.Errors))
 	health := handler.NewHealth(rs, log, readinessTimeout, map[string]handler.Check{
 		"postgres": svc.Store.Ping,
 		"redis":    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 		"osrm":     svc.OSRM.Ping,
 	})
 	cookies := handler.Cookies{Secure: cfg.Auth.CookieSecure}
-	authHandler := handler.NewAuth(rs, svc.Auth, svc.Limiter, cookies, svc.CSRFKey, svc.EmailKey, log)
+	clientKeys := middleware.NewClientKeys(cfg.RateLimit.Key)
+	authHandler := handler.NewAuth(rs, svc.Auth, svc.Limiter, clientKeys, cookies, svc.CSRFKey, svc.EmailKey, log)
 
 	h := router.New(router.Config{
 		RequestTimeout:     cfg.HTTP.RequestTimeout,
@@ -315,6 +337,7 @@ func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog
 		Health:        health,
 		Products:      svc.Store,
 		Limiter:       svc.Limiter,
+		ClientKeys:    clientKeys,
 		Authenticator: middleware.NewAuthenticator(svc.Tokens, svc.Sessions, svc.CSRFKey, cookies.Access(), rs),
 		Auth:          authHandler,
 		Me:            handler.NewMe(rs, svc.Auth, authHandler, svc.Privacy),

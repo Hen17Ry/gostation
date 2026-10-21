@@ -6,7 +6,8 @@
 #                      (var/e2e/fixtures.json), puis lance le pilotage des parcours mobiles
 #                      (e2efixtures serve, 127.0.0.1:8097), le worker et l'API sur 127.0.0.1:8095
 #                      (au premier plan : Playwright l'arrête à la fin des tests) ;
-#   e2e-stack.sh down  supprime la base gostation_e2e, vide la base Redis 15 et les justificatifs.
+#   e2e-stack.sh down  supprime la base gostation_e2e, vide la base Redis 15 et les justificatifs,
+#                      efface de Mailpit les emails des comptes de test (@example.bj).
 #
 # Utilise PostGIS et Redis du compose (make up) et Mailpit pour les emails. Lancé par
 # Web/playwright.config.ts (webServer et globalTeardown).
@@ -34,11 +35,20 @@ redis_url="$(printf '%s' "$base_redis_url" | sed -E "s#/[0-9]+\$##")/${E2E_REDIS
 psql_admin() { compose exec -T postgres psql -q -U "$pg_user" -d postgres -v ON_ERROR_STOP=1 "$@"; }
 flush_redis() { compose exec -T redis redis-cli -n "$E2E_REDIS_DB" FLUSHDB > /dev/null; }
 
+# Emails des comptes de test (fixtures et admin des E2E : tous en @example.bj) dans Mailpit.
+purge_mails() {
+  local port
+  port="$(env_get MAILPIT_UI_PORT)"
+  curl -fsS -o /dev/null -X DELETE "http://127.0.0.1:${port:-8025}/api/v1/search?query=to%3A%22%40example.bj%22" ||
+    warn "emails de test non supprimés de Mailpit (Mailpit arrêté ?)"
+}
+
 down() {
   psql_admin -c "DROP DATABASE IF EXISTS ${E2E_DB} WITH (FORCE)"
   flush_redis
   rm -rf "$E2E_DIR/documents"
-  ok "pile E2E nettoyée (base ${E2E_DB} supprimée)"
+  purge_mails
+  ok "pile E2E nettoyée (base ${E2E_DB} supprimée, emails de test effacés)"
 }
 
 up() {

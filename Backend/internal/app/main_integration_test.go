@@ -93,7 +93,7 @@ func runTests(m *testing.M) (code int) {
 
 	env := map[string]string{
 		"DATABASE_URL": dsn, "REDIS_URL": redisURL, "OSRM_URL": osrmSrv.URL, "OSRM_TIMEOUT": "300ms",
-		"JWT_SIGNING_KEYS": "it-key:" + randomHex(32), "APP_SECRET": randomHex(32),
+		"JWT_SIGNING_KEYS": "it-key:" + randomHex(32), "APP_SECRET": randomHex(32), "RATE_LIMIT_KEY": randomHex(32),
 		"DOCUMENTS_ENCRYPTION_KEY": randomHex(32), "SMTP_HOST": mp.SMTPHost, "SMTP_PORT": fmt.Sprint(mp.SMTPPort),
 		"EXPO_ACCESS_TOKEN": "it-expo-token", "EXPO_PUSH_URL": expoSrv.URL, "PUSH_RECEIPTS_DELAY": "300ms",
 		"JOBS_RETRY_BASE_DELAY": "100ms", "JOBS_RETRY_MAX_DELAY": "400ms",

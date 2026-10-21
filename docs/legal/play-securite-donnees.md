@@ -25,7 +25,7 @@
 | Activité dans l'application | Interactions (favoris, alertes, signalements) | Oui | Non | Facultative | Fonctionnalités de l'application |
 | Activité dans l'application | Autre contenu généré (commentaire d'un signalement) | Oui | Non | Facultative | Fonctionnalités de l'application |
 | Identifiants de l'appareil ou autres | Identifiant d'installation, jeton de notification | Oui | Non | Identifiant : oui ; jeton : si les notifications sont autorisées | Fonctionnalités de l'application, sécurité (quotas) |
-| Infos et performances de l'appli | Journaux de plantage, diagnostics | **Non** | — | — | — |
+| Infos et performances de l'appli | Journaux de plantage | Oui, si le suivi des plantages est activé (D90) | Non (serveur GlitchTip auto-hébergé) | Obligatoire (pas de réglage dans l'app) | Analyses (correction des erreurs) ; données traitées de façon éphémère : non, 30 jours |
 | Historique de navigation, contacts, messages, santé, finances, audio | — | Non | — | — | — |
 
 Ni publicité, ni analyse d'audience, ni vente de données.

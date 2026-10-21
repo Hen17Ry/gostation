@@ -28,11 +28,11 @@ import (
 	"gostation/backend/internal/http/handler"
 	"gostation/backend/internal/http/respond"
 	"gostation/backend/internal/mail"
+	"gostation/backend/internal/platform/errtrack"
 	"gostation/backend/internal/platform/healthprobe"
 	"gostation/backend/internal/platform/logging"
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
-	"gostation/backend/internal/platform/storage"
 )
 
 // version est injectée au build (-ldflags "-X main.version=…").
@@ -97,11 +97,18 @@ func connect(ctx context.Context, getenv func(string) string, stdout io.Writer) 
 	if err != nil {
 		return
 	}
-	docs, err := storage.NewLocal(cfg.Documents.StorageDir)
+	docs, err := app.OpenStorage(ctx, cfg)
 	if err != nil {
 		return
 	}
-	infra = app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs}
+	errs, err := errtrack.New(errtrack.Config{
+		DSN: cfg.ErrorTracking.DSN, Environment: cfg.ErrorTracking.Environment, Release: version, Service: "worker",
+	})
+	if err != nil {
+		return
+	}
+	closers = append(closers, func() { errs.Flush(2 * time.Second) })
+	infra = app.Infra{Pool: pool, Redis: rdb, Mailer: smtp, Storage: docs, Errors: errs}
 	if svc, err = app.NewServices(cfg, infra, log); err != nil {
 		return
 	}

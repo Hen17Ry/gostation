@@ -24,6 +24,7 @@ declare -A SOURCE=(
   [change-me-redis]=REDIS_PASSWORD
   [change-me-documents-key]=DOCUMENTS_ENCRYPTION_KEY
   [change-me-app-secret]=APP_SECRET
+  [change-me-rate-limit-key]=RATE_LIMIT_KEY
   [change-me-jwt-signing-keys]=JWT_SIGNING_KEYS
 )
 declare -A VALUE=()

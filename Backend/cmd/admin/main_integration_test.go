@@ -49,7 +49,7 @@ func runTests(m *testing.M) int {
 	testPool = pool
 	testEnv = map[string]string{
 		"DATABASE_URL": dsn, "REDIS_URL": redisURL, "OSRM_URL": "http://127.0.0.1:9",
-		"JWT_SIGNING_KEYS": "k1:" + secret(), "APP_SECRET": secret(), "DOCUMENTS_ENCRYPTION_KEY": secret(),
+		"JWT_SIGNING_KEYS": "k1:" + secret(), "APP_SECRET": secret(), "RATE_LIMIT_KEY": secret(), "DOCUMENTS_ENCRYPTION_KEY": secret(),
 	}
 	return m.Run()
 }

@@ -5,7 +5,7 @@ export const privacyPolicy: LegalDocument = {
   meta: {
     title: 'Politique de confidentialité',
     version: '1.0',
-    updated: '16 octobre 2026',
+    updated: '21 octobre 2026',
   },
   blocks: [
     {
@@ -160,6 +160,15 @@ export const privacyPolicy: LegalDocument = {
           },
           {
             text: ", sous une forme anonyme : nous comptons les recherches par zone d'environ 5 km² et par heure, sans lien avec vous, pour repérer les pénuries.",
+          },
+        ],
+        [
+          {
+            text: 'Les rapports de plantage',
+            bold: true,
+          },
+          {
+            text: ", si l'application rencontre une erreur : la trace technique de l'erreur, le modèle et le système du téléphone, la version de l'application. Ils partent vers notre propre serveur de suivi des erreurs, sans votre position, sans votre adresse email, sans identifiant de compte ni d'appareil, et sans votre adresse IP. Ils servent seulement à corriger les erreurs.",
           },
         ],
       ],
@@ -682,6 +691,18 @@ export const privacyPolicy: LegalDocument = {
         [
           [
             {
+              text: "Demandes de déplacement de l'épingle d'une station",
+            },
+          ],
+          [
+            {
+              text: '12 mois après la décision',
+            },
+          ],
+        ],
+        [
+          [
+            {
               text: 'Journal de sécurité (actions sur les comptes et les stations)',
             },
           ],
@@ -718,6 +739,18 @@ export const privacyPolicy: LegalDocument = {
         [
           [
             {
+              text: 'Rapports de plantage',
+            },
+          ],
+          [
+            {
+              text: '30 jours',
+            },
+          ],
+        ],
+        [
+          [
+            {
               text: 'Statistiques de recherche par zone',
             },
           ],
@@ -733,7 +766,7 @@ export const privacyPolicy: LegalDocument = {
       type: 'paragraph',
       text: [
         {
-          text: 'Les sauvegardes de nos serveurs suivent une rotation : une donnée supprimée en disparaît au plus tard [À COMPLÉTER : durée de rotation des sauvegardes] après sa suppression.',
+          text: 'Les sauvegardes de nos serveurs, chiffrées, suivent une rotation : une donnée supprimée en disparaît au plus tard 3 mois après sa suppression.',
         },
       ],
     },

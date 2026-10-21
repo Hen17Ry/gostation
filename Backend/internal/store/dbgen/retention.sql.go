@@ -119,6 +119,18 @@ func (q *Queries) CountClosedDataRequestsBefore(ctx context.Context, before *tim
 	return count, err
 }
 
+const countDecidedLocationRequestsBefore = `-- name: CountDecidedLocationRequestsBefore :one
+SELECT count(*) FROM station_location_requests
+WHERE status <> 'pending' AND coalesce(reviewed_at, created_at) < $1::timestamptz
+`
+
+func (q *Queries) CountDecidedLocationRequestsBefore(ctx context.Context, before time.Time) (int64, error) {
+	row := q.db.QueryRow(ctx, countDecidedLocationRequestsBefore, before)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDocumentsToDelete = `-- name: CountDocumentsToDelete :one
 SELECT count(*) FROM stations
 WHERE document_object_key IS NOT NULL
@@ -289,6 +301,29 @@ type DeleteClosedDataRequestsBatchParams struct {
 // Preuve de conformité : demandes closes depuis 3 ans.
 func (q *Queries) DeleteClosedDataRequestsBatch(ctx context.Context, arg DeleteClosedDataRequestsBatchParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteClosedDataRequestsBatch, arg.Before, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteDecidedLocationRequestsBatch = `-- name: DeleteDecidedLocationRequestsBatch :execrows
+DELETE FROM station_location_requests
+WHERE id IN (SELECT r.id FROM station_location_requests r
+             WHERE r.status <> 'pending' AND coalesce(r.reviewed_at, r.created_at) < $1::timestamptz
+             ORDER BY r.created_at LIMIT $2)
+`
+
+type DeleteDecidedLocationRequestsBatchParams struct {
+	Before    time.Time `json:"before"`
+	BatchSize int32     `json:"batchSize"`
+}
+
+// Demandes de déplacement d'épingle décidées (validées, refusées) ou remplacées, 12 mois après la
+// décision (E6). Une demande remplacée n'a pas de date de décision : sa création fait foi. Les
+// demandes en attente restent (l'admin doit encore trancher).
+func (q *Queries) DeleteDecidedLocationRequestsBatch(ctx context.Context, arg DeleteDecidedLocationRequestsBatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDecidedLocationRequestsBatch, arg.Before, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}

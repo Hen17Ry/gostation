@@ -26,7 +26,7 @@
 | Seuils de signalements | `station_report_flags` (nombre d'auteurs, pas leur identité) | Badges et exclusion | IL | Durée de la station | Public (badge), admin |
 | Station | `stations.name`, `brand`, `ifu`, `rccm`, `address`, `city`, `phone`, `location`, `manager_id`, statut et motifs | Annuaire des stations, vérification du gérant | Contrat, IL | Durée de la station. À la suppression du compte du gérant : station suspendue, `manager_id` effacé, `manager_deleted_at` posé. **Aucune durée fixée ensuite** (écart E5) | Public (nom, marque, adresse, ville, position, horaires, stocks) ; admin (tout) ; gérant |
 | Justificatif (IFU, RCCM) | `stations.document_*` et fichier chiffré `stations/<station>/<uuid>.bin` (enveloppe AES-256-GCM) | Vérifier que la station existe et que le gérant la représente | IL [obligation à confirmer] | Tant que la station est active ; 6 mois après un refus sans renvoi ; 12 mois après la suppression du compte du gérant (purge `station_documents`) | Admin (visionneuse), gérant (copie de ses données) |
-| Contrôle de position à l'épinglage | `stations.location_flag_distance_m`, `location_flag_accuracy_m` ; `station_location_requests.device_distance_m`, `device_accuracy_m`, `requested_by` | Vraisemblance de l'épingle (D13) ; la position du téléphone n'est jamais stockée | IL | Station : sa durée. Demandes de déplacement : **aucune purge** (écart E6) | Admin |
+| Contrôle de position à l'épinglage | `stations.location_flag_distance_m`, `location_flag_accuracy_m` ; `station_location_requests.device_distance_m`, `device_accuracy_m`, `requested_by` | Vraisemblance de l'épingle (D13) ; la position du téléphone n'est jamais stockée | IL | Station : sa durée. Demandes de déplacement : 12 mois après la décision (`retention:location_requests`, `RETENTION_LOCATION_REQUESTS`) | Admin |
 | Horaires et fermetures | `station_opening_hours`, `station_closures.created_by`, `reason` | Exécution du service | Contrat | Durée de la station | Public (horaires), gérant, admin |
 | Historique des stocks | `stock_history.changed_by`, quantités, source | Fiabilité, statistiques | IL | 12 mois, puis agrégé par jour dans `stock_history_daily`, **sans l'auteur** | Admin, gérant (copie) |
 | Rappels de stock | `station_reminders` (compteurs par station) | Rappels aux gérants | Contrat | Durée de la station | Système |
@@ -45,7 +45,7 @@
 | `auth:sess:<id>`, `auth:rt:<empreinte>`, `auth:user:<uid>:sess` | Session : identifiant du compte, rôle, client, user agent (version de l'app, système, modèle d'appareil), dates ; empreinte du refresh token | 30 jours glissants (12 h pour un admin) ; supprimées à la déconnexion et à la révocation |
 | `auth:mfa:<jeton>`, `auth:totp:last:<uid>` | Défi 2FA admin, dernier pas TOTP accepté (anti-rejeu) | 5 minutes ; durée d'un pas TOTP |
 | `otp:<usage>:<uid>`, `otp:cooldown:…` | Empreinte HMAC du code à 6 chiffres (vérification de l'email, mot de passe oublié) | 15 minutes ; détruit après usage ou 5 échecs |
-| `rl:{ip:…}`, `rl:{u:…}`, `rl:{i:…}`, connexion par email | Compteurs de limitation : empreinte SHA-256 tronquée de l'IP, du compte ou de l'installation ; email en HMAC à clé | De 1 minute à 1 heure (fenêtres) |
+| `rl:{ip:…}`, `rl:{u:…}`, `rl:{i:…}`, connexion par email | Compteurs de limitation : empreinte HMAC-SHA256 tronquée (clé `RATE_LIMIT_KEY`) de l'IP, du compte ou de l'installation ; email en HMAC à clé | De 1 minute à 1 heure (fenêtres) |
 | `privacy:code:<id>`, `privacy:code:attempts:<id>` | Empreinte HMAC du code de confirmation d'une demande reçue par email, essais | 7 jours ; 5 essais |
 | `stats:search:<heure>` | Compteurs anonymes (cellule, produit) | Jusqu'au vidage en base (5 minutes) |
 | `search:v1:…`, `search:gen:…` | Cache des résultats par cellule et produit (stations, sans utilisateur) | Quelques minutes ; invalidé à chaque changement |
@@ -55,6 +55,17 @@
 
 Champs relevés dans le code : `request_id`, méthode, route, chemin, requête (seuls `product_id`, `station_id`, `status`, `limit` et `needs_review` en clair ; toute autre valeur, dont `lat`, `lng` et le texte de recherche, masquée), statut, durée, `user_id` (UUID), `station_id`, `export_id`, `session_id` (réutilisation d'un refresh token), sujet de l'email envoyé, code d'erreur SMTP ou Expo, compteurs des purges. **Jamais** : adresse IP, position, email, token push, texte de notification, code à 6 chiffres, mot de passe. Conservation : 30 jours, chez l'hébergeur (choisi à l'étape 10C).
 
+### 3 bis. Rapports de plantage (GlitchTip auto-hébergé, D90)
+
+Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). Finalité : corriger les erreurs. Base légale : IL (sécurité et fiabilité du service). Conservation : 30 jours (`GLITCHTIP_RETENTION_DAYS`), dans la base de GlitchTip sur notre serveur. Accès : l'équipe technique (comptes GlitchTip, inscription fermée).
+
+| Source | Contenu | Retiré ou masqué |
+|---|---|---|
+| API et worker (`internal/platform/errtrack`) | Message et pile de l'erreur (5xx, panic, tâche en échec définitif), modèle de route, méthode, code, identifiant de requête, nom de la tâche, version, environnement | Requête entière (URL, query string, en-têtes, cookies, corps), utilisateur, fil d'Ariane ; emails, jetons, coordonnées, IP et téléphones masqués dans les textes (`TestScrubRemovesPersonalData`, `TestReportSendsOnlyScrubbedEvents`) |
+| Admin web (`src/lib/error-tracking.ts`) | Erreurs JavaScript non prévues (pas les erreurs d'API), pile, navigateur, adresse de la page sans paramètres | Utilisateur, fil d'Ariane, en-têtes, cookies, paramètres d'URL ; masque des textes (`src/lib/scrub.test.ts`) |
+| App mobile (`src/lib/error-tracking.ts`) | Erreurs JavaScript non attrapées et plantages natifs : pile, modèle et système de l'appareil, version de l'app | Fil d'Ariane, session, capture d'écran, hiérarchie des vues, requêtes ; utilisateur constant (`anonymous`, au lieu de l'identifiant d'installation du SDK Android) ; masque des textes pour les erreurs JavaScript (`src/lib/scrub.test.ts`) |
+| Proxy (`deploy/Caddyfile`, site `errors.<domaine>`) | — | L'adresse IP de l'appareil ou du navigateur ne parvient jamais à GlitchTip (en-têtes de transfert remplacés) |
+
 ## 4. Fichiers
 
 | Fichier | Emplacement | Chiffrement | Conservation |
@@ -62,7 +73,7 @@ Champs relevés dans le code : `request_id`, méthode, route, chemin, requête (
 | Justificatifs des gérants | `DOCUMENTS_STORAGE_DIR/stations/…` | Enveloppe AES-256-GCM (clé par fichier, enveloppée par `DOCUMENTS_ENCRYPTION_KEY`) | Voir le justificatif, section 1 |
 | Copies « Mes données » | `DOCUMENTS_STORAGE_DIR/personal-exports/…` | Idem | 24 heures |
 | Exports d'administration | `DOCUMENTS_STORAGE_DIR/exports/…` | Idem | 24 heures |
-| Sauvegardes de la base et des fichiers | Hébergeur (10C) | À définir (10C) | Rotation à définir : une donnée purgée disparaît des sauvegardes à l'expiration de la dernière qui la contient |
+| Sauvegardes de la base, des fichiers et de `.env.production` | Dépôt restic sur un bucket S3 dédié (`scripts/backup.sh`, quotidien) | restic (AES-256, clé `RESTIC_PASSWORD`) ; fichiers déjà chiffrés par l'app | 7 quotidiennes, 4 hebdomadaires, 3 mensuelles : une donnée purgée disparaît des sauvegardes 3 mois au plus après. Ni Redis, ni GlitchTip |
 
 ## 5. Sur les téléphones et dans le navigateur
 
@@ -88,18 +99,18 @@ Champs relevés dans le code : `request_id`, méthode, route, chemin, requête (
 | Hébergeur | Serveurs, base, fichiers, sauvegardes, journaux | Toutes les données | Choisi à l'étape 10C | Sous-traitant |
 | OSRM | Calcul d'itinéraire | Position de départ et d'arrivée | **Auto-hébergé** : aucun transfert | — |
 
-Aucun outil d'analyse d'audience, de publicité ni de suivi des plantages n'est intégré.
+Aucun outil d'analyse d'audience ni de publicité n'est intégré. Le suivi des plantages (GlitchTip) est **auto-hébergé** : aucun transfert (section 3 bis).
 
 ## 7. Écarts constatés (recherche dans le code)
 
 | # | Constat | Risque | Proposition |
 |---|---|---|---|
-| E1 | L'empreinte d'IP des limiteurs (`rl:{ip:…}`) est un SHA-256 tronqué **sans clé** : l'espace IPv4 se parcourt en quelques secondes, l'IP est donc retrouvable par qui lit Redis | Faible (Redis privé, TTL ≤ 1 h) | HMAC avec une sous-clé HKDF dédiée (comme l'email de connexion) : 10B |
+| E1 | Corrigé en 10B : l'empreinte d'IP des limiteurs (`rl:{ip:…}`) était un SHA-256 tronqué **sans clé**, donc retrouvable en parcourant l'espace IPv4 | — | HMAC-SHA256 sous la clé `RATE_LIMIT_KEY`, distincte d'`APP_SECRET` et remplaçable seule (`TestClientKeysAreKeyed`) |
 | E2 | `user_id` (UUID) figure dans les journaux applicatifs | Pseudonyme, utile au support ; journaux gardés 30 jours | À valider par le juriste ; sinon HMAC du `user_id` |
 | E3 | Le commentaire libre d'un signalement est conservé 12 mois après la pseudonymisation de l'auteur | La personne peut s'y être identifiée | Proposer l'effacement du commentaire à 90 jours avec l'auteur (question au juriste) |
 | E4 | Les comptes désactivés par un admin ne sont pas concernés par la purge d'inactivité | Conservation sans limite d'un compte inutilisable | Durée propre aux comptes désactivés (question au juriste) |
 | E5 | La station d'un gérant supprimé (nom, IFU, RCCM, adresse, téléphone) reste sans durée ; seul le justificatif est purgé à 12 mois | Le téléphone peut être celui du gérant | Durée de conservation de la station suspendue (question au juriste) |
-| E6 | Les demandes de déplacement d'épingle (`station_location_requests`) n'ont pas de purge | Faible (distances, auteur) | Règle de 12 mois après décision : 10B |
+| E6 | Corrigé en 10B : les demandes de déplacement d'épingle (`station_location_requests`) n'avaient pas de purge | — | Règle `location_requests` : supprimées 12 mois après la décision (création pour une demande remplacée), celles en attente restent (`TestRetentionPurges`) |
 | E7 | Les tuiles OpenFreeMap révèlent l'adresse IP et la zone affichée à un tiers sans contrat | Indication de la position approximative | Contrat, ou tuiles auto-hébergées (10C) |
 | E8 | Corrigé en 10A : l'anonymisation laissait sur la ligne du compte les motifs libres de désactivation et de retrait du droit de signaler (et échouait pour un compte désactivé) | — | `AnonymizeUser` les efface (`TestDeletionOfDisabledAccount`) |
 

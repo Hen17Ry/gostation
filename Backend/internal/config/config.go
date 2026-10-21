@@ -46,6 +46,14 @@ type Config struct {
 	Reminders Reminders
 	Retention Retention
 	Privacy   Privacy
+	// ErrorTracking : suivi des plantages (GlitchTip, D90), désactivé sans DSN.
+	ErrorTracking ErrorTracking
+}
+
+// ErrorTracking regroupe les réglages du suivi des plantages.
+type ErrorTracking struct {
+	DSN         string
+	Environment string
 }
 
 // Jobs regroupe les réglages du worker asynq (cmd/worker).
@@ -93,6 +101,7 @@ type Retention struct {
 	DataRequests            time.Duration // demandes d'exercice des droits closes
 	AdminAlerts             time.Duration // alertes admin résolues
 	ExportRecords           time.Duration // métadonnées des exports admin
+	LocationRequests        time.Duration // demandes de déplacement d'épingle décidées (E6)
 }
 
 // Privacy regroupe les réglages des demandes d'exercice des droits (étape 10A).
@@ -167,6 +176,9 @@ type OSRM struct {
 type RateLimit struct {
 	IPRequests int
 	IPWindow   time.Duration
+	// Key est la clé HMAC des empreintes des limiteurs (IP, compte, installation : E1). Distincte
+	// d'APP_SECRET pour tourner seule : la changer ne fait que remettre les compteurs à zéro.
+	Key []byte
 }
 
 // SigningKey est une clé de signature Ed25519 des access tokens (graine de 32 octets).
@@ -195,6 +207,21 @@ type Documents struct {
 	EncryptionKey []byte
 	StorageDir    string
 	MaxBytes      int64
+	// Storage choisit où vivent les fichiers chiffrés (justificatifs, exports, copies).
+	Storage Storage
+}
+
+// Storage : disque local (StorageDir) ou stockage objet compatible S3.
+type Storage struct {
+	Driver      string // local | s3
+	S3Endpoint  string
+	S3Region    string
+	S3Bucket    string
+	S3AccessKey string
+	S3SecretKey string
+	S3TLS       bool
+	S3PathStyle bool
+	S3Prefix    string
 }
 
 // SMTP regroupe les réglages d'envoi des emails.
@@ -257,6 +284,7 @@ func Load(getenv func(string) string) (Config, error) {
 	c.RateLimit = RateLimit{
 		IPRequests: l.integer("RATE_LIMIT_IP_REQUESTS", 1200, 1, 1_000_000),
 		IPWindow:   l.duration("RATE_LIMIT_IP_WINDOW", time.Minute),
+		Key:        l.hexKey("RATE_LIMIT_KEY", 32, 64),
 	}
 	if c.RateLimit.IPWindow < time.Second {
 		l.fail("RATE_LIMIT_IP_WINDOW", "must be at least 1s")
@@ -277,6 +305,30 @@ func Load(getenv func(string) string) (Config, error) {
 		EncryptionKey: l.hexKey("DOCUMENTS_ENCRYPTION_KEY", 32, 32),
 		StorageDir:    l.str("DOCUMENTS_STORAGE_DIR", "./var/documents"),
 		MaxBytes:      int64(l.integer("DOCUMENTS_MAX_BYTES", 5<<20, 1024, 20<<20)),
+		Storage: Storage{
+			Driver:      l.oneOf("STORAGE_DRIVER", "local", "local", "s3"),
+			S3Endpoint:  l.raw("S3_ENDPOINT"),
+			S3Region:    l.raw("S3_REGION"),
+			S3Bucket:    l.raw("S3_BUCKET"),
+			S3AccessKey: l.raw("S3_ACCESS_KEY_ID"),
+			S3SecretKey: l.raw("S3_SECRET_ACCESS_KEY"),
+			S3TLS:       l.boolean("S3_TLS", true),
+			S3PathStyle: l.boolean("S3_PATH_STYLE", false),
+			S3Prefix:    l.raw("S3_PREFIX"),
+		},
+	}
+	if st := c.Documents.Storage; st.Driver == "s3" {
+		for key, v := range map[string]string{
+			"S3_ENDPOINT": st.S3Endpoint, "S3_BUCKET": st.S3Bucket,
+			"S3_ACCESS_KEY_ID": st.S3AccessKey, "S3_SECRET_ACCESS_KEY": st.S3SecretKey,
+		} {
+			if v == "" {
+				l.fail(key, "is required when STORAGE_DRIVER=s3")
+			}
+		}
+		if strings.Contains(st.S3Endpoint, "://") {
+			l.fail("S3_ENDPOINT", "must be host[:port], without scheme (S3_TLS chooses https)")
+		}
 	}
 	c.SMTP = SMTP{
 		Host:     l.str("SMTP_HOST", "localhost"),
@@ -316,6 +368,10 @@ func Load(getenv func(string) string) (Config, error) {
 		Timeout:         l.duration("EXPO_PUSH_TIMEOUT", 15*time.Second),
 		ReceiptsDelay:   l.duration("PUSH_RECEIPTS_DELAY", 15*time.Minute),
 	}
+	c.ErrorTracking = ErrorTracking{
+		DSN:         l.optionalURL("SENTRY_DSN", "", "https", "http"),
+		Environment: l.str("SENTRY_ENVIRONMENT", string(c.Env)),
+	}
 	c.Reminders = Reminders{Interval: l.duration("STOCK_REMINDER_INTERVAL", 4*time.Hour)}
 	c.Retention = Retention{
 		Notifications:           l.retention("RETENTION_NOTIFICATIONS", 30*24*time.Hour),
@@ -332,6 +388,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DataRequests:            l.retention("RETENTION_DATA_REQUESTS", 3*365*24*time.Hour),
 		AdminAlerts:             l.retention("RETENTION_ADMIN_ALERTS", 365*24*time.Hour),
 		ExportRecords:           l.retention("RETENTION_EXPORT_RECORDS", 365*24*time.Hour),
+		LocationRequests:        l.retention("RETENTION_LOCATION_REQUESTS", 365*24*time.Hour),
 	}
 	if c.Retention.InactivityWarning >= c.Retention.InactiveAccounts {
 		l.fail("RETENTION_INACTIVITY_WARNING", "must be shorter than RETENTION_INACTIVE_ACCOUNTS")
@@ -356,6 +413,9 @@ func Load(getenv func(string) string) (Config, error) {
 		if !c.Auth.CookieSecure {
 			l.fail("COOKIE_SECURE", "must be true in production")
 		}
+		if c.Documents.Storage.Driver == "s3" && !c.Documents.Storage.S3TLS {
+			l.fail("S3_TLS", "must be true in production")
+		}
 	}
 
 	if len(l.problems) > 0 {
@@ -379,6 +439,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("cookie_secure", c.Auth.CookieSecure),
 		slog.Bool("expo_push", c.Push.ExpoAccessToken != ""),
 		slog.Int("worker_concurrency", c.Jobs.Concurrency),
+		slog.Bool("error_tracking", c.ErrorTracking.DSN != ""),
+		slog.String("storage", c.Documents.Storage.Driver),
 	)
 }
 

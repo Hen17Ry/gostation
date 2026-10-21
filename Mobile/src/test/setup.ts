@@ -42,6 +42,13 @@ jest.mock('expo-haptics', () => ({
   NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
 }))
 
+// Suivi des plantages : module natif absent sous Jest (src/lib/error-tracking.ts).
+jest.mock('@sentry/react-native', () => ({
+  init: jest.fn(),
+  setUser: jest.fn(),
+  captureException: jest.fn(),
+}))
+
 jest.mock('expo-speech', () => ({ speak: jest.fn(), stop: jest.fn(async () => undefined) }))
 
 jest.mock('expo-crypto', () => ({ randomUUID: () => '00000000-0000-4000-8000-000000000000' }))

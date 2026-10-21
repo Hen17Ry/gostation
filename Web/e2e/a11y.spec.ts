@@ -10,6 +10,30 @@ import { fixtures } from './support/fixtures'
  */
 test.use({ storageState: STORAGE_STATE })
 
+/**
+ * Les mêmes parcours vérifient la CSP de production (servie par `vite preview`, comme par Caddy) :
+ * aucune violation sur un écran, une carte (workers MapLibre, tuiles OpenFreeMap) ou le
+ * justificatif (pdf.js, URL objet).
+ */
+const cspViolations = new WeakMap<Page, string[]>()
+test.beforeEach(async ({ page }) => {
+  const seen: string[] = []
+  cspViolations.set(page, seen)
+  page.on('console', (m) => {
+    if (/Content Security Policy/i.test(m.text())) seen.push(m.text())
+  })
+  await page.exposeFunction('__cspViolation', (v: string) => seen.push(v))
+  await page.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (e) => {
+      const report = (window as unknown as { __cspViolation: (v: string) => void }).__cspViolation
+      void report(`${e.violatedDirective} ${e.blockedURI}`)
+    })
+  })
+})
+test.afterEach(({ page }) => {
+  expect(cspViolations.get(page), 'violations de la CSP').toEqual([])
+})
+
 async function audit(page: Page, label: string) {
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })

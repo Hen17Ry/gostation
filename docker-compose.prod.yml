@@ -1,0 +1,281 @@
+# GoStation — production (ou staging), sur un seul serveur. Runbook : docs/DEPLOY.md.
+# Toutes les valeurs viennent de .env.production (modèle : .env.production.example). Commandes :
+# scripts/prod.sh (up, deploy, backup, restore…), jamais `docker compose` seul sans --env-file.
+#
+# Seul Caddy publie des ports (80, 443) : ni la base, ni Redis, ni OSRM, ni l'API ne sont joignables
+# de l'extérieur. Chaque service a une limite de mémoire et redémarre tout seul.
+name: gostation-prod
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  # Journaux Docker bornés (30 Mo par service) ; l'API ne journalise ni IP, ni position, ni email.
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-production}
+  DATABASE_URL: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}?sslmode=disable
+  REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
+  OSRM_URL: http://osrm:5000
+  DOCUMENTS_STORAGE_DIR: /var/lib/gostation/documents
+
+services:
+  # Reverse proxy : TLS automatique (Let's Encrypt) pour api., admin., errors. et le site public.
+  # Image construite par deploy/proxy.Dockerfile : Caddy + build de l'admin + pages légales.
+  caddy:
+    <<: [*restart, *logging]
+    build:
+      context: .
+      dockerfile: deploy/proxy.Dockerfile
+      args:
+        VITE_API_BASE_URL: https://api.${DOMAIN:?}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+        VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+    image: gostation-proxy:${RELEASE:-latest}
+    environment:
+      DOMAIN: ${DOMAIN:?}
+      ACME_EMAIL: ${ACME_EMAIL:?}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    # Pas de dépendance à l'API : le site public, l'admin et GlitchTip restent servis si elle
+    # redémarre (Caddy répond alors 502 sur api.).
+    deploy:
+      resources:
+        limits: { memory: 128m }
+    networks:
+      net:
+        # Adresse fixe : l'API ne lit X-Forwarded-For que depuis elle (HTTP_TRUSTED_PROXIES).
+        ipv4_address: 172.31.0.10
+
+  api:
+    <<: [*restart, *logging]
+    build:
+      context: ./Backend
+      args:
+        VERSION: ${RELEASE:-dev}
+    image: gostation-api:${RELEASE:-latest}
+    env_file: ["${GOSTATION_ENV_FILE:-.env.production}"]
+    environment:
+      <<: *backend-env
+      HTTP_ADDR: ":8080"
+      HTTP_TRUSTED_PROXIES: 172.31.0.10/32
+      CORS_ALLOWED_ORIGINS: https://admin.${DOMAIN:?}
+    volumes:
+      # Utilisé seulement si STORAGE_DRIVER=local (sinon stockage S3).
+      - documents:/var/lib/gostation/documents
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      osrm: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/app/api", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 25s
+    deploy:
+      resources:
+        limits: { memory: 512m }
+    networks: [net]
+
+  # Une seule instance : le scheduler des tâches périodiques tourne dans ce processus.
+  worker:
+    <<: [*restart, *logging]
+    image: gostation-api:${RELEASE:-latest}
+    entrypoint: ["/app/worker"]
+    env_file: ["${GOSTATION_ENV_FILE:-.env.production}"]
+    environment:
+      <<: *backend-env
+      WORKER_HEALTH_ADDR: ":8081"
+    volumes:
+      - documents:/var/lib/gostation/documents
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/app/worker", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits: { memory: 512m }
+    networks: [net]
+
+  postgres:
+    <<: [*restart, *logging]
+    image: ${POSTGIS_IMAGE:-postgis/postgis:18-3.6}
+    # Réglages pour un serveur de 4 Go partagé avec les autres services.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=80
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      # Base de GlitchTip, créée au premier démarrage (deploy/postgres/init).
+      GLITCHTIP_DB_PASSWORD: ${GLITCHTIP_DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql
+      # Ajouté au script de l'image (10_postgis.sh, qui crée PostGIS) : jamais tout le répertoire.
+      - ./deploy/postgres/init/20-glitchtip.sh:/docker-entrypoint-initdb.d/20-glitchtip.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" && psql -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc 'SELECT PostGIS_Version()' > /dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    shm_size: 256m
+    deploy:
+      resources:
+        limits: { memory: 1g }
+    networks: [net]
+
+  # Sessions, refresh tokens, files asynq : persistance AOF (fsync chaque seconde) et noeviction.
+  redis:
+    <<: [*restart, *logging]
+    image: ${REDIS_IMAGE:-redis:8.10.2-alpine}
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?}
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --aof-use-rdb-preamble
+      - "yes"
+      - --aof-load-truncated
+      - "yes"
+      - --aof-load-corrupt-tail-max-size
+      - "65536"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - noeviction
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    deploy:
+      resources:
+        limits: { memory: 384m }
+    networks: [net]
+
+  # Routage (extrait Bénin préparé par `scripts/prod.sh osrm-prepare`). Jamais exposé.
+  osrm:
+    <<: [*restart, *logging]
+    image: ${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v26.10.0-debian}
+    command:
+      - osrm-routed
+      - --algorithm
+      - mld
+      - --max-table-size
+      - "${OSRM_MAX_TABLE_SIZE:-100}"
+      - /data/${OSRM_DATASET:-benin}.osrm
+    volumes:
+      - osrmdata:/data:ro
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/5000 &&
+          printf 'GET /nearest/v1/driving/2.4253,6.3703 HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 &&
+          grep -q '"code":"Ok"' <&3
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { memory: 768m }
+    networks: [net]
+
+  # Suivi des plantages (D90) : GlitchTip en un seul processus, file d'attente dans PostgreSQL
+  # (sans Valkey), événements gardés 30 jours, inscription fermée. L'IP des clients ne lui
+  # parvient jamais (deploy/Caddyfile).
+  glitchtip:
+    <<: [*restart, *logging]
+    image: ${GLITCHTIP_IMAGE:-glitchtip/glitchtip:6.2.6}
+    environment:
+      DATABASE_URL: postgres://glitchtip:${GLITCHTIP_DB_PASSWORD:?}@postgres:5432/glitchtip
+      VALKEY_URL: ""
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:?}
+      GLITCHTIP_DOMAIN: https://errors.${DOMAIN:?}
+      DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:?}
+      EMAIL_URL: ${GLITCHTIP_EMAIL_URL:?}
+      SERVER_ROLE: all_in_one
+      ENABLE_USER_REGISTRATION: "False"
+      ENABLE_ORGANIZATION_CREATION: "False"
+      ENABLE_ADMIN: "False"
+      ENABLE_OPENAPI: "False"
+      GLITCHTIP_ENABLE_MCP: "False"
+      GLITCHTIP_ENABLE_LOGS: "False"
+      GLITCHTIP_ENABLE_UPTIME: "False"
+      GLITCHTIP_RETENTION_DAYS: "30"
+      GLITCHTIP_EVENT_HOT_DAYS: "30"
+      PORT: "8000"
+    volumes:
+      - glitchtip_uploads:/code/uploads
+    depends_on:
+      postgres: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { memory: 512m }
+    networks: [net]
+
+  # Outil ponctuel (profil tools) : osrm-extract / partition / customize (scripts/osrm-prepare.sh).
+  osrm-tools:
+    image: ${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v26.10.0-debian}
+    profiles: [tools]
+    working_dir: /data
+    network_mode: none
+    volumes:
+      - osrmdata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  osrmdata:
+  documents:
+  caddy_data:
+  caddy_config:
+  glitchtip_uploads:
+
+networks:
+  net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24

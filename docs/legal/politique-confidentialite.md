@@ -1,7 +1,7 @@
 ---
 title: Politique de confidentialité
 version: 1.0
-updated: 16 octobre 2026
+updated: 21 octobre 2026
 ---
 
 # Politique de confidentialité de GoStation
@@ -30,6 +30,7 @@ Pour toute question sur vos données : [À COMPLÉTER : adresse email dédiée �
 - **Votre position**, si vous l'autorisez : pour trouver les stations proches et calculer l'itinéraire. Elle est envoyée à nos serveurs au moment de la recherche et n'y est jamais conservée.
 - **Un identifiant d'installation**, tiré au hasard au premier lancement : il limite le nombre de recherches par appareil pour protéger le service. Il ne vous identifie pas et n'est pas lié à votre identité.
 - **Vos recherches**, sous une forme anonyme : nous comptons les recherches par zone d'environ 5 km² et par heure, sans lien avec vous, pour repérer les pénuries.
+- **Les rapports de plantage**, si l'application rencontre une erreur : la trace technique de l'erreur, le modèle et le système du téléphone, la version de l'application. Ils partent vers notre propre serveur de suivi des erreurs, sans votre position, sans votre adresse email, sans identifiant de compte ni d'appareil, et sans votre adresse IP. Ils servent seulement à corriger les erreurs.
 
 ### Avec un compte
 
@@ -98,12 +99,14 @@ Nous ne communiquons pas vos données à d'autres tiers, sauf obligation légale
 | Signalements | Votre nom en est retiré au bout de 90 jours (remplacé par un pseudonyme) ; le signalement est supprimé au bout de 12 mois |
 | Justificatif d'un gérant | Tant que la station est active ; 6 mois après le refus d'un dossier non renvoyé ; 12 mois après la suppression du compte du gérant |
 | Historique des stocks | 12 mois, puis regroupé par jour, sans lien avec le gérant |
+| Demandes de déplacement de l'épingle d'une station | 12 mois après la décision |
 | Journal de sécurité (actions sur les comptes et les stations) | 12 mois |
 | Demandes concernant vos données | 3 ans après leur clôture, pour prouver qu'elles ont été traitées |
 | Copie de vos données | 24 heures après sa préparation |
+| Rapports de plantage | 30 jours |
 | Statistiques de recherche par zone | Sans limite : elles sont anonymes |
 
-Les sauvegardes de nos serveurs suivent une rotation : une donnée supprimée en disparaît au plus tard [À COMPLÉTER : durée de rotation des sauvegardes] après sa suppression.
+Les sauvegardes de nos serveurs, chiffrées, suivent une rotation : une donnée supprimée en disparaît au plus tard 3 mois après sa suppression.
 
 Ces durées sont proposées et restent à valider. [À COMPLÉTER après avis juridique.]
 
