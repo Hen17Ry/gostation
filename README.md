@@ -1,5 +1,7 @@
 # GoStation
 
+[![Backend](https://github.com/Hen17Ry/gostation/actions/workflows/backend.yml/badge.svg)](https://github.com/Hen17Ry/gostation/actions/workflows/backend.yml) [![Web](https://github.com/Hen17Ry/gostation/actions/workflows/web.yml/badge.svg)](https://github.com/Hen17Ry/gostation/actions/workflows/web.yml) [![Mobile](https://github.com/Hen17Ry/gostation/actions/workflows/mobile.yml/badge.svg)](https://github.com/Hen17Ry/gostation/actions/workflows/mobile.yml) [![Security](https://github.com/Hen17Ry/gostation/actions/workflows/security.yml/badge.svg)](https://github.com/Hen17Ry/gostation/actions/workflows/security.yml)
+
 Trouver la station la plus proche qui a **en stock** le produit recherché (gaz domestique par taille de bouteille, essence, gasoil), puis s'y rendre via une carte intégrée. Bénin.
 
 | Dossier | Contenu | État |
@@ -8,7 +10,9 @@ Trouver la station la plus proche qui a **en stock** le produit recherché (gaz 
 | `Mobile/` | App Expo React Native unique (utilisateur + gérant) : recherche, carte, guidage, compte, favoris, signalements, espace gérant, push, « Mes données » ; [design system](Mobile/docs/design-system.md), [perf](Mobile/docs/performance.md) | ✔ Android (builds EAS `preview`) ; iOS jamais construit |
 | `Web/` | Admin React (Vite, Tailwind, shadcn/ui) : connexion + 2FA, tableau de bord, stations, carte, signalements, comptes, catalogue, stats et pénuries, audit, exports, demandes de données ; [design system](Web/docs/design-system.md) | ✔ toutes les sections |
 | `docs/` | [Architecture](docs/ARCHITECTURE.md) (modèle de données, endpoints, algorithme, décisions), [état des lieux](docs/STATUS.md), [textes légaux](docs/legal/) (projets) | ✔ |
-| `scripts/` | Préparation OSRM, vérification de l'infra, `.env`, pile E2E isolée, plans et bench de la recherche et des stats | ✔ |
+| `scripts/` | Préparation OSRM, vérification de l'infra, `.env`, pile E2E isolée, plans et bench de la recherche et des stats ; production : secrets, exploitation, sauvegarde et restauration | ✔ |
+| `deploy/` | Production : Caddyfile (TLS, en-têtes), image du proxy (admin et site public), init de PostgreSQL, répétition locale ; voir [`docs/DEPLOY.md`](docs/DEPLOY.md) | ✔ prêt, pas encore de serveur |
+| `.github/` | CI GitHub Actions par dossier (Backend, Web, Mobile) et analyses de sécurité (gitleaks, trivy) | ✔ |
 
 Conventions et règles du projet : [`CLAUDE.md`](CLAUDE.md).
 
@@ -124,6 +128,18 @@ adb reverse tcp:8080 tcp:8080 && adb reverse tcp:8081 tcp:8081   # API et Metro 
 ```
 
 URL de l'API : `EXPO_PUBLIC_API_URL` (`Mobile/.env`, `http://127.0.0.1:8080` par défaut). Tests : `npm test` (Jest), `npm run e2e` (Maestro sur la pile isolée, build release installé). Builds : profils EAS `development`, `preview` (APK) et `production` (AAB), voir [CLAUDE.md](CLAUDE.md) (règles mobile).
+
+## Production
+
+Un serveur Ubuntu avec Docker, un domaine, un SMTP et deux buckets S3 : [`docs/DEPLOY.md`](docs/DEPLOY.md) (runbook pas à pas, sauvegarde, restauration, retour arrière). En bref :
+
+```bash
+scripts/gen-prod-secrets.sh && nano .env.production   # secrets générés, puis les fill-me
+scripts/prod.sh check && scripts/prod.sh osrm-prepare && scripts/prod.sh deploy
+scripts/prod.sh backup                                # cron quotidien (restic chiffré vers S3)
+```
+
+Sécurité : [revue ASVS](docs/security/asvs.md), [analyses](docs/security/scans.md), [scan ZAP](docs/security/zap.md).
 
 ## Services locaux
 
