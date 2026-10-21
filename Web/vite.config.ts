@@ -48,6 +48,13 @@ export default defineConfig(({ mode }) => {
       // Avec un worker par cœur chacun, la machine était trois fois surchargée et des tests
       // d'interface de moins de 2 s dépassaient leurs 5 s.
       maxWorkers: '50%',
+      // Dernier recours, après les causes évitables (feuilles de style injectées : src/test/setup.ts).
+      // Les parcours d'interface (connexion et 2FA, dialogues Radix, tableau) coûtent 0,3 à 1,6 s de
+      // CPU seuls ; lancés avec Go (-race, un PostGIS par paquet) et Jest, la machine était 3 à 4 fois
+      // surchargée (charge moyenne 21 sur 8 cœurs, sans swap) et ils mettaient 5 à 9 s. Les délais de
+      // 5 s (test) et 1 s (attentes de Testing Library) servent à repérer un blocage, pas une machine
+      // chargée : 15 s et 3 s le font toujours.
+      testTimeout: 15_000,
       include: ['src/**/*.test.{ts,tsx}', 'build/**/*.test.ts'],
       setupFiles: ['src/test/setup.ts'],
       css: { include: [/globals\.css/] },
