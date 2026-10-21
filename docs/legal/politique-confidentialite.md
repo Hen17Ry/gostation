@@ -106,7 +106,7 @@ Nous ne communiquons pas vos données à d'autres tiers, sauf obligation légale
 | Rapports de plantage | 30 jours |
 | Statistiques de recherche par zone | Sans limite : elles sont anonymes |
 
-Les sauvegardes de nos serveurs suivent une rotation : une donnée supprimée en disparaît au plus tard [À COMPLÉTER : durée de rotation des sauvegardes] après sa suppression.
+Les sauvegardes de nos serveurs, chiffrées, suivent une rotation : une donnée supprimée en disparaît au plus tard 3 mois après sa suppression.
 
 Ces durées sont proposées et restent à valider. [À COMPLÉTER après avis juridique.]
 

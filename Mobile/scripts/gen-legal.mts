@@ -21,6 +21,12 @@ const sources = {
   },
   terms: { md: 'cgu.md', html: 'cgu.html', route: '/legal/terms' },
 } as const
+// Pages du site seulement (pas dans l'app, qui a son propre écran) : suppression de compte, lien
+// exigé par Google Play.
+const webPages = {
+  accountDeletion: { md: 'suppression-compte.md', html: 'suppression-compte.html', route: '/legal/delete-account' },
+} as const
+const allPages = { ...sources, ...webPages }
 
 const read = (name: string): LegalDocument => parseMarkdown(readFileSync(`${root}../docs/legal/${name}`, 'utf8'))
 
@@ -37,7 +43,7 @@ ${docs.join('\n')}`
 const escape = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-const routes: Record<string, string> = Object.fromEntries(Object.values(sources).map((s) => [s.route, s.html]))
+const routes: Record<string, string> = Object.fromEntries(Object.values(allPages).map((s) => [s.route, s.html]))
 
 function inline(text: Inline[]): string {
   return text
@@ -85,7 +91,7 @@ a{color:var(--brand);text-underline-offset:3px}a:focus-visible{outline:2px solid
 nav{display:flex;gap:1rem;font-size:.95rem}`
 
 function page(doc: LegalDocument, title: string): string {
-  const nav = Object.values(sources)
+  const nav = Object.values(allPages)
     .map((s) => `<a href="${s.html}">${escape(read(s.md).meta.title ?? s.html)}</a>`)
     .join('')
   return `<!doctype html>
@@ -99,7 +105,7 @@ function page(doc: LegalDocument, title: string): string {
 <body>
 <main>
 <nav aria-label="Textes légaux">${nav}</nav>
-<p class="meta">Version ${escape(doc.meta.version ?? '?')} · ${escape(doc.meta.updated ?? '')}</p>
+${doc.meta.version ? `<p class="meta">Version ${escape(doc.meta.version)} · ${escape(doc.meta.updated ?? '')}</p>` : ''}
 ${doc.blocks.map(block).join('\n')}
 </main>
 </body>
@@ -112,13 +118,31 @@ if (args[0] === '--html') {
   const out = args[1]
   if (!out) throw new Error('usage : gen-legal.mts --html <dossier>')
   mkdirSync(out, { recursive: true })
-  for (const s of Object.values(sources)) {
+  for (const s of Object.values(allPages)) {
     const doc = read(s.md)
     writeFileSync(`${out}/${s.html}`, page(doc, doc.meta.title ?? s.html))
   }
+  // Accueil du site public : les liens vers chaque texte (aucun script, aucune ressource externe).
   writeFileSync(
     `${out}/index.html`,
-    `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${sources.privacyPolicy.html}"><title>GoStation</title>`,
+    page(
+      {
+        meta: { title: 'GoStation', version: '', updated: '' },
+        blocks: [
+          { type: 'heading', level: 1, text: [{ text: 'GoStation' }] },
+          {
+            type: 'paragraph',
+            text: [{ text: 'La station la plus proche qui a votre produit en stock, au Bénin. Textes légaux :' }],
+          },
+          {
+            type: 'list',
+            ordered: false,
+            items: Object.values(allPages).map((s) => [{ text: read(s.md).meta.title ?? s.html, href: s.route }]),
+          },
+        ],
+      } as LegalDocument,
+      'Accueil',
+    ),
   )
   console.log(`✔ HTML des textes légaux dans ${out}`)
 } else {

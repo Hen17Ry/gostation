@@ -766,7 +766,7 @@ export const privacyPolicy: LegalDocument = {
       type: 'paragraph',
       text: [
         {
-          text: 'Les sauvegardes de nos serveurs suivent une rotation : une donnée supprimée en disparaît au plus tard [À COMPLÉTER : durée de rotation des sauvegardes] après sa suppression.',
+          text: 'Les sauvegardes de nos serveurs, chiffrées, suivent une rotation : une donnée supprimée en disparaît au plus tard 3 mois après sa suppression.',
         },
       ],
     },

@@ -57,7 +57,7 @@ Champs relevés dans le code : `request_id`, méthode, route, chemin, requête (
 
 ### 3 bis. Rapports de plantage (GlitchTip auto-hébergé, D90)
 
-Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). Finalité : corriger les erreurs. Base légale : IL (sécurité et fiabilité du service). Conservation : 30 jours (`GLITCHTIP_MAX_EVENT_LIFE_DAYS`), dans la base de GlitchTip sur notre serveur. Accès : l'équipe technique (comptes GlitchTip, inscription fermée).
+Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). Finalité : corriger les erreurs. Base légale : IL (sécurité et fiabilité du service). Conservation : 30 jours (`GLITCHTIP_RETENTION_DAYS`), dans la base de GlitchTip sur notre serveur. Accès : l'équipe technique (comptes GlitchTip, inscription fermée).
 
 | Source | Contenu | Retiré ou masqué |
 |---|---|---|
@@ -73,7 +73,7 @@ Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `E
 | Justificatifs des gérants | `DOCUMENTS_STORAGE_DIR/stations/…` | Enveloppe AES-256-GCM (clé par fichier, enveloppée par `DOCUMENTS_ENCRYPTION_KEY`) | Voir le justificatif, section 1 |
 | Copies « Mes données » | `DOCUMENTS_STORAGE_DIR/personal-exports/…` | Idem | 24 heures |
 | Exports d'administration | `DOCUMENTS_STORAGE_DIR/exports/…` | Idem | 24 heures |
-| Sauvegardes de la base et des fichiers | Hébergeur (10C) | À définir (10C) | Rotation à définir : une donnée purgée disparaît des sauvegardes à l'expiration de la dernière qui la contient |
+| Sauvegardes de la base, des fichiers et de `.env.production` | Dépôt restic sur un bucket S3 dédié (`scripts/backup.sh`, quotidien) | restic (AES-256, clé `RESTIC_PASSWORD`) ; fichiers déjà chiffrés par l'app | 7 quotidiennes, 4 hebdomadaires, 3 mensuelles : une donnée purgée disparaît des sauvegardes 3 mois au plus après. Ni Redis, ni GlitchTip |
 
 ## 5. Sur les téléphones et dans le navigateur
 
