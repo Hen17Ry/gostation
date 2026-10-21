@@ -1,5 +1,6 @@
-// Commande seed : génère des stations fictives réparties au Bénin pour le développement et le
-// bench de la recherche (make seed-dev). Refuse de tourner hors APP_ENV=development.
+// Commande seed : génère des stations fictives réparties au Bénin pour le développement, le
+// staging (scripts/prod.sh seed) et le bench de la recherche (make seed-dev). Refuse de tourner
+// avec APP_ENV=production.
 //
 // Les stations sont marquées is_demo = true et n'ont pas de gérant ; chaque exécution remplace
 // les stations fictives précédentes (déterministe pour une graine donnée). Répartition : grappes
@@ -10,7 +11,11 @@
 // les -stats-days derniers jours (tableau de bord admin, mesure des requêtes de stats) : les lignes
 // de cette période sont remplacées (stats.go).
 //
-// Usage : seed [-count 5000] [-seed 42] [-stats-days 30] [-reset]
+// -refresh rajeunit seulement les stocks des stations fictives existantes, avec la même répartition
+// des âges qu'à la création (tâche quotidienne du staging : sans elle, tout expire en 24 h) ; les
+// identifiants ne changent pas, les favoris restent valides.
+//
+// Usage : seed [-count 5000] [-seed 42] [-stats-days 30] [-reset | -refresh]
 package main
 
 import (
@@ -27,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"gostation/backend/internal/config"
 	"gostation/backend/internal/platform/h3"
@@ -84,14 +90,15 @@ func run() error {
 	seed := flag.Uint64("seed", 42, "graine du générateur (résultat déterministe)")
 	reset := flag.Bool("reset", false, "supprime les stations fictives sans en recréer")
 	statsDays := flag.Int("stats-days", 30, "jours d'historique de stats générés (0 : aucun)")
+	refresh := flag.Bool("refresh", false, "rajeunit les stocks des stations fictives existantes, sans les recréer")
 	flag.Parse()
 
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		return err
 	}
-	if cfg.Env != config.EnvDevelopment {
-		return fmt.Errorf("refused: APP_ENV=%s (development only)", cfg.Env)
+	if cfg.Env == config.EnvProduction {
+		return fmt.Errorf("refused: APP_ENV=%s (development and staging only)", cfg.Env)
 	}
 	if *count < 1 || *count > 100_000 {
 		return errors.New("-count must be between 1 and 100000")
@@ -113,6 +120,17 @@ func run() error {
 	defer func() { _ = rdb.Close() }()
 
 	start := time.Now()
+	if *refresh {
+		n, err := refreshStocks(ctx, pool)
+		if err != nil {
+			return err
+		}
+		if err := searchcache.New(rdb).All(ctx); err != nil {
+			log.Warn("search cache not invalidated", slog.Any("err", err))
+		}
+		log.Info("demo stocks refreshed", slog.Int64("stock_rows", n), slog.Duration("took", time.Since(start).Round(time.Millisecond)))
+		return nil
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -147,6 +165,25 @@ func run() error {
 	}
 	log.Info("done", slog.Int("count", map[bool]int{true: 0, false: *count}[*reset]), slog.Duration("took", time.Since(start).Round(time.Millisecond)))
 	return nil
+}
+
+// refreshStocks redonne aux stocks des stations fictives des âges tirés comme à la création : 70 %
+// de moins de 8 h, 20 % entre 8 et 24 h, 10 % expirés (une date par station).
+func refreshStocks(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `WITH ages AS (
+		SELECT id, CASE WHEN r < 0.70 THEN random() * 8 WHEN r < 0.90 THEN 8 + random() * 16 ELSE 24 + random() * 72 END AS hours
+		FROM (SELECT id, random() AS r FROM stations WHERE is_demo) s
+	), stamped AS (
+		UPDATE stations st SET last_stock_update_at = now() - make_interval(secs => a.hours * 3600)
+		FROM ages a WHERE st.id = a.id
+		RETURNING st.id, st.last_stock_update_at
+	)
+	UPDATE station_stocks ss SET updated_at = s.last_stock_update_at, last_confirmed_at = s.last_stock_update_at
+	FROM stamped s WHERE ss.station_id = s.id`)
+	if err != nil {
+		return 0, fmt.Errorf("refresh demo stocks: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 type point struct {

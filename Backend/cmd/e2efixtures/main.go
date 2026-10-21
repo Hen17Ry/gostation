@@ -2,7 +2,8 @@
 // les services de l'application (mêmes règles que l'API), et les décrit en JSON sur la sortie.
 //
 // Garde-fou : elle refuse toute base dont le nom ne finit pas par « _e2e » et APP_ENV=production.
-// La base E2E est créée, migrée et supprimée par Web/e2e/stack/start.sh à chaque exécution.
+// La base E2E est créée, migrée et supprimée par scripts/e2e-stack.sh à chaque exécution. Seule
+// exception : le staging (APP_ENV=staging et E2E_STAGING=1), nettoyé ensuite par « cleanup ».
 //
 // Les emails des comptes de test sont marqués vérifiés directement en base (pas de lecture des
 // codes) : c'est le seul raccourci, le reste suit les parcours réels (inscription avec
@@ -12,6 +13,8 @@
 //
 //	e2efixtures serve [-addr 127.0.0.1:8097] : pilotage des parcours Maestro de l'app mobile
 //	(approbation, rejet, station prête, saisie concurrente), cf. serve.go.
+//	e2efixtures cleanup : supprime les comptes de test et tout ce qui en dépend (staging),
+//	cf. cleanup.go.
 package main
 
 import (
@@ -33,14 +36,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 
 	"gostation/backend/internal/app"
+	"gostation/backend/internal/apperr"
 	"gostation/backend/internal/auth"
 	"gostation/backend/internal/catalog"
 	"gostation/backend/internal/config"
+	"gostation/backend/internal/platform/healthprobe"
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/postgres"
 	"gostation/backend/internal/platform/redis"
+	"gostation/backend/internal/platform/storage"
 	"gostation/backend/internal/privacy"
 	"gostation/backend/internal/report"
 	"gostation/backend/internal/station"
@@ -48,9 +55,15 @@ import (
 
 func main() {
 	var err error
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "serve":
 		err = serve(context.Background(), os.Getenv, os.Args[2:])
-	} else {
+	case len(os.Args) > 1 && os.Args[1] == "cleanup":
+		err = cleanup(context.Background(), os.Getenv, os.Stdout)
+	case len(os.Args) > 1 && os.Args[1] == "healthcheck":
+		// Healthcheck Docker du pilotage (image distroless, sans curl).
+		os.Exit(healthprobe.Run(":8097", os.Stderr))
+	default:
 		err = run(context.Background(), os.Getenv, os.Stdout)
 	}
 	if err != nil {
@@ -58,6 +71,9 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// fixtureProductCode : produit « Gaz 7,5 kg » créé par les fixtures (dialogue d'impact).
+const fixtureProductCode = "lpg_7_5kg"
 
 // StationFixture décrit une station créée pour un scénario.
 type StationFixture struct {
@@ -107,14 +123,21 @@ type fixer struct {
 	seq   int
 }
 
-// setup ouvre les connexions et les services de l'application sur la base E2E (garde-fou
-// compris), et crée l'admin qui prend les décisions des scénarios.
-func setup(ctx context.Context, getenv func(string) string) (*fixer, func(), error) {
+// env regroupe les connexions et les services de l'application sur la base des tests.
+type env struct {
+	pool    *pgxpool.Pool
+	rdb     *goredis.Client
+	storage storage.Storage
+	svc     *app.Services
+}
+
+// open ouvre les connexions et les services de l'application sur la base E2E (garde-fou compris).
+func open(ctx context.Context, getenv func(string) string) (*env, func(), error) {
 	cfg, err := config.Load(getenv)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := guard(cfg); err != nil {
+	if err := guard(cfg, getenv); err != nil {
 		return nil, nil, err
 	}
 	pool, err := postgres.Connect(ctx, postgres.Options{URL: cfg.Postgres.URL, AppName: "gostation-e2efixtures"})
@@ -146,20 +169,28 @@ func setup(ctx context.Context, getenv func(string) string) (*fixer, func(), err
 		closeAll()
 		return nil, nil, err
 	}
-	b := make([]byte, 3)
-	_, _ = rand.Read(b)
-	f := &fixer{ctx: ctx, pool: pool, svc: svc, run: hex.EncodeToString(b)}
-	adminID, err := svc.Auth.CreateAdmin(ctx, f.email("fixtures"), "Fixtures", "E2E", "Lagune-"+f.run+"-Ouidah")
-	if err != nil {
-		_ = svc.Jobs.Close()
-		closeAll()
-		return nil, nil, fmt.Errorf("fixtures admin: %w", err)
-	}
-	f.admin = station.Actor{UserID: adminID, Role: "admin"}
-	return f, func() {
+	return &env{pool: pool, rdb: rdb, storage: docs, svc: svc}, func() {
 		_ = svc.Jobs.Close()
 		closeAll()
 	}, nil
+}
+
+// setup ouvre l'environnement et crée l'admin qui prend les décisions des scénarios.
+func setup(ctx context.Context, getenv func(string) string) (*fixer, func(), error) {
+	e, done, err := open(ctx, getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	b := make([]byte, 3)
+	_, _ = rand.Read(b)
+	f := &fixer{ctx: ctx, pool: e.pool, svc: e.svc, run: hex.EncodeToString(b)}
+	adminID, err := e.svc.Auth.CreateAdmin(ctx, f.email("fixtures"), "Fixtures", "E2E", "Lagune-"+f.run+"-Ouidah")
+	if err != nil {
+		done()
+		return nil, nil, fmt.Errorf("fixtures admin: %w", err)
+	}
+	f.admin = station.Actor{UserID: adminID, Role: "admin"}
+	return f, done, nil
 }
 
 func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
@@ -241,6 +272,11 @@ func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
 	size := 7.5
 	label := "Gaz 7,5 kg"
 	p, err := svc.Catalog.Create(ctx, catalog.Actor{UserID: adminID, Role: "admin"}, catalog.CreateInput{Kind: "lpg", SizeKg: &size, Label: label})
+	if apperr.HasCode(err, catalog.CodeAlreadyExists) {
+		// Staging : produit d'une exécution précédente, que cleanup n'a pu que désactiver.
+		err = f.pool.QueryRow(ctx, `UPDATE products SET is_active = true WHERE code = $1 AND label_fr = $2 RETURNING id`,
+			fixtureProductCode, label).Scan(&p.ID)
+	}
 	if err != nil {
 		return fmt.Errorf("product: %w", err)
 	}
@@ -279,17 +315,22 @@ func run(ctx context.Context, getenv func(string) string, out io.Writer) error {
 	return enc.Encode(fx)
 }
 
-// guard refuse toute base qui n'est pas une base E2E jetable.
-func guard(cfg config.Config) error {
+// guard refuse toute base qui n'est pas une base E2E jetable, sauf le staging quand
+// E2E_STAGING=1 (posé par deploy/staging.compose.yml) : ses données de test se suppriment ensuite
+// avec « e2efixtures cleanup ». Jamais en production.
+func guard(cfg config.Config, getenv func(string) string) error {
 	if cfg.Env == config.EnvProduction {
 		return errors.New("refusing to run with APP_ENV=production")
+	}
+	if cfg.Env == config.EnvStaging && getenv("E2E_STAGING") == "1" {
+		return nil
 	}
 	u, err := url.Parse(cfg.Postgres.URL)
 	if err != nil {
 		return fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
 	if name := strings.TrimPrefix(u.Path, "/"); !strings.HasSuffix(name, "_e2e") {
-		return fmt.Errorf("refusing to seed database %q: its name must end with _e2e", name)
+		return fmt.Errorf("refusing to seed database %q: its name must end with _e2e (staging: APP_ENV=staging and E2E_STAGING=1)", name)
 	}
 	return nil
 }
