@@ -55,6 +55,17 @@
 
 Champs relevés dans le code : `request_id`, méthode, route, chemin, requête (seuls `product_id`, `station_id`, `status`, `limit` et `needs_review` en clair ; toute autre valeur, dont `lat`, `lng` et le texte de recherche, masquée), statut, durée, `user_id` (UUID), `station_id`, `export_id`, `session_id` (réutilisation d'un refresh token), sujet de l'email envoyé, code d'erreur SMTP ou Expo, compteurs des purges. **Jamais** : adresse IP, position, email, token push, texte de notification, code à 6 chiffres, mot de passe. Conservation : 30 jours, chez l'hébergeur (choisi à l'étape 10C).
 
+### 3 bis. Rapports de plantage (GlitchTip auto-hébergé, D90)
+
+Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). Finalité : corriger les erreurs. Base légale : IL (sécurité et fiabilité du service). Conservation : 30 jours (`GLITCHTIP_MAX_EVENT_LIFE_DAYS`), dans la base de GlitchTip sur notre serveur. Accès : l'équipe technique (comptes GlitchTip, inscription fermée).
+
+| Source | Contenu | Retiré ou masqué |
+|---|---|---|
+| API et worker (`internal/platform/errtrack`) | Message et pile de l'erreur (5xx, panic, tâche en échec définitif), modèle de route, méthode, code, identifiant de requête, nom de la tâche, version, environnement | Requête entière (URL, query string, en-têtes, cookies, corps), utilisateur, fil d'Ariane ; emails, jetons, coordonnées, IP et téléphones masqués dans les textes (`TestScrubRemovesPersonalData`, `TestReportSendsOnlyScrubbedEvents`) |
+| Admin web (`src/lib/error-tracking.ts`) | Erreurs JavaScript non prévues (pas les erreurs d'API), pile, navigateur, adresse de la page sans paramètres | Utilisateur, fil d'Ariane, en-têtes, cookies, paramètres d'URL ; masque des textes (`src/lib/scrub.test.ts`) |
+| App mobile (`src/lib/error-tracking.ts`) | Erreurs JavaScript non attrapées et plantages natifs : pile, modèle et système de l'appareil, version de l'app | Fil d'Ariane, session, capture d'écran, hiérarchie des vues, requêtes ; utilisateur constant (`anonymous`, au lieu de l'identifiant d'installation du SDK Android) ; masque des textes pour les erreurs JavaScript (`src/lib/scrub.test.ts`) |
+| Proxy (`deploy/Caddyfile`, site `errors.<domaine>`) | — | L'adresse IP de l'appareil ou du navigateur ne parvient jamais à GlitchTip (en-têtes de transfert remplacés) |
+
 ## 4. Fichiers
 
 | Fichier | Emplacement | Chiffrement | Conservation |
@@ -88,7 +99,7 @@ Champs relevés dans le code : `request_id`, méthode, route, chemin, requête (
 | Hébergeur | Serveurs, base, fichiers, sauvegardes, journaux | Toutes les données | Choisi à l'étape 10C | Sous-traitant |
 | OSRM | Calcul d'itinéraire | Position de départ et d'arrivée | **Auto-hébergé** : aucun transfert | — |
 
-Aucun outil d'analyse d'audience, de publicité ni de suivi des plantages n'est intégré.
+Aucun outil d'analyse d'audience ni de publicité n'est intégré. Le suivi des plantages (GlitchTip) est **auto-hébergé** : aucun transfert (section 3 bis).
 
 ## 7. Écarts constatés (recherche dans le code)
 

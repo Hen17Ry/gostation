@@ -1,7 +1,7 @@
 ---
 title: Politique de confidentialité
 version: 1.0
-updated: 16 octobre 2026
+updated: 21 octobre 2026
 ---
 
 # Politique de confidentialité de GoStation
@@ -30,6 +30,7 @@ Pour toute question sur vos données : [À COMPLÉTER : adresse email dédiée �
 - **Votre position**, si vous l'autorisez : pour trouver les stations proches et calculer l'itinéraire. Elle est envoyée à nos serveurs au moment de la recherche et n'y est jamais conservée.
 - **Un identifiant d'installation**, tiré au hasard au premier lancement : il limite le nombre de recherches par appareil pour protéger le service. Il ne vous identifie pas et n'est pas lié à votre identité.
 - **Vos recherches**, sous une forme anonyme : nous comptons les recherches par zone d'environ 5 km² et par heure, sans lien avec vous, pour repérer les pénuries.
+- **Les rapports de plantage**, si l'application rencontre une erreur : la trace technique de l'erreur, le modèle et le système du téléphone, la version de l'application. Ils partent vers notre propre serveur de suivi des erreurs, sans votre position, sans votre adresse email, sans identifiant de compte ni d'appareil, et sans votre adresse IP. Ils servent seulement à corriger les erreurs.
 
 ### Avec un compte
 
@@ -102,6 +103,7 @@ Nous ne communiquons pas vos données à d'autres tiers, sauf obligation légale
 | Journal de sécurité (actions sur les comptes et les stations) | 12 mois |
 | Demandes concernant vos données | 3 ans après leur clôture, pour prouver qu'elles ont été traitées |
 | Copie de vos données | 24 heures après sa préparation |
+| Rapports de plantage | 30 jours |
 | Statistiques de recherche par zone | Sans limite : elles sont anonymes |
 
 Les sauvegardes de nos serveurs suivent une rotation : une donnée supprimée en disparaît au plus tard [À COMPLÉTER : durée de rotation des sauvegardes] après sa suppression.

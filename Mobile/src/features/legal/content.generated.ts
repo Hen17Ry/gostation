@@ -5,7 +5,7 @@ export const privacyPolicy: LegalDocument = {
   meta: {
     title: 'Politique de confidentialité',
     version: '1.0',
-    updated: '16 octobre 2026',
+    updated: '21 octobre 2026',
   },
   blocks: [
     {
@@ -160,6 +160,15 @@ export const privacyPolicy: LegalDocument = {
           },
           {
             text: ", sous une forme anonyme : nous comptons les recherches par zone d'environ 5 km² et par heure, sans lien avec vous, pour repérer les pénuries.",
+          },
+        ],
+        [
+          {
+            text: 'Les rapports de plantage',
+            bold: true,
+          },
+          {
+            text: ", si l'application rencontre une erreur : la trace technique de l'erreur, le modèle et le système du téléphone, la version de l'application. Ils partent vers notre propre serveur de suivi des erreurs, sans votre position, sans votre adresse email, sans identifiant de compte ni d'appareil, et sans votre adresse IP. Ils servent seulement à corriger les erreurs.",
           },
         ],
       ],
@@ -724,6 +733,18 @@ export const privacyPolicy: LegalDocument = {
           [
             {
               text: '24 heures après sa préparation',
+            },
+          ],
+        ],
+        [
+          [
+            {
+              text: 'Rapports de plantage',
+            },
+          ],
+          [
+            {
+              text: '30 jours',
             },
           ],
         ],

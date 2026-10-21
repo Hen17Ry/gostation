@@ -108,3 +108,14 @@ Mesures de sécurité communes à tous les traitements : HTTPS, mots de passe ar
 | Données | Identifiant de requête, route, statut, durée, identifiant du compte (UUID) ; jamais IP, position, email, token ni contenu de notification |
 | Destinataires | Équipe technique ; hébergeur |
 | Conservation | 30 jours (10C) |
+
+## T10. Suivi des plantages
+
+| Rubrique | Contenu |
+|---|---|
+| Finalité | Détecter et corriger les erreurs de l'API, du worker, de l'admin et de l'application |
+| Base légale | Intérêt légitime (sécurité et fiabilité du service) |
+| Personnes | Utilisateurs de l'application et de l'admin dont l'appareil rencontre une erreur |
+| Données | Trace technique de l'erreur, modèle et système de l'appareil ou du navigateur, version ; ni position, ni email, ni identifiant de compte ou d'appareil, ni adresse IP (masquage avant envoi, IP retirée par le proxy) |
+| Destinataires | Équipe technique (GlitchTip auto-hébergé, aucun sous-traitant) |
+| Conservation | 30 jours |

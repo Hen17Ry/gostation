@@ -1238,6 +1238,7 @@ Source détaillée : [`docs/legal/inventaire-donnees.md`](legal/inventaire-donne
 | Codes à 6 chiffres, défis 2FA, codes de confirmation des demandes | 15 min, 5 min, 7 j (TTL Redis), détruits après usage ou 5 échecs | — | — |
 | Limiteurs (empreintes d'IP, de compte, d'installation) | 1 min à 1 h (TTL Redis) | — | — |
 | Logs applicatifs (sans IP, position, email ni token) | 30 j, chez l'hébergeur | 10C | — |
+| Rapports de plantage (GlitchTip, D90) | 30 j | `GLITCHTIP_MAX_EVENT_LIFE_DAYS` | GlitchTip |
 
 Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire) ; alerte de l'admin `PRIVACY_REQUEST_DUE_SOON` (168 h) ; contact indiqué dans les emails : `PRIVACY_CONTACT_EMAIL`.
 
@@ -1245,7 +1246,7 @@ Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire)
 
 ## 9. Décisions et questions ouvertes
 
-### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D79 : 2026-10-15 ; D80 à D89 : 2026-10-16)
+### Décisions (2026-10-10 ; D25 à D45 : 2026-10-11 ; D46 à D55 : 2026-10-12 ; D56 à D65 : 2026-10-13 ; D66 à D79 : 2026-10-15 ; D80 à D89 : 2026-10-16 ; D90 et suivantes : 2026-10-21)
 
 | # | Sujet | Décision |
 |---|---|---|
@@ -1338,6 +1339,7 @@ Délai de réponse aux demandes : `PRIVACY_REQUEST_DEADLINE` (720 h, provisoire)
 | D87 | Réacceptation | Quand le serveur publie une version (`PRIVACY_POLICY_VERSION`) que le compte n'a pas acceptée, l'app n'ouvre plus que l'écran `policy-update` (lire, accepter, se déconnecter, supprimer le compte). Si l'app ne contient pas cette version, elle demande d'être mise à jour au lieu de faire accepter un texte qu'elle ne montre pas. Testé avec une version 1.1 fictive (`TestPrivacyPolicyNewVersion`, `policy-gate.test.ts`). |
 | D88 | Écran « Mes données » | Compte › Mes données (et l'écran de statut d'un gérant non approuvé) : copie (préparer, suivi toutes les 3 s, partager, nouvelle copie), rectifier (profil), faire une demande (type et précisions), mes demandes (statut, échéance, réponse), supprimer le compte (ce qui est supprimé, conservé et pourquoi ; variante gérant). |
 | D89 | Admin « Demandes de données » | Section des opérations : liste filtrable (À traiter, Traitées, Refusées, Toutes ; type ; en retard), échéance et retard en texte et badge, panneau de détail (personne, précisions, vérification d'identité avec saisie du code, réponse) et actions (prendre en charge, générer la copie, supprimer le compte, clore, refuser) ; enregistrement d'une demande reçue par email. Badge : demandes ouvertes. Jeu d'export `data_requests` : le suivi seulement (type, origine, statut, dates, vérifiée, retard). |
+| D90 | Suivi des plantages | **GlitchTip** auto-hébergé (open source, compatible Sentry) dans le compose de prod (`errors.<domaine>`, une base `glitchtip` dédiée sur le même PostgreSQL, sans Valkey, rôle `all_in_one`, événements gardés 30 jours, inscription fermée). SDK Sentry dans l'API et le worker (5xx et panics, tâches en échec définitif), l'admin (chargé à la demande, erreurs JavaScript seulement, pas les erreurs d'API) et l'app (erreurs JavaScript non attrapées, plantages natifs). Désactivé si le DSN est vide (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). Aucune donnée personnelle : requête, utilisateur et fil d'Ariane retirés, emails, jetons, coordonnées, IP et téléphones masqués avant envoi (tests dans les trois projets) ; utilisateur constant sur mobile (pas d'identifiant d'installation) ; l'IP du client n'atteint jamais GlitchTip (le proxy la remplace). Pas d'envoi des source maps en V1. Inventaire §3 bis, registre, politique. |
 
 ### Questions ouvertes
 
