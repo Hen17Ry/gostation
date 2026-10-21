@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/textproto"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -58,6 +60,13 @@ type Tasks struct {
 	Analytics     *analytics.Service
 	Exports       *export.Service
 	Privacy       *privacy.Service
+	// Errors reçoit les échecs définitifs et les panics (suivi des plantages, D90) ; facultatif.
+	Errors Reporter
+}
+
+// Reporter envoie une erreur au suivi des plantages (*errtrack.Tracker).
+type Reporter interface {
+	Report(ctx context.Context, err error, tags map[string]string)
 }
 
 // Worker est le serveur asynq et son scheduler.
@@ -87,6 +96,11 @@ func New(cfg Config, rdb goredis.UniversalClient, t Tasks, log *slog.Logger) (*W
 			maxRetry, _ := asynq.GetMaxRetry(ctx)
 			log.WarnContext(ctx, "task failed", slog.String("task", task.Type()),
 				slog.Int("retried", retried), slog.Int("max_retry", maxRetry), slog.Any("err", err))
+			// Seuls les échecs définitifs (archivés) et les panics remontent : les reprises
+			// ordinaires (SMTP lent, Expo indisponible) feraient du bruit.
+			if t.Errors != nil && (retried >= maxRetry || errors.Is(err, asynq.SkipRetry) || strings.HasPrefix(err.Error(), "panic")) {
+				t.Errors.Report(ctx, err, map[string]string{"task": task.Type(), "retried": strconv.Itoa(retried)})
+			}
 		}),
 	})
 	w.routes()

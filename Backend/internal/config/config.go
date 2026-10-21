@@ -46,6 +46,14 @@ type Config struct {
 	Reminders Reminders
 	Retention Retention
 	Privacy   Privacy
+	// ErrorTracking : suivi des plantages (GlitchTip, D90), désactivé sans DSN.
+	ErrorTracking ErrorTracking
+}
+
+// ErrorTracking regroupe les réglages du suivi des plantages.
+type ErrorTracking struct {
+	DSN         string
+	Environment string
 }
 
 // Jobs regroupe les réglages du worker asynq (cmd/worker).
@@ -321,6 +329,10 @@ func Load(getenv func(string) string) (Config, error) {
 		Timeout:         l.duration("EXPO_PUSH_TIMEOUT", 15*time.Second),
 		ReceiptsDelay:   l.duration("PUSH_RECEIPTS_DELAY", 15*time.Minute),
 	}
+	c.ErrorTracking = ErrorTracking{
+		DSN:         l.optionalURL("SENTRY_DSN", "", "https", "http"),
+		Environment: l.str("SENTRY_ENVIRONMENT", string(c.Env)),
+	}
 	c.Reminders = Reminders{Interval: l.duration("STOCK_REMINDER_INTERVAL", 4*time.Hour)}
 	c.Retention = Retention{
 		Notifications:           l.retention("RETENTION_NOTIFICATIONS", 30*24*time.Hour),
@@ -385,6 +397,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("cookie_secure", c.Auth.CookieSecure),
 		slog.Bool("expo_push", c.Push.ExpoAccessToken != ""),
 		slog.Int("worker_concurrency", c.Jobs.Concurrency),
+		slog.Bool("error_tracking", c.ErrorTracking.DSN != ""),
 	)
 }
 

@@ -22,6 +22,7 @@ import (
 	"gostation/backend/internal/app"
 	"gostation/backend/internal/config"
 	"gostation/backend/internal/http/httpctx"
+	"gostation/backend/internal/platform/errtrack"
 	"gostation/backend/internal/platform/healthprobe"
 	"gostation/backend/internal/platform/logging"
 	"gostation/backend/internal/platform/osrm"
@@ -84,7 +85,15 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 
 	// Les emails, les push et les tâches périodiques passent par le worker (cmd/worker) : l'API
 	// ne fait que mettre en file (asynq), elle n'a pas besoin du serveur SMTP.
-	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Storage: docs, OSRM: osrmClient}, log)
+	errs, err := errtrack.New(errtrack.Config{
+		DSN: cfg.ErrorTracking.DSN, Environment: cfg.ErrorTracking.Environment, Release: version, Service: "api",
+	})
+	if err != nil {
+		return err
+	}
+	defer errs.Flush(2 * time.Second)
+
+	svc, err := app.NewServices(cfg, app.Infra{Pool: pool, Redis: rdb, Storage: docs, OSRM: osrmClient, Errors: errs}, log)
 	if err != nil {
 		return err
 	}

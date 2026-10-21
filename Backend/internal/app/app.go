@@ -31,6 +31,7 @@ import (
 	"gostation/backend/internal/mail"
 	"gostation/backend/internal/notification"
 	"gostation/backend/internal/platform/crypto"
+	"gostation/backend/internal/platform/errtrack"
 	"gostation/backend/internal/platform/osrm"
 	"gostation/backend/internal/platform/storage"
 	"gostation/backend/internal/privacy"
@@ -59,6 +60,9 @@ type Infra struct {
 	OSRM *osrm.Client
 	// Pusher remplace celui de la configuration (Expo si EXPO_ACCESS_TOKEN, factice sinon).
 	Pusher push.Pusher
+	// Errors envoie les erreurs serveur au suivi des plantages (GlitchTip, D90) ; nil ou sans DSN :
+	// rien n'est envoyé.
+	Errors *errtrack.Tracker
 	// Clock remplace l'horloge des rappels, des alertes favoris, des stats admin, des exports et
 	// des quotas (tests d'intégration).
 	Clock func() time.Time
@@ -91,6 +95,8 @@ type Services struct {
 	Audit     *audit.Reader
 	// Étape 10A : droits des personnes (demandes, copie des données, suppression du compte).
 	Privacy *privacy.Service
+	// Suivi des plantages (Infra.Errors).
+	Errors *errtrack.Tracker
 	// Clés dérivées d'APP_SECRET (une par usage).
 	CSRFKey  []byte
 	EmailKey []byte
@@ -209,7 +215,7 @@ func NewServices(cfg config.Config, infra Infra, log *slog.Logger) (*Services, e
 	}, st, infra.Redis, cache, osrmClient, searchstats.NewRecorder(infra.Redis), log)
 
 	return &Services{
-		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient,
+		Store: st, Auth: authSvc, Station: stationSvc, Search: searchSvc, OSRM: osrmClient, Errors: infra.Errors,
 		Stats: searchstats.NewFlusher(infra.Redis, st, cfg.Timezone, log), Limiter: limiter,
 		Sessions: sessions, Tokens: tokens, CSRFKey: csrfKey, EmailKey: emailKey,
 		Jobs: jobsClient, Emails: emails, Pusher: pusher, Notifications: notifSvc,
@@ -282,7 +288,7 @@ func NewWorker(cfg config.Config, svc *Services, infra Infra, log *slog.Logger, 
 	}, infra.Redis, worker.Tasks{
 		SMTP: infra.Mailer, Emails: svc.Emails, Stats: svc.Stats, Notifications: svc.Notifications,
 		Reminders: svc.Reminders, Favorites: svc.Favorites, Retention: svc.Retention,
-		Analytics: svc.Analytics, Exports: svc.Exports, Privacy: svc.Privacy,
+		Analytics: svc.Analytics, Exports: svc.Exports, Privacy: svc.Privacy, Errors: svc.Errors,
 	}, log)
 }
 
@@ -291,7 +297,7 @@ const readinessTimeout = 2 * time.Second
 
 // NewHandler construit le handler HTTP et les sondes de santé.
 func NewHandler(cfg config.Config, svc *Services, rdb *goredis.Client, log *slog.Logger) (http.Handler, *handler.Health) {
-	rs := respond.New(log)
+	rs := respond.New(log, respond.WithReporter(svc.Errors))
 	health := handler.NewHealth(rs, log, readinessTimeout, map[string]handler.Check{
 		"postgres": svc.Store.Ping,
 		"redis":    func(ctx context.Context) error { return rdb.Ping(ctx).Err() },

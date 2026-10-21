@@ -3,6 +3,7 @@ module gostation/backend
 go 1.27
 
 require (
+	github.com/getsentry/sentry-go v0.50.0
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/cors v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
