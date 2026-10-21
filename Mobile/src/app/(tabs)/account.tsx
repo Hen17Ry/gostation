@@ -1,7 +1,9 @@
 import Constants from 'expo-constants'
 import { router } from 'expo-router'
+import * as Sentry from '@sentry/react-native'
 import {
   BellRing,
+  Bug,
   FileText,
   FolderLock,
   KeyRound,
@@ -16,7 +18,7 @@ import {
   LogIn,
 } from 'lucide-react-native'
 import { useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Alert, ScrollView, View } from 'react-native'
 
 import { logout } from '@/api/account'
 import { LogoMark } from '@/components/brand/logo'
@@ -32,6 +34,7 @@ import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
 import { useMe } from '@/features/auth/use-me'
 import { t } from '@/i18n'
+import { isStaging } from '@/lib/app-env'
 import { haptics } from '@/lib/haptics'
 import { usePrefs } from '@/stores/prefs'
 
@@ -188,6 +191,18 @@ export default function Account() {
           )}
         </Section>
 
+        {isStaging() && (
+          <Section title={t.env.diagnostics}>
+            <ListRow
+              testID="account-test-crash"
+              icon={Bug}
+              title={t.env.testCrash}
+              subtitle={t.env.testCrashHint}
+              onPress={confirmTestCrash}
+            />
+          </Section>
+        )}
+
         {signedIn && (
           <Section>
             <ListRow
@@ -213,4 +228,12 @@ export default function Account() {
       </ScrollView>
     </TabScreen>
   )
+}
+
+/** Plantage natif volontaire (staging) : le SDK l'enregistre et l'envoie à GlitchTip au lancement suivant. */
+function confirmTestCrash() {
+  Alert.alert(t.env.testCrash, t.env.testCrashConfirm, [
+    { text: t.common.cancel, style: 'cancel' },
+    { text: t.env.crashNow, style: 'destructive', onPress: () => Sentry.nativeCrash() },
+  ])
 }
