@@ -9,6 +9,7 @@ package errtrack
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
@@ -81,6 +82,22 @@ func (t *Tracker) Flush(timeout time.Duration) {
 	if t.Enabled() {
 		t.hub.Flush(timeout)
 	}
+}
+
+// SendTest envoie un message de test et attend son départ (commande errtrack-test de l'API et du
+// worker) : vérifie le DSN, le chemin réseau et le projet GlitchTip après un déploiement.
+func (t *Tracker) SendTest(service string, timeout time.Duration) (string, error) {
+	if !t.Enabled() {
+		return "", errors.New("errtrack: SENTRY_DSN is empty")
+	}
+	id := t.hub.CaptureMessage("GlitchTip test event (" + service + ")")
+	if id == nil {
+		return "", errors.New("errtrack: test event dropped")
+	}
+	if !t.hub.Flush(timeout) {
+		return "", fmt.Errorf("errtrack: test event not sent within %s", timeout)
+	}
+	return string(*id), nil
 }
 
 // Scrub retire d'un événement tout ce qui pourrait identifier une personne ou la situer.

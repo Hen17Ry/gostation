@@ -3,6 +3,7 @@
 //	api               démarre le serveur (configuration lue dans l'environnement)
 //	api healthcheck   interroge /readyz en local ; code de sortie 0 si prêt (healthcheck Docker,
 //	                  l'image distroless n'ayant ni shell ni curl)
+//	api errtrack-test envoie un événement de test à GlitchTip (SENTRY_DSN), après un déploiement
 package main
 
 import (
@@ -40,9 +41,12 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	var err error
-	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "migrate":
 		err = migrate(ctx, os.Getenv, os.Args[2:], os.Stdout)
-	} else {
+	case len(os.Args) > 1 && os.Args[1] == "errtrack-test":
+		err = errtrackTest(os.Getenv, os.Stdout)
+	default:
 		err = run(ctx, os.Getenv, os.Stdout)
 	}
 	stop()
@@ -50,6 +54,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "gostation-api:", err)
 		os.Exit(1)
 	}
+}
+
+// errtrackTest envoie un événement de test (service « api ») et affiche son identifiant.
+func errtrackTest(getenv func(string) string, stdout io.Writer) error {
+	cfg, err := config.Load(getenv)
+	if err != nil {
+		return err
+	}
+	errs, err := errtrack.New(errtrack.Config{
+		DSN: cfg.ErrorTracking.DSN, Environment: cfg.ErrorTracking.Environment, Release: version, Service: "api",
+	})
+	if err != nil {
+		return err
+	}
+	id, err := errs.SendTest("api", 10*time.Second)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "test event %s sent (api, %s)\n", id, cfg.ErrorTracking.Environment)
+	return nil
 }
 
 // run assemble les dépendances, sert les requêtes et s'arrête proprement quand ctx est annulé.
