@@ -42,9 +42,12 @@ export const ADMIN_HEADERS: Record<string, string> = {
  */
 export function contentSecurityPolicy({
   apiOrigin,
+  errorsOrigin,
   scriptHashes,
 }: {
   apiOrigin?: string
+  /** GlitchTip (VITE_SENTRY_DSN), s'il est configuré. */
+  errorsOrigin?: string
   scriptHashes: string[]
 }): string {
   const directives: Array<[string, string[]]> = [
@@ -53,7 +56,10 @@ export function contentSecurityPolicy({
     ['style-src', ["'self'", "'unsafe-inline'"]],
     ['img-src', ["'self'", 'data:', 'blob:']],
     ['font-src', ["'self'"]],
-    ['connect-src', ["'self'", ...(apiOrigin ? [apiOrigin] : []), TILES_ORIGIN, 'blob:']],
+    [
+      'connect-src',
+      ["'self'", ...(apiOrigin ? [apiOrigin] : []), ...(errorsOrigin ? [errorsOrigin] : []), TILES_ORIGIN, 'blob:'],
+    ],
     ['worker-src', ["'self'", 'blob:']],
     ['frame-src', ["'none'"]],
     ['object-src', ["'none'"]],
@@ -84,7 +90,7 @@ export function apiOriginOf(baseUrl: string | undefined): string | undefined {
  * Build : écrit `csp.txt` d'après l'index.html final. Preview : pose la CSP et `ADMIN_HEADERS` sur
  * chaque réponse, comme Caddy.
  */
-export function securityHeaders(apiBaseUrl: string | undefined): Plugin {
+export function securityHeaders(apiBaseUrl: string | undefined, sentryDsn?: string): Plugin {
   let outDir = 'dist'
   return {
     name: 'gostation:security-headers',
@@ -96,7 +102,11 @@ export function securityHeaders(apiBaseUrl: string | undefined): Plugin {
       const index = bundle['index.html']
       if (!index || index.type !== 'asset') return
       const html = typeof index.source === 'string' ? index.source : new TextDecoder().decode(index.source)
-      const csp = contentSecurityPolicy({ apiOrigin: apiOriginOf(apiBaseUrl), scriptHashes: inlineScriptHashes(html) })
+      const csp = contentSecurityPolicy({
+        apiOrigin: apiOriginOf(apiBaseUrl),
+        errorsOrigin: apiOriginOf(sentryDsn),
+        scriptHashes: inlineScriptHashes(html),
+      })
       this.emitFile({ type: 'asset', fileName: CSP_FILE, source: csp })
     },
     configurePreviewServer(server: PreviewServer) {

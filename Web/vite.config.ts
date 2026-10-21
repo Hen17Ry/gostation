@@ -28,7 +28,7 @@ export default defineConfig(({ mode }) => {
         /geist-latin-wght-normal-[\w-]+\.woff2$/,
       ),
       // Après routePreload : la CSP porte l'empreinte de son script en ligne.
-      securityHeaders(env.VITE_API_BASE_URL),
+      securityHeaders(env.VITE_API_BASE_URL, env.VITE_SENTRY_DSN),
     ],
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

@@ -26,6 +26,11 @@ describe('CSP de l’admin', () => {
     expect(csp).toContain("worker-src 'self' blob:")
     expect(csp).toContain("img-src 'self' data: blob:")
     expect(apiOriginOf('')).toBeUndefined()
+    const withErrors = contentSecurityPolicy({
+      errorsOrigin: apiOriginOf('https://public@errors.gostation.bj/2'),
+      scriptHashes: [],
+    })
+    expect(withErrors).toContain("connect-src 'self' https://errors.gostation.bj https://tiles.openfreemap.org blob:")
     expect(apiOriginOf('/api')).toBeUndefined()
   })
 
