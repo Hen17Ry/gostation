@@ -1,0 +1,38 @@
+# Répétition locale de la production (docs/DEPLOY.md, « Répéter en local ») : ajouté par
+# GOSTATION_EXTRA_COMPOSE=deploy/rehearsal.compose.yml à docker-compose.prod.yml. Jamais sur un
+# serveur. DOMAIN=gostation.localhost : Caddy signe lui-même les certificats (*.localhost).
+services:
+  caddy:
+    # Ports de l'hôte seulement sur la boucle locale.
+    ports: !override
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+
+  # Stockage objet compatible S3 : fichiers de l'application (bucket gostation) et dépôt restic
+  # (bucket gostation-backups).
+  s3:
+    image: ${S3_TEST_IMAGE:-chrislusf/seaweedfs:4.47}
+    command: ["mini", "-dir=/data", "-bucket=gostation,gostation-backups"]
+    environment:
+      AWS_ACCESS_KEY_ID: rehearsal
+      AWS_SECRET_ACCESS_KEY: rehearsal-secret
+    volumes:
+      - s3data:/data
+    networks: [net]
+
+  # Emails de l'API, du worker et de GlitchTip.
+  mailpit:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.6}
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "127.0.0.1:18025:8025"
+    networks: [net]
+
+  api:
+    depends_on:
+      s3: { condition: service_started }
+
+volumes:
+  s3data:

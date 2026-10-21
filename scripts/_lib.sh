@@ -2,7 +2,10 @@
 # shellcheck shell=bash
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="$ROOT_DIR/.env"
+# Développement par défaut ; la production passe par scripts/prod.sh (docker-compose.prod.yml,
+# .env.production).
+ENV_FILE="${GOSTATION_ENV_FILE:-$ROOT_DIR/.env}"
+COMPOSE_FILE_PATH="${GOSTATION_COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 
 log()  { printf '\033[1;33m▸\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
@@ -20,6 +23,13 @@ env_get() {
   printf '%s' "${val:-$default}"
 }
 
-compose() { docker compose --project-directory "$ROOT_DIR" -f "$ROOT_DIR/docker-compose.yml" "$@"; }
+# COMPOSE_FILE_PATH peut lister plusieurs fichiers séparés par « : » (répétition de la production).
+compose() {
+  local files=() f
+  IFS=: read -ra files <<< "$COMPOSE_FILE_PATH"
+  local args=()
+  for f in "${files[@]}"; do args+=(-f "$f"); done
+  docker compose --project-directory "$ROOT_DIR" "${args[@]}" --env-file "$ENV_FILE" "$@"
+}
 
 require_env_file() { [[ -f "$ENV_FILE" ]] || die ".env absent — lance d'abord : make env"; }
