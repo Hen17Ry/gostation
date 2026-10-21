@@ -39,7 +39,12 @@ func main() {
 		os.Exit(healthcheck(os.Getenv))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, os.Getenv, os.Stdout)
+	var err error
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		err = migrate(ctx, os.Getenv, os.Args[2:], os.Stdout)
+	} else {
+		err = run(ctx, os.Getenv, os.Stdout)
+	}
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gostation-api:", err)
