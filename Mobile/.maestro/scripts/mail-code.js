@@ -1,8 +1,9 @@
-// Lit le code à 6 chiffres envoyé à EMAIL dans Mailpit (API locale, http://127.0.0.1:8025).
+// Lit le code à 6 chiffres envoyé à EMAIL dans Mailpit (API locale, http://127.0.0.1:8025 ; staging :
+// MAILPIT_URL, le Mailpit du serveur par le tunnel SSH).
 // SUBJECT (facultatif) filtre sur l'objet : « Confirmez » (vérification, par défaut) ou
 // « Réinitialisation » (mot de passe oublié), pour ne jamais relire un ancien code.
 // L'email part par le worker, de façon asynchrone : on réessaie pendant une quinzaine de secondes.
-const base = 'http://127.0.0.1:8025/api/v1'
+const base = (typeof MAILPIT_URL !== 'undefined' && MAILPIT_URL ? MAILPIT_URL : 'http://127.0.0.1:8025') + '/api/v1'
 const subject = typeof SUBJECT !== 'undefined' && SUBJECT ? SUBJECT : 'Confirmez'
 const query = 'to:"' + EMAIL + '" subject:"' + subject + '"'
 let code = null

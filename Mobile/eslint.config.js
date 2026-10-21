@@ -65,6 +65,9 @@ module.exports = defineConfig([
         SUBJECT: 'readonly',
         ACTION: 'readonly',
         REASON: 'readonly',
+        // Staging (scripts/e2e-staging.sh) : Mailpit et pilotage du serveur par le tunnel SSH.
+        MAILPIT_URL: 'readonly',
+        CONTROL_URL: 'readonly',
       },
     },
   },
