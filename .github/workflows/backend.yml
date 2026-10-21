@@ -62,4 +62,9 @@ jobs:
       # PostGIS, Redis et Mailpit jetables (mêmes images que le compose), démarrés par les tests.
       # La concordance spec OpenAPI ↔ routes servies est vérifiée par internal/http/router.
       - name: go test -race (tag integration)
+        # Ryuk (le conteneur de nettoyage de testcontainers) dépassait son délai de démarrage
+        # quand une trentaine de paquets lancent leurs conteneurs ensemble sur 2 vCPU. Le runner
+        # est jetable et chaque paquet arrête ses conteneurs (TestMain) : il est inutile ici.
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "true"
         run: go test -race -count=1 -tags integration ./...
