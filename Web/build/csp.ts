@@ -29,6 +29,8 @@ export const ADMIN_HEADERS: Record<string, string> = {
   // en CORS (tuiles OpenFreeMap) ou l'autoriser explicitement.
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'same-origin',
+  // Espace privé : jamais indexé, quel que soit l'environnement.
+  'X-Robots-Tag': 'noindex, nofollow',
 }
 
 /**

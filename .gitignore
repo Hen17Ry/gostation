@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 !.env.production.example
+# Environnements des serveurs (deploy/staging.env…) et accès rclone des sauvegardes
+deploy/*.env
+deploy/*.rclone.conf
 *.pem
 *.key
 *.p8

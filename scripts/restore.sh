@@ -12,16 +12,14 @@
 # contrôle (/readyz, comptes et stations). Sans --yes, une confirmation est demandée.
 set -Eeuo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export GOSTATION_ENV_FILE="${GOSTATION_ENV_FILE:-$ROOT/.env.production}"
-export GOSTATION_COMPOSE_FILE="$ROOT/docker-compose.prod.yml${GOSTATION_EXTRA_COMPOSE:+:$GOSTATION_EXTRA_COMPOSE}"
-# shellcheck source=scripts/_lib.sh
-. "$ROOT/scripts/_lib.sh"
-[[ -f "$ENV_FILE" ]] || die "$ENV_FILE absent (nouveau serveur : RESTIC_* et BACKUP_S3_* suffisent pour « env »)"
+# shellcheck source=scripts/_prod.sh
+. "$(dirname "${BASH_SOURCE[0]}")/_prod.sh"
+ROOT="$PROD_ROOT"
+[[ -f "$ENV_FILE" ]] || die "$ENV_FILE absent (nouveau serveur : RESTIC_* suffisent pour « env », et BACKUP_S3_* pour un dépôt S3)"
 
 WORK="${BACKUP_WORK_DIR:-/var/lib/gostation-backup}"
 RCLONE_IMAGE="${RCLONE_IMAGE:-rclone/rclone:1.75.2}"
-PROJECT="$(compose config --format json 2> /dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])' || echo gostation-prod)"
+PROJECT="$(compose_project)"
 restic() { "$ROOT/scripts/backup.sh" restic "$@"; }
 
 fetch() {
@@ -72,7 +70,7 @@ restore() {
     log "fichiers : bucket $(env_get S3_BUCKET)/$(env_get S3_PREFIX) synchronisé sur la sauvegarde"
     local scheme=https
     [[ "$(env_get S3_TLS true)" == true ]] || scheme=http
-    docker run --rm --network "${PROJECT}_net" \
+    docker run --rm --network "${PROJECT}_storage" \
       -e RCLONE_S3_PROVIDER=Other -e RCLONE_S3_ENDPOINT="$scheme://$(env_get S3_ENDPOINT)" \
       -e RCLONE_S3_REGION="$(env_get S3_REGION us-east-1)" \
       -e RCLONE_S3_ACCESS_KEY_ID="$(env_get S3_ACCESS_KEY_ID)" -e RCLONE_S3_SECRET_ACCESS_KEY="$(env_get S3_SECRET_ACCESS_KEY)" \

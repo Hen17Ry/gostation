@@ -8,17 +8,11 @@ services:
       - "127.0.0.1:80:80"
       - "127.0.0.1:443:443"
 
-  # Stockage objet compatible S3 : fichiers de l'application (bucket gostation) et dépôt restic
-  # (bucket gostation-backups).
+  # SeaweedFS (service s3 de la production) sert aussi le dépôt restic de la répétition (bucket
+  # gostation-backups), joint par restic sur le réseau net.
   s3:
-    image: ${S3_TEST_IMAGE:-chrislusf/seaweedfs:4.47}
-    command: ["mini", "-dir=/data", "-bucket=gostation,gostation-backups"]
-    environment:
-      AWS_ACCESS_KEY_ID: rehearsal
-      AWS_SECRET_ACCESS_KEY: rehearsal-secret
-    volumes:
-      - s3data:/data
-    networks: [net]
+    command: !override ["mini", "-dir=/data", "-bucket=gostation,gostation-backups", "-admin.ui=false", "-webdav=false"]
+    networks: [storage, net]
 
   # Emails de l'API, du worker et de GlitchTip.
   mailpit:
@@ -29,10 +23,3 @@ services:
     ports:
       - "127.0.0.1:18025:8025"
     networks: [net]
-
-  api:
-    depends_on:
-      s3: { condition: service_started }
-
-volumes:
-  s3data:

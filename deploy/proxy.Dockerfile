@@ -11,6 +11,7 @@ COPY Web/ ./
 ARG VITE_API_BASE_URL
 ARG VITE_SENTRY_DSN=
 ARG VITE_SENTRY_ENVIRONMENT=production
+ARG VITE_APP_ENV=production
 RUN test -n "$VITE_API_BASE_URL" && npm run build && test -s dist/csp.txt
 
 # Pages légales : le générateur de l'app (Node exécute le TypeScript sans dépendance).

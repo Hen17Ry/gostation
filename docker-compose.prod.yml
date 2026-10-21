@@ -2,8 +2,9 @@
 # Toutes les valeurs viennent de .env.production (modèle : .env.production.example). Commandes :
 # scripts/prod.sh (up, deploy, backup, restore…), jamais `docker compose` seul sans --env-file.
 #
-# Seul Caddy publie des ports (80, 443) : ni la base, ni Redis, ni OSRM, ni l'API ne sont joignables
-# de l'extérieur. Chaque service a une limite de mémoire et redémarre tout seul.
+# Seul Caddy publie des ports (80, 443) : ni la base, ni Redis, ni OSRM, ni le stockage, ni l'API ne
+# sont joignables de l'extérieur. Chaque service a une limite de mémoire et redémarre tout seul.
+# Staging : GOSTATION_EXTRA_COMPOSE=deploy/staging.compose.yml ajoute ses outils de test.
 name: gostation-prod
 
 x-restart: &restart
@@ -34,10 +35,15 @@ services:
         VITE_API_BASE_URL: https://api.${DOMAIN:?}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
         VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+        # Bandeau « Staging » de l'admin (absent en production).
+        VITE_APP_ENV: ${APP_ENV:-production}
     image: gostation-proxy:${RELEASE:-latest}
     environment:
       DOMAIN: ${DOMAIN:?}
       ACME_EMAIL: ${ACME_EMAIL:?}
+      # Hors production, tous les sites sont en noindex (deploy/Caddyfile).
+      APP_ENV: ${APP_ENV:-production}
+      PUBLIC_EXTRA_HOSTS: ${PUBLIC_EXTRA_HOSTS:-}
     ports:
       - "80:80"
       - "443:443"
@@ -75,6 +81,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       osrm: { condition: service_healthy }
+      s3: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "/app/api", "healthcheck"]
       interval: 15s
@@ -85,7 +92,7 @@ services:
     deploy:
       resources:
         limits: { memory: 512m }
-    networks: [net]
+    networks: [net, storage]
 
   # Une seule instance : le scheduler des tâches périodiques tourne dans ce processus.
   worker:
@@ -101,6 +108,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      s3: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "/app/worker", "healthcheck"]
       interval: 15s
@@ -112,7 +120,7 @@ services:
       replicas: 1
       resources:
         limits: { memory: 512m }
-    networks: [net]
+    networks: [net, storage]
 
   postgres:
     <<: [*restart, *logging]
@@ -191,6 +199,31 @@ services:
         limits: { memory: 384m }
     networks: [net]
 
+  # Stockage objet compatible S3 (SeaweedFS, tout-en-un) : fichiers déjà chiffrés par l'application
+  # (justificatifs, exports, copies). Bucket S3_BUCKET créé au démarrage ; accès par les clés
+  # S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY (identité admin), aucun accès anonyme. Sur le réseau
+  # interne « storage », que seuls l'API, le worker et les sauvegardes joignent ; interface
+  # d'administration et WebDAV coupés. Sauvegardé par scripts/backup.sh (miroir du bucket).
+  s3:
+    <<: [*restart, *logging]
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47}
+    command: ["mini", "-dir=/data", "-bucket=${S3_BUCKET:?}", "-admin.ui=false", "-webdav=false"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?}
+    volumes:
+      - s3data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8333/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { memory: 512m }
+    networks: [storage]
+
   # Routage (extrait Bénin préparé par `scripts/prod.sh osrm-prepare`). Jamais exposé.
   osrm:
     <<: [*restart, *logging]
@@ -234,7 +267,8 @@ services:
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:?}
       GLITCHTIP_DOMAIN: https://errors.${DOMAIN:?}
       DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:?}
-      EMAIL_URL: ${GLITCHTIP_EMAIL_URL:?}
+      # Le SMTP de l'application par défaut (STARTTLS) ; GLITCHTIP_EMAIL_URL pour un autre.
+      EMAIL_URL: ${GLITCHTIP_EMAIL_URL:-smtp+tls://${SMTP_USERNAME}:${SMTP_PASSWORD}@${SMTP_HOST}:${SMTP_PORT}}
       SERVER_ROLE: all_in_one
       ENABLE_USER_REGISTRATION: "False"
       ENABLE_ORGANIZATION_CREATION: "False"
@@ -266,6 +300,7 @@ services:
 
 volumes:
   pgdata:
+  s3data:
   redisdata:
   osrmdata:
   documents:
@@ -279,3 +314,7 @@ networks:
     ipam:
       config:
         - subnet: 172.31.0.0/24
+  # Stockage objet : sans accès à Internet, joint seulement par l'API, le worker et les sauvegardes.
+  storage:
+    driver: bridge
+    internal: true

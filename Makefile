@@ -28,7 +28,8 @@ GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATI
 
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
 	tools run worker-run build legal-html purge-dry-run test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
-	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats dev-remind dev-notify dev-decide
+	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats dev-remind dev-notify dev-decide \
+	deploy-staging rollback-staging staging-tunnel
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-15s\033[0m %s\n", $$1, $$2}'
@@ -170,3 +171,15 @@ explain-stats: .env ## EXPLAIN ANALYZE des requêtes de stats admin (agrégats, 
 
 bench-stats: .env ## p50/p95/p99 des stats admin sur le jeu seed-dev (échoue si un p95 dépasse 300 ms)
 	@./scripts/with-env.sh bash -c 'cd $(BACKEND) && go run ./cmd/benchstats $(if $(N),-n $(N),)'
+
+# ── Staging (VPS, docs/DEPLOY.md §17) : depuis le poste, par SSH ─────────────
+
+deploy-staging: ## Staging : deploy/staging.env poussé, code à REF (défaut origin/main), migrations, redémarrage
+	@./scripts/staging.sh deploy $(or $(REF),origin/main)
+
+rollback-staging: ## Staging : retour à une version déjà construite (make rollback-staging v=… ; liste : scripts/staging.sh prod versions)
+	@[[ -n "$(v)" ]] || { echo "usage : make rollback-staging v=<version>"; exit 1; }
+	@./scripts/staging.sh rollback "$(v)"
+
+staging-tunnel: ## Staging : tunnel SSH vers Mailpit (127.0.0.1:18025) et le pilotage des E2E (127.0.0.1:18097)
+	@./scripts/staging.sh tunnel
