@@ -1,0 +1,94 @@
+# Surveillance du staging (docs/DEPLOY.md §17) : /readyz de l'API toutes les 30 min et validité du
+# certificat TLS. En cas d'échec, une issue « monitoring » est ouverte (une seule tant que la panne
+# dure) ; elle est fermée au premier contrôle réussi. Toutes les 30 min plutôt que 15 : ~1 440 min
+# d'Actions par mois (chaque exécution compte pour au moins 1 min) sur un quota gratuit de 2 000.
+# GitHub ne lance les tâches planifiées que depuis la branche par défaut, avec parfois du retard.
+name: Surveillance
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  READYZ_URL: ${{ vars.MONITOR_READYZ_URL || 'https://api.gostation.bj/readyz' }}
+  # Alerte quand le certificat expire dans moins de N jours (Caddy renouvelle à 30 jours).
+  CERT_MIN_DAYS: "14"
+  ISSUE_TITLE: "Surveillance : le staging ne répond pas correctement"
+
+jobs:
+  readyz:
+    name: /readyz et certificat
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Contrôle
+        id: probe
+        run: |
+          set -u
+          problems=""
+          # Trois tentatives espacées : une coupure de quelques secondes ne déclenche pas d'alerte.
+          ready=false
+          for attempt in 1 2 3; do
+            code="$(curl -sS -o body.json -w '%{http_code}' --max-time 20 "$READYZ_URL" 2> curl.err || true)"
+            if [[ "$code" == 200 ]] && jq -e '.status == "ready"' body.json > /dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            if (( attempt < 3 )); then sleep 20; fi
+          done
+          if [[ "$ready" != true ]]; then
+            detail="$(jq -c '.checks // empty' body.json 2> /dev/null || true)"
+            problems+="- \`GET $READYZ_URL\` : HTTP ${code:-000} après 3 tentatives${detail:+ (checks : \`$detail\`)}$(sed -n 1p curl.err | sed 's/^/ — /')"$'\n'
+          fi
+
+          host="$(sed -E 's#^https://([^/:]+).*#\1#' <<< "$READYZ_URL")"
+          end="$(echo | timeout 20 openssl s_client -connect "$host:443" -servername "$host" 2> /dev/null | openssl x509 -noout -enddate 2> /dev/null | cut -d= -f2 || true)"
+          if [[ -z "$end" ]]; then
+            problems+="- certificat TLS de \`$host\` illisible"$'\n'
+          else
+            days=$(( ($(date -d "$end" +%s) - $(date +%s)) / 86400 ))
+            echo "certificat de $host : expire dans $days jours ($end)"
+            if (( days < CERT_MIN_DAYS )); then
+              problems+="- certificat TLS de \`$host\` : expire dans $days jours ($end), renouvellement Caddy en échec ?"$'\n'
+            fi
+          fi
+
+          if [[ -n "$problems" ]]; then
+            printf '%s' "$problems" | tee problems.md
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "staging prêt"
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FAILED: ${{ steps.probe.outputs.failed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          open="$(gh issue list --state open --label monitoring --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')"
+          now="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          if [[ "$FAILED" == true ]]; then
+            body="$(printf 'Contrôle du %s ([exécution](%s)) :\n\n%s\nRunbook : docs/DEPLOY.md §17 (`scripts/staging.sh prod ps`, `scripts/staging.sh prod logs api`).' "$now" "$RUN_URL" "$(cat problems.md)")"
+            if [[ -n "$open" ]]; then
+              gh issue comment "$open" --body "$body"
+            else
+              gh label create monitoring --color D93F0B --description "Alertes de la surveillance du staging" --force
+              gh issue create --title "$ISSUE_TITLE" --label monitoring --body "$body"
+            fi
+            exit 1
+          elif [[ -n "$open" ]]; then
+            gh issue close "$open" --comment "Rétabli : contrôle réussi le $now ([exécution]($RUN_URL))."
+          fi
