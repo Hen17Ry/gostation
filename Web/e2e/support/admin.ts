@@ -24,6 +24,17 @@ function e2eEnv(): Record<string, string> {
 export function createAdmin(firstName = 'Awa', lastName = 'Houngbo'): TestAdmin {
   const email = `e2e.${Date.now().toString(36)}.${randomBytes(3).toString('hex')}@example.bj`
   const password = `Lagune-${randomBytes(6).toString('hex')}-Ouidah`
+  if (process.env.E2E_TARGET === 'staging') {
+    // Staging : la CLI tourne sur le serveur (scripts/prod.sh admin-create, par SSH).
+    const res = spawnSync('scripts/staging.sh', ['prod', 'admin-create', email, firstName, lastName], {
+      cwd: repo,
+      input: `${password}\n`,
+      encoding: 'utf8',
+      timeout: 120_000,
+    })
+    if (res.status !== 0) throw new Error(`admin-create sur le staging a échoué (${res.status}) : ${res.stderr}`)
+    return { email, password, firstName, lastName }
+  }
   const res = spawnSync(
     'scripts/with-env.sh',
     ['var/e2e/bin/admin', 'create', '--email', email, '--first-name', firstName, '--last-name', lastName],
