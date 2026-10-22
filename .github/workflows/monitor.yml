@@ -1,6 +1,7 @@
-# Surveillance du staging (docs/DEPLOY.md §17) : /readyz de l'API toutes les 30 min et validité du
-# certificat TLS. En cas d'échec, une issue « monitoring » est ouverte (une seule tant que la panne
-# dure) ; elle est fermée au premier contrôle réussi. Toutes les 30 min plutôt que 15 : ~1 440 min
+# Surveillance du staging (docs/DEPLOY.md §17) : /readyz de l'API toutes les 30 min, validité du
+# certificat TLS et cohérence DNS (scripts/check-dns.sh : chaque serveur de la zone donne les bonnes
+# adresses). En cas d'échec, une issue « monitoring » est ouverte (une seule tant que la panne dure,
+# commentée seulement quand les problèmes changent) ; elle est fermée au premier contrôle réussi. Toutes les 30 min plutôt que 15 : ~1 440 min
 # d'Actions par mois (chaque exécution compte pour au moins 1 min) sur un quota gratuit de 2 000.
 # GitHub ne lance les tâches planifiées que depuis la branche par défaut, avec parfois du retard.
 name: Surveillance
@@ -30,6 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/check-dns.sh
+          sparse-checkout-cone-mode: false
       - name: Contrôle
         id: probe
         run: |
@@ -62,6 +67,12 @@ jobs:
             fi
           fi
 
+          # Un serveur DNS périmé rend des noms introuvables pour une partie des résolveurs.
+          if ! scripts/check-dns.sh > dns.txt 2>&1; then
+            problems+="- DNS incohérent (\`scripts/check-dns.sh\`) :"$'\n\n'"\`\`\`"$'\n'"$(cat dns.txt)"$'\n'"\`\`\`"$'\n'
+          fi
+          cat dns.txt
+
           if [[ -n "$problems" ]]; then
             printf '%s' "$problems" | tee problems.md
             echo "failed=true" >> "$GITHUB_OUTPUT"
@@ -81,9 +92,16 @@ jobs:
           open="$(gh issue list --state open --label monitoring --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')"
           now="$(date -u '+%Y-%m-%d %H:%M UTC')"
           if [[ "$FAILED" == true ]]; then
-            body="$(printf 'Contrôle du %s ([exécution](%s)) :\n\n%s\nRunbook : docs/DEPLOY.md §17 (`scripts/staging.sh prod ps`, `scripts/staging.sh prod logs api`).' "$now" "$RUN_URL" "$(cat problems.md)")"
+            # Empreinte des problèmes : une panne inchangée n'ajoute pas un commentaire toutes les 30 min.
+            marker="<!-- monitor:$(sha256sum problems.md | cut -c1-16) -->"
+            body="$(printf 'Contrôle du %s ([exécution](%s)) :\n\n%s\nRunbook : docs/DEPLOY.md §17 (`scripts/staging.sh prod ps`, `scripts/staging.sh prod logs api`, `scripts/check-dns.sh`).\n%s' "$now" "$RUN_URL" "$(cat problems.md)" "$marker")"
             if [[ -n "$open" ]]; then
-              gh issue comment "$open" --body "$body"
+              last="$(gh issue view "$open" --json body,comments --jq '(.comments | last | .body) // .body')"
+              if [[ "$last" == *"$marker"* ]]; then
+                echo "problèmes inchangés depuis le dernier signalement"
+              else
+                gh issue comment "$open" --body "$body"
+              fi
             else
               gh label create monitoring --color D93F0B --description "Alertes de la surveillance du staging" --force
               gh issue create --title "$ISSUE_TITLE" --label monitoring --body "$body"

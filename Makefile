@@ -29,7 +29,7 @@ GOOSE_ENV := GOOSE_DRIVER=postgres GOOSE_DBSTRING="$$DATABASE_URL" GOOSE_MIGRATI
 .PHONY: help env env-sync up down logs ps db-shell redis-cli osrm-prepare check \
 	tools run worker-run build legal-html purge-dry-run test test-unit lint fmt sqlc migrate-up migrate-down migrate-status migrate-new api-up worker-up \
 	admin-create admin-reset-2fa seed-dev explain-search bench explain-stats bench-stats dev-remind dev-notify dev-decide \
-	deploy-staging rollback-staging staging-tunnel
+	deploy-staging rollback-staging staging-tunnel check-dns
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[33m%-15s\033[0m %s\n", $$1, $$2}'
@@ -183,3 +183,6 @@ rollback-staging: ## Staging : retour à une version déjà construite (make rol
 
 staging-tunnel: ## Staging : tunnel SSH vers Mailpit (127.0.0.1:18025) et le pilotage des E2E (127.0.0.1:18097)
 	@./scripts/staging.sh tunnel
+
+check-dns: ## Staging : cohérence DNS de gostation.bj (délégation, chaque serveur de la zone, adresses attendues)
+	@./scripts/check-dns.sh

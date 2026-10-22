@@ -39,4 +39,4 @@
 
 ## Ajoutée à l'étape 10C (staging)
 
-24. Les sauvegardes, chiffrées par restic avant de quitter le serveur (clé jamais confiée au prestataire), sont copiées sur Google Drive. Ce transfert de données chiffrées est-il un transfert hors du Bénin au sens de la loi, avec quelles garanties ? Les emails passent par Brevo (France) : quelles clauses exiger ?
+24. Les sauvegardes, chiffrées par restic avant de quitter le serveur (clé jamais confiée au prestataire), sont copiées sur Google Drive. Ce transfert de données chiffrées est-il un transfert hors du Bénin au sens de la loi, avec quelles garanties ? Les emails passent par Brevo (France), qui ajoute un pixel d'ouverture impossible à retirer par configuration (statistiques anonymisées, mais l'adresse IP de qui ouvre l'email lui parvient) : est-ce acceptable avec une mention dans la politique, ou faut-il obtenir sa désactivation ou changer de fournisseur ? Quelles clauses exiger ?
