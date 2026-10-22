@@ -15,8 +15,12 @@ import { scrubEvent } from './scrub'
  */
 export function startErrorTracking(dsn = process.env.EXPO_PUBLIC_SENTRY_DSN): boolean {
   if (!dsn) return false
+  // Diagnostic (build preview seulement) : journaux du SDK dans logcat et un message de test au
+  // démarrage, pour vérifier la chaîne d'envoi sans planter l'app.
+  const debug = process.env.EXPO_PUBLIC_SENTRY_DEBUG === '1'
   Sentry.init({
     dsn,
+    debug,
     environment: process.env.EXPO_PUBLIC_SENTRY_ENVIRONMENT || (__DEV__ ? 'development' : 'production'),
     sendDefaultPii: false,
     enableNative: true,
@@ -34,5 +38,6 @@ export function startErrorTracking(dsn = process.env.EXPO_PUBLIC_SENTRY_DSN): bo
     beforeSend: (event, hint) => (isApiError(hint.originalException) ? null : scrubEvent(event)),
   })
   Sentry.setUser({ id: 'anonymous' })
+  if (debug) Sentry.captureMessage('GoStation diagnostic: error tracking started')
   return true
 }
