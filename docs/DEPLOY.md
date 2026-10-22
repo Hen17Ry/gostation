@@ -330,7 +330,7 @@ Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts
 |---|---|
 | Serveur | VPS Wayhost, Ubuntu 24.04, 2 vCPU, 8 Go de RAM, 97 Go, swap 4 Go ; `45.93.21.86` et `2a12:a080:1:1::10b2` ; utilisateurs `ubuntu` (sudo) et `deploy` (Docker, `/srv/gostation`) |
 | Sites | `https://gostation.bj` (public, en noindex hors production), `https://api.gostation.bj`, `https://admin.gostation.bj`, `https://errors.gostation.bj` |
-| `www` | Non servi : son DNS pointe encore vers une ancienne IP (bug Wayhost, ticket ouvert). Procédure d'ajout : « Ajouter www » ci-dessous |
+| `www` | Servi et redirigé (301) vers `gostation.bj` depuis le 2026-10-22 (`PUBLIC_EXTRA_HOSTS=www.gostation.bj`, procédure « Ajouter www » ci-dessous) |
 | Configuration | `deploy/staging.env` sur le poste (600, gitignoré), copié en `.env.production` à chaque déploiement (`env-push` liste les clés modifiées, jamais les valeurs) ; `APP_ENV=staging`, `GOSTATION_EXTRA_COMPOSE=deploy/staging.compose.yml` |
 | Identification | Bandeau « Staging » dans l'admin (liseré, badge, titre d'onglet) et dans l'app (`EXPO_PUBLIC_APP_ENV=staging`), `X-Robots-Tag: noindex` et `robots.txt` fermé sur le site public, stations nommées « Station démo NNNN – ville », marques « … Démo », « Adresse fictive » |
 | Emails | Brevo (`smtp-relay.brevo.com:587`, expéditeur `noreply@gostation.bj`, SPF, DKIM et DMARC) ; les adresses de test (`example.bj`, `*.test`) partent vers le Mailpit du serveur (`SMTP_SINK_*`), jamais chez Brevo |
@@ -344,7 +344,7 @@ Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts
 - **Pare-feu du panneau**, en amont d'ufw : 80 et 443 y sont fermés par défaut. Ouvrir TCP 80, TCP 443 et UDP 443 (HTTP/3), en IPv4 et IPv6. Symptôme : les ports répondent sur le serveur, la connexion expire depuis l'extérieur.
 - **Limite de connexions SSH**, en amont aussi : après 4 ou 5 connexions ouvertes en peu de temps, le port 22 ne répond plus pendant ~5 min (ni ufw ni fail2ban n'y sont pour rien). `scripts/staging.sh` garde une connexion maître 10 min (`ControlPersist`), que toutes ses commandes réutilisent ; pour une longue session : `ssh -fNM -o ControlPath="$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=6h deploy@45.93.21.86`.
 - **Image cloud-init** : `PasswordAuthentication yes` dans `50-cloud-init.conf`, d'où le fichier `00-gostation.conf` (§3).
-- **DNS** chez Wayhost : `@`, `api`, `admin`, `errors` en A et AAAA ; DKIM, SPF et DMARC de Brevo. **Zone incohérente** (2026-10-22) : le registre `.bj` délègue à dns1 et dns3.itnet-technologies.com, mais la zone annonce d'autres serveurs, dont `ns1.netim.net` qui sert une ancienne version (sans `api`, `admin`, `errors`, apex sur l'ancienne IP). Les résolveurs qui l'interrogent ne trouvent plus ces noms (cas vécu : le téléphone de test n'envoyait plus ses rapports de plantage). Contrôle : `make check-dns` (aussi dans la surveillance) ; à faire corriger par Wayhost : un seul jeu de serveurs, identique dans la délégation et dans la zone, même numéro de série partout.
+- **DNS** : déplacé le 2026-10-22 de Wayhost vers **Cloudflare** (`dave.ns.cloudflare.com`, `fay.ns.cloudflare.com`), toutes les entrées en **« DNS uniquement »** (jamais « Proxied » : Cloudflare verrait tout le trafic et Caddy n'accepte `X-Forwarded-For` que de lui-même). La zone Wayhost était incohérente : la délégation du `.bj` et les NS de la zone différaient, et `ns1.netim.net` servait une ancienne version sans `api`, `admin` ni `errors` ; les résolveurs qui l'interrogeaient ne trouvaient plus ces noms (le téléphone de test n'envoyait plus ses rapports de plantage). 14 entrées : A et AAAA de `@`, `www`, `api`, `admin`, `errors` ; SPF (`v=spf1 include:spf.brevo.com ~all`), DMARC (`_dmarc`), DKIM de Brevo (`brevo1._domainkey`, `brevo2._domainkey` en CNAME). Contrôle : `make check-dns` (aussi dans la surveillance). Après un changement de serveurs, les résolveurs gardent l'ancienne réponse négative jusqu'à une heure.
 
 ### Ajouter www
 
@@ -419,7 +419,7 @@ make rollback-staging v=<version>     # api, worker et proxy sur une version dé
 
 ### Avant la production
 
-- **DNS** : zone cohérente chez Wayhost (`make check-dns` sans écart), puis `www`.
+- **DNS** : chez Cloudflare, cohérent (`make check-dns`) ; la production aura sa propre zone ou ses propres noms.
 - **Brevo** : le pixel d'ouverture ne se coupe ni par SMTP ni par l'API (suivi anonyme seulement) : obtenir sa désactivation du support, ou changer de fournisseur (inventaire, écart E9).
 - **rclone** : `client_id` Google propre (§10).
 - **Diagnostic du suivi des plantages de l'app** : une build `preview` avec la variable EAS `EXPO_PUBLIC_SENTRY_DEBUG=1` affiche les journaux du SDK dans `adb logcat` et envoie un message de test au démarrage ; la retirer ensuite. Plantage de test : Compte › Staging.
