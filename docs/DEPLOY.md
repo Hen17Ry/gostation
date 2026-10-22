@@ -215,7 +215,7 @@ crontab -e
 30 1 * * * cd /srv/gostation && scripts/prod.sh backup >> /var/lib/gostation-backup/backup.log 2>&1
 ```
 
-Copie hors du serveur (`BACKUP_RCLONE_REMOTE`, par exemple `gdrive:gostation-backups/production`) : sur le poste qui a un navigateur, `scripts/gdrive-authorize.sh deploy/<env>.rclone.conf` (accès `drive.file` : rclone ne voit que le dossier qu'il crée), puis `scripts/prod.sh backup-remote-setup < deploy/<env>.rclone.conf` sur le serveur (jamais collé au clavier). Contrôle : `scripts/backup.sh remote` (taille de la copie). **rclone utilise par défaut un `client_id` Google partagé, en cours de retrait par Google en 2026** : avant la production, créer son propre client OAuth (rclone.org/drive/#making-your-own-client-id) et refaire l'autorisation.
+Copie hors du serveur (`BACKUP_RCLONE_REMOTE`, par exemple `gdrive:gostation-backups/production`) : sur le poste qui a un navigateur, `scripts/gdrive-authorize.sh deploy/<env>.rclone.conf` (accès `drive.file` : rclone ne voit que le dossier qu'il crée), puis `scripts/prod.sh backup-remote-setup < deploy/<env>.rclone.conf` sur le serveur (jamais collé au clavier). Contrôle : `scripts/backup.sh remote` (taille de la copie). **Client OAuth Google personnel** (celui de rclone est retiré par Google en 2026) : projet Google Cloud, API Google Drive activée, écran de consentement « Externe » avec la seule autorisation `drive.file`, **application publiée** (« En production » : en statut « Test », Google fait expirer l'autorisation au bout de 7 jours ; `drive.file` ne demande pas de validation), client « Application de bureau ». Ses identifiants vont dans `deploy/gdrive-client.env` (`GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, 600, gitignoré, jamais affichés), que `scripts/gdrive-authorize.sh` lit. Avec `drive.file`, un client ne voit que ce qu'il a créé : en changeant de client, renommer d'abord l'ancien dossier `gostation-backups`, puis le supprimer une fois la nouvelle copie vérifiée.
 
 (1 h 30 UTC = 2 h 30 à Porto-Novo.) Chaque passage :
 
@@ -319,6 +319,7 @@ Répétition du 2026-10-21 : 9 services sains, seul Caddy publie des ports ; en-
 | `ssh` expire juste après quelques commandes | Filtrage de l'hébergeur en amont (Wayhost : le port 22 se ferme quelques minutes à une IP qui ouvre des connexions en rafale). Une connexion maître (`scripts/staging.sh` la garde 10 min) ; attendre ~5 min ; `sudo fail2ban-client status sshd` pour écarter fail2ban |
 | `ssh` coupé avant le mot de passe de la clé | `MaxAuthTries 3` : le client propose d'autres clés d'abord ; `IdentitiesOnly yes` dans `~/.ssh/config` |
 | Ports 80 et 443 injoignables de l'extérieur, joignables sur le serveur | Pare-feu du panneau de l'hébergeur (en plus d'ufw) : ouvrir TCP 80, TCP 443 et UDP 443, en IPv4 et IPv6 |
+| Un nom introuvable pour certains (« unknown host », NXDOMAIN), pas pour d'autres | Zone DNS incohérente : `make check-dns` liste les serveurs qui répondent faux ; un résolveur garde la réponse négative jusqu'à une heure (minimum du SOA) |
 | Note mail-tester basse | Texte invisible dans un gabarit (test `TestEmailsHaveNoHiddenText`) ; pixels de suivi du fournisseur SMTP (à désactiver) |
 
 ## 17. Staging (VPS Wayhost)
@@ -343,7 +344,7 @@ Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts
 - **Pare-feu du panneau**, en amont d'ufw : 80 et 443 y sont fermés par défaut. Ouvrir TCP 80, TCP 443 et UDP 443 (HTTP/3), en IPv4 et IPv6. Symptôme : les ports répondent sur le serveur, la connexion expire depuis l'extérieur.
 - **Limite de connexions SSH**, en amont aussi : après 4 ou 5 connexions ouvertes en peu de temps, le port 22 ne répond plus pendant ~5 min (ni ufw ni fail2ban n'y sont pour rien). `scripts/staging.sh` garde une connexion maître 10 min (`ControlPersist`), que toutes ses commandes réutilisent ; pour une longue session : `ssh -fNM -o ControlPath="$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=6h deploy@45.93.21.86`.
 - **Image cloud-init** : `PasswordAuthentication yes` dans `50-cloud-init.conf`, d'où le fichier `00-gostation.conf` (§3).
-- **DNS** chez Wayhost : `@`, `api`, `admin`, `errors` en A et AAAA ; DKIM, SPF et DMARC de Brevo.
+- **DNS** chez Wayhost : `@`, `api`, `admin`, `errors` en A et AAAA ; DKIM, SPF et DMARC de Brevo. **Zone incohérente** (2026-10-22) : le registre `.bj` délègue à dns1 et dns3.itnet-technologies.com, mais la zone annonce d'autres serveurs, dont `ns1.netim.net` qui sert une ancienne version (sans `api`, `admin`, `errors`, apex sur l'ancienne IP). Les résolveurs qui l'interrogent ne trouvent plus ces noms (cas vécu : le téléphone de test n'envoyait plus ses rapports de plantage). Contrôle : `make check-dns` (aussi dans la surveillance) ; à faire corriger par Wayhost : un seul jeu de serveurs, identique dans la délégation et dans la zone, même numéro de série partout.
 
 ### Ajouter www
 
@@ -418,7 +419,8 @@ make rollback-staging v=<version>     # api, worker et proxy sur une version dé
 
 ### Avant la production
 
-- **Brevo** : désactiver le suivi des ouvertures et des clics des emails transactionnels (pixels sans `alt`, −0,5 à mail-tester ; et un traitement de données que l'inventaire ne prévoit pas).
+- **DNS** : zone cohérente chez Wayhost (`make check-dns` sans écart), puis `www`.
+- **Brevo** : le pixel d'ouverture ne se coupe ni par SMTP ni par l'API (suivi anonyme seulement) : obtenir sa désactivation du support, ou changer de fournisseur (inventaire, écart E9).
 - **rclone** : `client_id` Google propre (§10).
-- **Suivi des plantages de l'app** : aucun rapport mobile n'atteint encore GlitchTip (`docs/STATUS.md` §3 ter) ; le plantage de test est dans Compte › Staging.
+- **Diagnostic du suivi des plantages de l'app** : une build `preview` avec la variable EAS `EXPO_PUBLIC_SENTRY_DEBUG=1` affiche les journaux du SDK dans `adb logcat` et envoie un message de test au démarrage ; la retirer ensuite. Plantage de test : Compte › Staging.
 - Un serveur et un `.env.production` distincts du staging ; l'environnement EAS `production` repointé vers l'API de production.
