@@ -29,6 +29,7 @@ import { toast } from '@/components/ui/toast'
 import { t } from '@/i18n'
 import { agoFrom, formatQuantity, formatTime } from '@/lib/format'
 import { haptics } from '@/lib/haptics'
+import { useNow } from '@/lib/use-now'
 import { useOnline } from '@/lib/use-online'
 import { useTheme } from '@/theme/theme'
 
@@ -37,11 +38,13 @@ import { PushDeniedBanner } from '@/features/notifications/push-denied-banner'
 import { SetupChecklist } from './setup-checklist'
 import { StockRow } from './stock-row'
 import {
+  lastStockActivity,
   quantityOf,
   type StockConflict,
   stockChanges,
   stockConflicts,
   stockPayload,
+  stockReminderDue,
   useStockDraft,
 } from './stock-draft'
 
@@ -69,6 +72,7 @@ export function StocksScreen() {
   const summary = useRef<BottomSheetModal>(null)
   const conflictSheet = useRef<BottomSheetModal>(null)
   const [backOnline, setBackOnline] = useState(false)
+  const now = useNow(60_000)
 
   // Lecture de l'API → brouillon (la base n'est remplacée que sans saisie en cours).
   useEffect(() => {
@@ -159,6 +163,9 @@ export function StocksScreen() {
   }
 
   const items = base?.items ?? []
+  // Rappel dans l'app, avec ou sans push (téléphone sans services Google, notifications coupées).
+  const reminderDue = !mutedUntil && stockReminderDue(items, now)
+  const lastActivity = lastStockActivity(items)
   const setQuantity = (productId: number, q: number) => useStockDraft.getState().setQuantity(productId, q)
   const primary = () => {
     // Le retour d'Android ferme le clavier sans quitter le champ des litres : sans ce blur, il
@@ -182,6 +189,11 @@ export function StocksScreen() {
           )}
           {station.data && !station.data.data.setup.searchable && <SetupChecklist setup={station.data.data.setup} />}
           <PushDeniedBanner audience="manager" />
+          {reminderDue && lastActivity && (
+            <Banner tone="warning" title={t.manager.stocks.reminderTitle}>
+              {t.manager.stocks.reminderBody(agoFrom(lastActivity))}
+            </Banner>
+          )}
 
           {!online && (
             <Banner tone="info" title={t.common.offline}>

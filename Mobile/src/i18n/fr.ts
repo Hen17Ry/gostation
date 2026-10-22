@@ -641,6 +641,10 @@ export const fr = {
       mute: 'Couper les rappels pour aujourd’hui',
       muted: (time: string) => `Rappels coupés jusqu’à ${time}.`,
       loadError: 'Impossible de charger les stocks.',
+      // Rappel dans l'app (sans push : téléphone sans services Google, notifications coupées).
+      reminderTitle: 'Vos stocks sont-ils à jour ?',
+      reminderBody: (ago: string) =>
+        `Dernière mise à jour ${ago}. Mettez-les à jour, ou touchez « Rien n’a changé » s’ils sont exacts.`,
     },
     // Ma station
     station: {
