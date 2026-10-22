@@ -1,7 +1,14 @@
 import type { Versioned } from '@/api/manager'
 import type { Stock, StockList } from '@/api/schemas'
 
-import { stockChanges, stockConflicts, stockPayload, useStockDraft } from './stock-draft'
+import {
+  lastStockActivity,
+  stockChanges,
+  stockConflicts,
+  stockPayload,
+  stockReminderDue,
+  useStockDraft,
+} from './stock-draft'
 
 const stock = (productId: number, quantity: number, over: Partial<Stock> = {}): Stock => ({
   productId,
@@ -85,5 +92,25 @@ describe('brouillon des stocks', () => {
     expect(useStockDraft.getState().base?.etag).toBe('"v2"')
     useStockDraft.getState().committed(list('"v3"', stock(1, 20)))
     expect(useStockDraft.getState().values).toEqual({})
+  })
+})
+
+describe('rappel dans l’app (sans push)', () => {
+  const at = (iso: string) => Date.parse(iso)
+
+  it('dernière activité : la mise à jour ou confirmation la plus récente des produits', () => {
+    const items = [stock(1, 3, { freshAt: '2026-10-13T08:00:00Z' }), stock(2, 0, { freshAt: '2026-10-13T09:30:00Z' })]
+    expect(lastStockActivity(items)).toBe('2026-10-13T09:30:00Z')
+    expect(lastStockActivity([])).toBeNull()
+  })
+
+  it('au-delà de 4 h sans mise à jour ni confirmation, pas avant', () => {
+    const items = [stock(1, 3, { freshAt: '2026-10-13T08:00:00Z' })]
+    expect(stockReminderDue(items, at('2026-10-13T12:00:00Z'))).toBe(false)
+    expect(stockReminderDue(items, at('2026-10-13T12:01:00Z'))).toBe(true)
+  })
+
+  it('aucun produit déclaré : pas de rappel (la configuration le demande déjà)', () => {
+    expect(stockReminderDue([], at('2026-10-14T12:00:00Z'))).toBe(false)
   })
 })

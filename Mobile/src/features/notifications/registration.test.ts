@@ -105,3 +105,15 @@ describe('changement de token', () => {
     expect(register).toHaveBeenLastCalledWith(expect.objectContaining({ token: 'ExponentPushToken[fcm-2]' }))
   })
 })
+
+describe('téléphone sans services Google', () => {
+  it('aucun token demandé ni appareil enregistré', async () => {
+    const register = registerMock()
+    const getToken = jest.fn(async () => 'ExponentPushToken[abc]')
+    usePushPermission.setState({ status: 'granted' })
+    await renderHook(() => usePushRegistration({ getToken, register }, false))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(getToken).not.toHaveBeenCalled()
+    expect(register).not.toHaveBeenCalled()
+  })
+})

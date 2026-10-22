@@ -1,9 +1,9 @@
-import * as Location from 'expo-location'
 import * as Speech from 'expo-speech'
 import { useEffect, useRef, useState } from 'react'
 
 import { t } from '@/i18n'
 import { formatDistance, spokenDistance } from '@/lib/format'
+import { type Fix, locationProvider } from '@/features/location/provider'
 import type { LatLng } from '@/lib/geo'
 
 import { departBearing, instructionText } from './instructions'
@@ -12,7 +12,9 @@ import { guidance, type GuidanceState, type PreparedRoute, shouldReroute, voiceC
 /**
  * Guidage pas à pas : suit la position (mémoire seulement, jamais persistée), calcule l'étape en
  * cours et la distance à la prochaine manœuvre, annonce les manœuvres à voix haute si activé,
- * recalcule l'itinéraire au-delà de 50 m d'écart (au plus toutes les 20 s).
+ * recalcule l'itinéraire au-delà de 50 m d'écart (au plus toutes les 20 s). Suivi par le
+ * fournisseur de l'installation (services Google, ou LocationManager sans eux) ; `accuracyM` :
+ * précision de la dernière mesure (signal faible signalé à l'écran).
  */
 export function useGuidance({
   active,
@@ -35,6 +37,7 @@ export function useGuidance({
 }) {
   const [state, setState] = useState<GuidanceState | null>(null)
   const [rerouting, setRerouting] = useState(false)
+  const [accuracyM, setAccuracyM] = useState<number | null>(null)
   const route = useRef(prepared)
   const voiceOn = useRef(voice)
   const arriveCb = useRef(onArrive)
@@ -64,7 +67,7 @@ export function useGuidance({
 
   useEffect(() => {
     if (!active) return
-    let sub: Location.LocationSubscription | null = null
+    let sub: { remove(): void } | null = null
     let cancelled = false
     const m = memo.current
     m.arrived = false
@@ -76,10 +79,11 @@ export function useGuidance({
       Speech.speak(text, { language: 'fr-FR', rate: 1 })
     }
 
-    const onFix = (fix: Location.LocationObject) => {
+    const onFix = (fix: Fix) => {
       const p = route.current
       if (!p || cancelled) return
-      const position = { lat: fix.coords.latitude, lng: fix.coords.longitude }
+      const position = { lat: fix.lat, lng: fix.lng }
+      setAccuracyM(fix.accuracyM)
       const g = guidance(p, position, destination, m.hint)
       m.hint = g.segment
       setState(g)
@@ -109,7 +113,7 @@ export function useGuidance({
 
       const decision = shouldReroute({
         offRouteM: g.offRouteM,
-        accuracyM: fix.coords.accuracy ?? null,
+        accuracyM: fix.accuracyM,
         consecutiveOff: m.off,
         lastRerouteAt: m.lastReroute,
         now: Date.now(),
@@ -126,13 +130,13 @@ export function useGuidance({
       }
     }
 
-    void Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 3, timeInterval: 1000 },
-      onFix,
-    ).then((s) => {
-      if (cancelled) s.remove()
-      else sub = s
-    })
+    void locationProvider()
+      .watch({ intervalMs: 1000, distanceM: 3 }, onFix)
+      .then((s) => {
+        if (cancelled) s.remove()
+        else sub = s
+      })
+      .catch(() => undefined)
 
     // Première annonce : le départ.
     const p = route.current
@@ -147,7 +151,7 @@ export function useGuidance({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la souscription ne dépend que de `active`
   }, [active])
 
-  return { state, rerouting }
+  return { state, rerouting, accuracyM: active ? accuracyM : null }
 }
 
 /** Distance affichée dans le bandeau de manœuvre (arrondie pour rester lisible en roulant). */

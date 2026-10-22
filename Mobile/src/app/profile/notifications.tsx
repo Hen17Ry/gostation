@@ -9,6 +9,7 @@ import { Section } from '@/components/ui/section'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toast'
 import { useMe } from '@/features/auth/use-me'
+import { PushUnavailableBanner } from '@/features/notifications/push-unavailable-banner'
 import { t } from '@/i18n'
 
 /** Préférences de notification, par type (les types gérant ne concernent que les gérants). */
@@ -36,6 +37,7 @@ export default function NotificationSettings() {
   const items = (q.data ?? []).filter((s) => me?.role === 'manager' || s.type === 'back_in_stock')
   return (
     <Screen title={t.account.notifications}>
+      <PushUnavailableBanner body={me?.role === 'manager' ? t.push.unavailable.manager : undefined} />
       {q.isPending ? (
         <Skeleton height={72} className="rounded-xl" />
       ) : (

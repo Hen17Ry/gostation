@@ -1,0 +1,23 @@
+// Module local (autolinking d'Expo : dossier modules/) : position par le LocationManager d'Android
+// pour les téléphones sans Google Play Services, et détection de ces services.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'bj.gostation'
+version = '1.0.0'
+
+android {
+  namespace "bj.gostation.location"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // GoogleApiAvailability seulement (bibliothèque cliente : fonctionne sans les services installés).
+  implementation 'com.google.android.gms:play-services-base:18.5.0'
+  implementation 'androidx.core:core:1.17.0'
+}

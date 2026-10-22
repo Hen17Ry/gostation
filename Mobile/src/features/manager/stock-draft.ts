@@ -141,3 +141,22 @@ export function stockConflicts(
   }
   return out
 }
+
+/** Rappel dans l'app au-delà de 4 h sans mise à jour ni confirmation (même délai que le rappel push). */
+export const STOCK_REMINDER_AFTER_MS = 4 * 3600_000
+
+/** Dernière mise à jour ou confirmation des stocks : la plus récente des produits (`freshAt`). */
+export function lastStockActivity(items: Stock[]): string | null {
+  let last: string | null = null
+  for (const i of items) if (last === null || Date.parse(i.freshAt) > Date.parse(last)) last = i.freshAt
+  return last
+}
+
+/**
+ * Rappel visible sans push (téléphone sans services Google, notifications coupées) : produits
+ * déclarés et stocks plus vieux que 4 h.
+ */
+export function stockReminderDue(items: Stock[], now: number): boolean {
+  const last = lastStockActivity(items)
+  return last !== null && now - Date.parse(last) > STOCK_REMINDER_AFTER_MS
+}

@@ -3,6 +3,7 @@ import { router } from 'expo-router'
 import {
   BellRing,
   Bug,
+  Crosshair,
   FileText,
   FolderLock,
   KeyRound,
@@ -32,8 +33,13 @@ import { TabScreen } from '@/components/ui/tab-screen'
 import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
 import { useMe } from '@/features/auth/use-me'
+import { type LocateTiming, useLocateTiming } from '@/features/location/diagnostics'
+import { locationProvider } from '@/features/location/provider'
+import { PushUnavailableBanner } from '@/features/notifications/push-unavailable-banner'
 import { t } from '@/i18n'
 import { isStaging, triggerTestCrash } from '@/lib/app-env'
+import { formatDistance } from '@/lib/format'
+import { hasPlayServices } from '@/lib/play-services'
 import { haptics } from '@/lib/haptics'
 import { usePrefs } from '@/stores/prefs'
 
@@ -43,6 +49,7 @@ export default function Account() {
   const voice = usePrefs((s) => s.voice)
   const setVoice = usePrefs((s) => s.setVoice)
   const [leaving, setLeaving] = useState(false)
+  const timing = useLocateTiming((s) => s.last)
 
   const signOut = async () => {
     setLeaving(true)
@@ -130,6 +137,9 @@ export default function Account() {
           </Card>
         )}
 
+        {/* Téléphone sans services Google : pas de push, la boîte de réception est relue à l'ouverture. */}
+        <PushUnavailableBanner />
+
         {signedIn && me && !isPending && (
           <Section title={t.account.profile}>
             <ListRow icon={UserRound} title={t.account.editProfile} onPress={() => router.push('/profile/edit')} />
@@ -193,6 +203,13 @@ export default function Account() {
         {isStaging() && (
           <Section title={t.env.diagnostics}>
             <ListRow
+              testID="account-location-diagnostics"
+              icon={Crosshair}
+              title={t.env.location}
+              subtitle={locationDiagnostics(timing)}
+            />
+            <Divider className="ml-14" />
+            <ListRow
               testID="account-test-crash"
               icon={Bug}
               title={t.env.testCrash}
@@ -227,6 +244,22 @@ export default function Account() {
       </ScrollView>
     </TabScreen>
   )
+}
+
+/** Fournisseur de position et délais de la dernière mesure (staging), sans coordonnées. */
+function locationDiagnostics(timing: LocateTiming | null): string {
+  const seconds = (ms: number | null) => (ms === null ? '–' : `${(ms / 1000).toFixed(1).replace('.', ',')}\u00a0s`)
+  const parts = [
+    t.env.locationProvider(locationProvider().kind, hasPlayServices()),
+    timing
+      ? t.env.locationTiming(
+          seconds(timing.knownMs),
+          seconds(timing.fixMs),
+          timing.accuracyM === null ? '–' : formatDistance(timing.accuracyM),
+        )
+      : t.env.locationNone,
+  ]
+  return parts.join(' · ')
 }
 
 /** Plantage volontaire (staging), après confirmation. */

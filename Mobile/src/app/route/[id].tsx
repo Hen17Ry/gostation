@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useKeepAwake } from 'expo-keep-awake'
+import * as Linking from 'expo-linking'
 import { router, useLocalSearchParams } from 'expo-router'
 import {
   ArrowLeft,
@@ -32,7 +33,8 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Text } from '@/components/ui/text'
-import { searchOrigin, useLocation } from '@/features/location/location-store'
+import { LOW_ACCURACY_M, searchOrigin, useLocation } from '@/features/location/location-store'
+import { useLocationPermissionSync } from '@/features/location/use-permission-sync'
 import { openExternalNavigation } from '@/features/navigation/external'
 import { departBearing, instructionText, type ManeuverIcon, maneuverIcon } from '@/features/navigation/instructions'
 import { guidance as computeGuidance, prepareRoute, type PreparedRoute } from '@/features/navigation/progress'
@@ -96,10 +98,16 @@ export default function RouteScreen() {
     if (from) request.mutate(from)
   }
 
+  // Retour des réglages du système : permission relue, position mesurée si elle vient d'être accordée.
+  useLocationPermissionSync()
+
+  // Premier calcul : au chargement de la station, ou dès qu'un point de départ existe (permission
+  // accordée depuis les réglages du système, au retour dans l'app).
+  const hasOrigin = !!origin
   useEffect(() => {
-    if (station.data && origin) request.mutate(origin)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- au chargement de la station
-  }, [station.data?.id])
+    if (station.data && origin && request.isIdle) request.mutate(origin)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- premier calcul seulement
+  }, [station.data?.id, hasOrigin])
 
   const routeData = rerouted ?? request.data ?? null
   const prepared = useMemo<PreparedRoute | null>(() => (routeData ? prepareRoute(routeData) : null), [routeData])
@@ -221,9 +229,11 @@ export default function RouteScreen() {
             <>
               <Banner tone="info">{t.route.needLocation}</Banner>
               <Button
-                label={t.onboarding.allowLocation}
+                label={loc.canAskAgain ? t.onboarding.allowLocation : t.location.openSettings}
                 size="lg"
                 onPress={async () => {
+                  // Refus définitif : seuls les réglages restent ; le retour dans l'app relit la permission.
+                  if (!loc.canAskAgain) return void Linking.openSettings()
                   if ((await loc.requestPermission()) === 'granted') void load(await loc.locate())
                 }}
               />
@@ -262,6 +272,11 @@ export default function RouteScreen() {
           )}
           {phase === 'preview' && prepared && (
             <Preview prepared={prepared} name={name} voice={voice} onVoice={() => setVoice(!voice)} onStart={start} />
+          )}
+          {navigating && guidance.accuracyM !== null && guidance.accuracyM > LOW_ACCURACY_M && (
+            <Banner tone="warning">
+              {loc.precise ? t.route.weakSignal(formatDistance(guidance.accuracyM)) : t.route.weakSignalApproximate}
+            </Banner>
           )}
           {navigating && prepared && (
             <NavigationPanel

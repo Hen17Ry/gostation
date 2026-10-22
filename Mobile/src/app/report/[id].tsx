@@ -1,6 +1,5 @@
 import { zodResolver } from '@/lib/zod-resolver'
 import { useQuery } from '@tanstack/react-query'
-import * as Location from 'expo-location'
 import { router, useLocalSearchParams } from 'expo-router'
 import { Send, ShieldCheck } from 'lucide-react-native'
 import { useState } from 'react'
@@ -17,7 +16,7 @@ import { Chip } from '@/components/ui/choice-tile'
 import { Screen } from '@/components/ui/screen'
 import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
-import { useLocation } from '@/features/location/location-store'
+import { readPositionOnce, useLocation } from '@/features/location/location-store'
 import { productLabel } from '@/features/search/product-picker'
 import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
@@ -74,8 +73,11 @@ export default function ReportScreen() {
           setError(t.route.needLocation)
           return
         }
-        const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-        position = { lat: fix.coords.latitude, lng: fix.coords.longitude }
+        position = (await readPositionOnce()) ?? undefined
+        if (!position) {
+          setError(t.location.unavailable)
+          return
+        }
       } catch {
         setError(t.location.unavailable)
         return

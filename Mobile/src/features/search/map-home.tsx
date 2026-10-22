@@ -2,9 +2,9 @@ import BottomSheet, { useBottomSheetScrollableCreator } from '@gorhom/bottom-she
 import { useQuery } from '@tanstack/react-query'
 import * as Linking from 'expo-linking'
 import { router, useFocusEffect } from 'expo-router'
-import { LocateFixed, MapPin, MapPinned, Search, SlidersHorizontal, WifiOff } from 'lucide-react-native'
+import { Crosshair, LocateFixed, MapPin, MapPinned, Search, SlidersHorizontal, WifiOff } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { type LayoutChangeEvent, View } from 'react-native'
+import { type LayoutChangeEvent, Linking as RNLinking, Platform, View } from 'react-native'
 import { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -18,9 +18,12 @@ import { IconButton } from '@/components/ui/icon-button'
 import { PressableScale } from '@/components/ui/pressable-scale'
 import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
-import { searchOrigin, useLocation } from '@/features/location/location-store'
+import { type LocateFailure, precisionWarning, searchOrigin, useLocation } from '@/features/location/location-store'
+import { useLocationPermissionSync } from '@/features/location/use-permission-sync'
 import { t } from '@/i18n'
 import { AnimatedView } from '@/lib/animated'
+import { formatDistance } from '@/lib/format'
+import { distanceM } from '@/lib/geo'
 import { haptics } from '@/lib/haptics'
 import { splashReady } from '@/lib/splash'
 import { useOnline } from '@/lib/use-online'
@@ -88,16 +91,31 @@ export function MapHome() {
   }, [headerH, size.h, insets.top])
   const sheetHeight = useCallback((i: number) => (typeof snapPoints[i] === 'number' ? snapPoints[i] : 0), [snapPoints])
 
-  // Localisation au premier affichage de la carte (permission demandée à l'accueil).
+  // Localisation au premier affichage de la carte (permission demandée à l'accueil) : centrée tout
+  // de suite sur la dernière position connue, recentrée si la mesure fraîche s'en écarte.
   useEffect(() => {
+    let centered: { lat: number; lng: number } | null = null
+    const center = (p: { lat: number; lng: number }) => {
+      if (centered && distanceM(centered, p) < 200) return
+      centered = p
+      map.current?.centerOn(p, { zoom: 13, bottom: sheetHeight(0) })
+    }
+    const unsub = useLocation.subscribe((s, prev) => {
+      if (!centered && s.device && s.device !== prev.device) center(s.device)
+    })
     void (async () => {
       const permission = await useLocation.getState().refreshPermission()
       if (permission !== 'granted') return
       const p = await useLocation.getState().locate()
-      if (p) map.current?.centerOn(p, { zoom: 13, bottom: sheetHeight(0) })
+      unsub()
+      if (p) center(p)
     })()
+    return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps -- une fois, à l'ouverture
   }, [])
+
+  // Retour des réglages du système (premier plan) : permission relue ; accordée, la carte se centre.
+  useLocationPermissionSync((p) => map.current?.centerOn(p, { zoom: 13, bottom: sheetHeight(0) }))
 
   // Au retour sur l'onglet (réglages système modifiés), on relit la permission.
   useFocusEffect(
@@ -115,8 +133,9 @@ export function MapHome() {
     let from = origin
     if (canLocate) from = (await loc.locate({ interactive: true })) ?? from
     if (!from) {
+      // Le bandeau du haut explique l'échec (réessayer, choisir sur la carte, réglages).
       haptics.warning()
-      toast.info(t.location.unavailable)
+      if (!useLocation.getState().failure) toast.info(t.location.unavailable)
       return
     }
     map.current?.centerOn(from, { zoom: 13, bottom: sheetHeight(0) })
@@ -197,10 +216,10 @@ export function MapHome() {
           {picking && !origin && <Banner tone="info">{t.location.pickHint}</Banner>}
           <Button
             testID="search-submit"
-            label={searching ? t.search.searching : t.search.submit}
+            label={searching ? t.search.searching : loc.locating && canLocate ? t.location.locating : t.search.submit}
             icon={Search}
             size="lg"
-            loading={searching}
+            loading={searching || (loc.locating && canLocate)}
             disabled={!productId || !online || (!origin && !canLocate)}
             onPress={runSearch}
           />
@@ -292,6 +311,17 @@ export function MapHome() {
         hasManual={!!loc.manual}
         permission={loc.permission}
         canAskAgain={loc.canAskAgain}
+        failure={loc.mode === 'device' && loc.permission === 'granted' ? loc.failure : null}
+        precision={precisionWarning(loc)}
+        accuracyM={loc.accuracyM}
+        onRetry={async () => {
+          const p = await loc.locate({ interactive: true })
+          if (p) map.current?.centerOn(p, { zoom: 13, bottom: sheetHeight(0) })
+        }}
+        onPickOnMap={() => {
+          haptics.selection()
+          loc.pickOnMap()
+        }}
         onUseDevice={async () => {
           loc.useDevice()
           const p = await loc.locate()
@@ -396,6 +426,13 @@ function Summary({ label, summary, onEdit }: { label: string; summary: string; o
   )
 }
 
+/** Réglages de localisation du système (Android), sinon ceux de l'app. */
+function openLocationSettings() {
+  if (Platform.OS === 'android') {
+    void RNLinking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS').catch(() => Linking.openSettings())
+  } else void Linking.openSettings()
+}
+
 function TopBar({
   top,
   online,
@@ -403,6 +440,11 @@ function TopBar({
   hasManual,
   permission,
   canAskAgain,
+  failure,
+  precision,
+  accuracyM,
+  onRetry,
+  onPickOnMap,
   onUseDevice,
   onAllow,
 }: {
@@ -412,11 +454,17 @@ function TopBar({
   hasManual: boolean
   permission: string
   canAskAgain: boolean
+  failure: LocateFailure | null
+  precision: 'approximate' | 'low' | null
+  accuracyM: number | null
+  onRetry: () => void
+  onPickOnMap: () => void
   onUseDevice: () => void
   onAllow: () => void
 }) {
   const { colors } = useTheme()
   const denied = permission === 'denied' || permission === 'undetermined'
+  const lowLabel = accuracyM !== null ? t.location.lowAccuracy(formatDistance(accuracyM)) : null
   return (
     <View pointerEvents="box-none" className="absolute inset-x-0 gap-2 px-4" style={{ top }}>
       <View pointerEvents="box-none" className="flex-row items-center gap-2">
@@ -430,7 +478,13 @@ function TopBar({
             <LocateFixed size={18} color={colors['brand-text']} />
           )}
           <Text variant="subhead" weight="semibold">
-            {mode === 'manual' && hasManual ? t.location.picked : denied ? t.location.denied : t.location.mine}
+            {mode === 'manual'
+              ? hasManual
+                ? t.location.picked
+                : t.location.pickShort
+              : denied
+                ? t.location.denied
+                : t.location.mine}
           </Text>
         </View>
         {/* Point choisi à la main : revenir à la position de l'appareil (ou l'autoriser). */}
@@ -458,6 +512,68 @@ function TopBar({
           <Text variant="footnote" weight="semibold" style={{ color: colors.background }}>
             {t.common.offline}
           </Text>
+        </View>
+      )}
+      {/* Précision faible (> 100 m) : pastille ; position approximative accordée : explication et
+          demande de la position précise. */}
+      {precision === 'low' && lowLabel && !failure && (
+        <View
+          className="flex-row items-center gap-1.5 self-start rounded-full border border-border bg-popover py-1.5 pl-2.5 pr-3"
+          style={elevation(1)}
+          accessible
+          accessibilityLabel={t.location.lowAccuracyA11y(formatDistance(accuracyM ?? 0))}
+        >
+          <Crosshair size={14} color={colors['warning-subtle-foreground']} />
+          <Text variant="footnote" weight="semibold" numberOfLines={1}>
+            {lowLabel}
+          </Text>
+        </View>
+      )}
+      {precision === 'approximate' && !failure && (
+        <View className="gap-2 rounded-xl border border-border bg-popover p-3" style={elevation(2)}>
+          <View accessible className="gap-0.5">
+            <Text variant="subhead" weight="semibold">
+              {t.location.approximate}
+            </Text>
+            <Text variant="footnote" tone="muted">
+              {t.location.approximateBody}
+            </Text>
+          </View>
+          <View className="flex-row">
+            <Button
+              label={canAskAgain ? t.location.enablePrecise : t.location.openSettings}
+              size="sm"
+              variant="outline"
+              icon={Crosshair}
+              onPress={onAllow}
+            />
+          </View>
+        </View>
+      )}
+      {failure && (
+        <View className="gap-2 rounded-xl border border-border bg-popover p-3" style={elevation(2)}>
+          <View accessible accessibilityRole="alert" accessibilityLiveRegion="polite" className="gap-0.5">
+            <Text variant="subhead" weight="semibold">
+              {failure === 'off' ? t.location.offTitle : t.location.timeoutTitle}
+            </Text>
+            <Text variant="footnote" tone="muted">
+              {failure === 'off' ? t.location.offBody : t.location.timeoutBody}
+            </Text>
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            {failure === 'off' ? (
+              <Button
+                label={t.location.openLocationSettings}
+                size="sm"
+                variant="outline"
+                icon={LocateFixed}
+                onPress={openLocationSettings}
+              />
+            ) : (
+              <Button label={t.common.retry} size="sm" variant="outline" icon={LocateFixed} onPress={onRetry} />
+            )}
+            <Button label={t.location.pickOnMap} size="sm" variant="ghost" icon={MapPin} onPress={onPickOnMap} />
+          </View>
         </View>
       )}
       {denied && !hasManual && (

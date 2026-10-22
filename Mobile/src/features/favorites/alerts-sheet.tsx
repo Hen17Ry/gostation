@@ -12,6 +12,7 @@ import { SwitchRow } from '@/components/ui/list-row'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
+import { pushSupported } from '@/features/notifications/availability'
 import { requestPushPermission, usePushPermission } from '@/features/notifications/permission'
 import { productLabel } from '@/features/search/product-picker'
 import { t } from '@/i18n'
@@ -115,6 +116,10 @@ function AlertsBody({ favorite }: { favorite: Favorite }) {
  * le rappelle (le bandeau des favoris donne le lien vers les réglages).
  */
 async function askForAlerts() {
+  if (!pushSupported()) {
+    toast.info(t.push.unavailable.alert)
+    return
+  }
   const { status } = usePushPermission.getState()
   const result = status === 'undetermined' ? await requestPushPermission() : status
   if (result === 'denied') toast.info(t.push.alertPermission)

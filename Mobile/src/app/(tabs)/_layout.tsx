@@ -5,14 +5,18 @@ import { notificationsQuery } from '@/api/account'
 import { TabBar } from '@/components/tab-bar'
 import { useMe } from '@/features/auth/use-me'
 import { SPACE_HOME, useSpace } from '@/features/manager/space'
+import { useInboxRefetchOnFocus } from '@/features/notifications/availability'
 
 export default function TabsLayout() {
   const { me } = useMe()
   const space = useSpace()
+  // Relue à l'ouverture (montage), toutes les 2 min, et au retour au premier plan si aucun push ne
+  // peut l'annoncer (téléphone sans services Google, notifications refusées).
   const inbox = useQuery({
     ...notificationsQuery,
     enabled: !!me?.emailVerified && space === 'user',
     refetchInterval: 120_000,
+    refetchOnWindowFocus: useInboxRefetchOnFocus(),
   })
   // Gérant ouvert sur « / » (lancement) : redirigé avant tout rendu, sans créer la carte de recherche
   // ni charger ses tuiles (la garde de la pile racine ne s'applique qu'après ce premier rendu).
