@@ -67,7 +67,11 @@ test('catalogue : réordonnancement au clavier (glisser-déposer accessible)', a
   await handle.focus()
   await page.keyboard.press('Space')
   await expect(page.getByText(new RegExp(`${before[0]} saisi, position 1 sur`))).toBeAttached()
+  // Le capteur clavier de dnd-kit n'écoute les flèches qu'au tour suivant, zones de dépôt mesurées :
+  // une flèche envoyée trop tôt est perdue et l'élément redéposé à sa place (vu sur le staging).
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   await page.keyboard.press('ArrowDown')
+  await expect(page.getByText(`${before[0]} : position 2 sur ${before.length}.`)).toBeAttached()
   await page.keyboard.press('Space')
   await expect(page.getByRole('region', { name: /Notifications/ }).getByText('Ordre enregistré')).toBeVisible()
   await expect.poll(labels).toEqual([before[1], before[0], ...before.slice(2)])
