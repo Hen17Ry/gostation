@@ -36,3 +36,7 @@
 21. Limites de responsabilité admissibles en droit béninois (stocks déclarés par les gérants, itinéraires estimés), tribunal compétent, médiation préalable ?
 22. Une modification de la politique impose-t-elle toujours une réacceptation (l'app l'exige à chaque nouvelle version), ou une simple information suffit-elle pour un changement mineur ?
 23. Faut-il un contrat ou des conditions particulières pour les gérants (engagements sur l'exactitude des stocks et de la position, suspension) ?
+
+## Ajoutée à l'étape 10C (staging)
+
+24. Les sauvegardes, chiffrées par restic avant de quitter le serveur (clé jamais confiée au prestataire), sont copiées sur Google Drive. Ce transfert de données chiffrées est-il un transfert hors du Bénin au sens de la loi, avec quelles garanties ? Les emails passent par Brevo (France) : quelles clauses exiger ?
