@@ -835,6 +835,16 @@ export const fr = {
       action: 'Ouvrir les réglages',
     },
     alertPermission: 'Autorisez les notifications pour recevoir cette alerte.',
+    // Téléphone sans Google Play Services (Huawei récents) : FCM ne fonctionne pas.
+    unavailable: {
+      title: 'Notifications push indisponibles sur ce téléphone',
+      body: 'Il n’a pas les services Google. Vos notifications arrivent dans l’onglet Notifications, mises à jour à chaque ouverture de GoStation.',
+      manager:
+        'Il n’a pas les services Google : les rappels et signalements s’affichent dans l’app, à l’ouverture de GoStation.',
+      intro:
+        'Ce téléphone n’a pas les services Google : pas de notification push. Un bandeau vous le rappellera sur l’écran Stocks, et la boîte de réception se met à jour à chaque ouverture.',
+      alert: 'Ce téléphone n’a pas les services Google : l’alerte arrivera dans l’onglet Notifications.',
+    },
   },
   a11y: {
     selected: 'sélectionné',

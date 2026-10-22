@@ -12,17 +12,23 @@ import { haptics } from '@/lib/haptics'
 import { usePrefs } from '@/stores/prefs'
 import { useTheme } from '@/theme/theme'
 
+import { pushSupported } from './availability'
 import { openNotificationSettings, requestPushPermission, usePushPermission } from './permission'
 
 /**
  * Explication des rappels de stock, montrée une fois au gérant juste après la validation de sa
  * station, avant la demande d'autorisation du système (jamais au premier lancement) : pourquoi,
  * quand et à quelle fréquence, comment répondre ou les couper. Android 12 et moins : autorisation
- * déjà accordée, l'écran informe seulement.
+ * déjà accordée, l'écran informe seulement. Sans services Google (aucun push possible) : rien
+ * n'est demandé, l'écran annonce le rappel de l'écran Stocks.
  */
 export function RemindersIntro() {
   const { colors } = useTheme()
-  const { status, canAskAgain } = usePushPermission()
+  const permission = usePushPermission()
+  const supported = pushSupported()
+  // Sans push possible, l'écran se lit comme une autorisation accordée : « C'est compris ».
+  const status = supported ? permission.status : 'granted'
+  const canAskAgain = permission.canAskAgain
   const setSeen = usePrefs((s) => s.setRemindersIntroSeen)
   const [asking, setAsking] = useState(false)
   const blocked = status === 'denied' && !canAskAgain
@@ -85,6 +91,7 @@ export function RemindersIntro() {
         <Reason icon={Clock4} title={t.push.intro.whenTitle} body={t.push.intro.when} />
         <Reason icon={CheckCheck} title={t.push.intro.quietTitle} body={t.push.intro.quiet} />
       </View>
+      {!supported && <Banner tone="info">{t.push.unavailable.intro}</Banner>}
       {status === 'denied' && <Banner tone="info">{t.push.intro.deniedNote}</Banner>}
     </Screen>
   )

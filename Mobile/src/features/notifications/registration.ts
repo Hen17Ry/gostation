@@ -7,6 +7,7 @@ import { registerPushDevice } from '@/api/account'
 import { useMe } from '@/features/auth/use-me'
 import { installId } from '@/lib/install-id'
 
+import { pushSupported } from './availability'
 import { usePushPermission } from './permission'
 
 /** Projet EAS : identifie l'app auprès du service push d'Expo (token ExponentPushToken[…]). */
@@ -62,19 +63,20 @@ export function tokenChangeFilter(): (deviceToken: string) => boolean {
 /**
  * À chaque lancement, compte connecté à l'email vérifié et autorisation accordée : enregistre
  * l'appareil, puis à chaque changement de token. Le logout et la révocation de la session
- * suppriment le token côté serveur (règle 12) : rien à faire ici.
+ * suppriment le token côté serveur (règle 12) : rien à faire ici. Téléphone sans services Google :
+ * aucun token possible, rien n'est tenté.
  */
-export function usePushRegistration(deps: PushRegistrationDeps = defaults) {
+export function usePushRegistration(deps: PushRegistrationDeps = defaults, supported: boolean = pushSupported()) {
   const { me } = useMe()
   const granted = usePushPermission((s) => s.status === 'granted')
   const userId = me?.emailVerified ? me.id : null
   useEffect(() => {
-    if (!userId || !granted) return
+    if (!userId || !granted || !supported) return
     const changed = tokenChangeFilter()
     void registerThisDevice(deps)
     const sub = Notifications.addPushTokenListener(({ data }) => {
       if (changed(String(data))) void registerThisDevice(deps)
     })
     return () => sub.remove()
-  }, [userId, granted, deps])
+  }, [userId, granted, deps, supported])
 }

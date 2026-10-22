@@ -35,6 +35,7 @@ import { toast } from '@/components/ui/toast'
 import { useMe } from '@/features/auth/use-me'
 import { type LocateTiming, useLocateTiming } from '@/features/location/diagnostics'
 import { locationProvider } from '@/features/location/provider'
+import { PushUnavailableBanner } from '@/features/notifications/push-unavailable-banner'
 import { t } from '@/i18n'
 import { isStaging, triggerTestCrash } from '@/lib/app-env'
 import { formatDistance } from '@/lib/format'
@@ -135,6 +136,9 @@ export default function Account() {
             )}
           </Card>
         )}
+
+        {/* Téléphone sans services Google : pas de push, la boîte de réception est relue à l'ouverture. */}
+        <PushUnavailableBanner />
 
         {signedIn && me && !isPending && (
           <Section title={t.account.profile}>
