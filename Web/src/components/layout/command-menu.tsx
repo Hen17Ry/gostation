@@ -20,6 +20,7 @@ import {
 import type { PeriodKey } from '@/features/dashboard/period'
 import { t } from '@/i18n'
 import { setThemePreference } from '@/lib/theme'
+import { cn } from '@/lib/utils'
 import { useSignOut } from '@/features/auth/use-sign-out'
 
 import { navItems } from './nav'
@@ -107,12 +108,6 @@ export default function CommandMenu({ open, onOpenChange }: { open: boolean; onO
             ))}
           </CommandGroup>
         )}
-        {pending && (
-          <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" role="status">
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            {ta.command.searching}
-          </div>
-        )}
         <CommandGroup heading={t.command.navigate}>
           {navItems.map(({ to, label, icon: Icon }) => (
             <Item key={to} onSelect={() => run(() => void navigate({ to }))} keywords={[to]}>
@@ -152,6 +147,19 @@ export default function CommandMenu({ open, onOpenChange }: { open: boolean; onO
           </Item>
         </CommandGroup>
       </CommandList>
+      {/* Hors de la liste (une listbox ne contient que des options et des groupes) ; région toujours
+          présente pour que les lecteurs d'écran annoncent le début de la recherche. */}
+      <div
+        role="status"
+        className={cn('flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground', !pending && 'sr-only')}
+      >
+        {pending && (
+          <>
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+            {ta.command.searching}
+          </>
+        )}
+      </div>
     </CommandDialog>
   )
 }
