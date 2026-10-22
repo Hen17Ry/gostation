@@ -9,6 +9,15 @@ export const fr = {
     name: 'GoStation',
     tagline: 'La station la plus proche qui a votre produit en stock.',
   },
+  env: {
+    staging: 'Staging',
+    stagingDescription: 'test, données fictives',
+    diagnostics: 'Staging',
+    testCrash: 'Plantage de test',
+    testCrashHint: 'Vérifie la remontée des plantages (GlitchTip).',
+    testCrashConfirm: 'L’app va planter et envoyer le rapport. Fermez-la ensuite, puis rouvrez-la.',
+    crashNow: 'Planter l’app',
+  },
   common: {
     retry: 'Réessayer',
     cancel: 'Annuler',

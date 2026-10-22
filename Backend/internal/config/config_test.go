@@ -193,6 +193,29 @@ func TestProductionRules(t *testing.T) {
 	}
 }
 
+func TestSMTPSink(t *testing.T) {
+	cfg, err := config.Load(env(map[string]string{
+		"APP_ENV": "staging", "SMTP_SINK_ADDR": "mailpit:1025", "SMTP_SINK_DOMAINS": "Example.BJ, .test",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.SMTP.SinkDomains, ","); cfg.SMTP.SinkAddr != "mailpit:1025" || got != "example.bj,test" {
+		t.Errorf("sink = %q %q", cfg.SMTP.SinkAddr, got)
+	}
+	for name, vars := range map[string]map[string]string{
+		"production":  {"APP_ENV": "production", "SMTP_TLS": "tls", "SMTP_SINK_ADDR": "mailpit:1025", "SMTP_SINK_DOMAINS": "test"},
+		"no domains":  {"SMTP_SINK_ADDR": "mailpit:1025"},
+		"no address":  {"SMTP_SINK_DOMAINS": "test"},
+		"bad domain":  {"SMTP_SINK_ADDR": "mailpit:1025", "SMTP_SINK_DOMAINS": "user@example.bj"},
+		"bad address": {"SMTP_SINK_ADDR": "mailpit", "SMTP_SINK_DOMAINS": "test"},
+	} {
+		if _, err := config.Load(env(vars)); err == nil || !strings.Contains(err.Error(), "SMTP_SINK_") {
+			t.Errorf("%s: sink config accepted (%v)", name, err)
+		}
+	}
+}
+
 func TestRequestTimeoutMustBeBelowWriteTimeout(t *testing.T) {
 	_, err := config.Load(env(map[string]string{"HTTP_REQUEST_TIMEOUT": "30s", "HTTP_WRITE_TIMEOUT": "30s"}))
 	if err == nil || !strings.Contains(err.Error(), "HTTP_REQUEST_TIMEOUT") {
@@ -248,6 +271,17 @@ func TestStorageDriver(t *testing.T) {
 	s3["APP_ENV"], s3["SMTP_TLS"], s3["S3_TLS"] = "production", "tls", "false"
 	if _, err := config.Load(env(s3)); err == nil || !strings.Contains(err.Error(), "S3_TLS:") {
 		t.Fatalf("production must require S3 TLS, got %v", err)
+	}
+	// SeaweedFS sur le réseau Docker du serveur : sans TLS, même en production.
+	s3["S3_ENDPOINT"], s3["S3_PATH_STYLE"] = "s3:8333", "true"
+	if _, err := config.Load(env(s3)); err != nil {
+		t.Fatalf("internal S3 endpoint without TLS rejected in production: %v", err)
+	}
+	for _, endpoint := range []string{"10.0.0.5:8333", "localhost:8333", "minio.internal:9000"} {
+		s3["S3_ENDPOINT"] = endpoint
+		if _, err := config.Load(env(s3)); err == nil || !strings.Contains(err.Error(), "S3_TLS:") {
+			t.Errorf("S3_ENDPOINT=%s without TLS accepted in production (%v)", endpoint, err)
+		}
 	}
 	if _, err := config.Load(env(map[string]string{"STORAGE_DRIVER": "ftp"})); err == nil {
 		t.Fatal("unknown storage driver accepted")

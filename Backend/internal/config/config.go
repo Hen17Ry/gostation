@@ -232,6 +232,11 @@ type SMTP struct {
 	Password string
 	From     string
 	TLSMode  string
+	// SinkAddr reçoit, sans TLS ni authentification, les emails des domaines SinkDomains
+	// (adresses de test : example.bj, .test…) au lieu du fournisseur : Mailpit du staging, où
+	// les parcours E2E lisent les codes. Interdit en production.
+	SinkAddr    string
+	SinkDomains []string
 }
 
 // ValidationError liste toutes les variables invalides.
@@ -331,12 +336,17 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 	c.SMTP = SMTP{
-		Host:     l.str("SMTP_HOST", "localhost"),
-		Port:     l.integer("SMTP_PORT", 1025, 1, 65535),
-		Username: l.raw("SMTP_USERNAME"),
-		Password: l.raw("SMTP_PASSWORD"),
-		From:     l.str("SMTP_FROM", "GoStation <no-reply@gostation.local>"),
-		TLSMode:  l.oneOf("SMTP_TLS", "none", "none", "starttls", "tls"),
+		Host:        l.str("SMTP_HOST", "localhost"),
+		Port:        l.integer("SMTP_PORT", 1025, 1, 65535),
+		Username:    l.raw("SMTP_USERNAME"),
+		Password:    l.raw("SMTP_PASSWORD"),
+		From:        l.str("SMTP_FROM", "GoStation <no-reply@gostation.local>"),
+		TLSMode:     l.oneOf("SMTP_TLS", "none", "none", "starttls", "tls"),
+		SinkAddr:    l.addr("SMTP_SINK_ADDR", ""),
+		SinkDomains: l.domains("SMTP_SINK_DOMAINS"),
+	}
+	if (c.SMTP.SinkAddr == "") != (len(c.SMTP.SinkDomains) == 0) {
+		l.fail("SMTP_SINK_ADDR", "SMTP_SINK_ADDR and SMTP_SINK_DOMAINS must be set together")
 	}
 	c.Stock = Stock{
 		MaxCylinders: l.integer("STOCK_MAX_CYLINDERS", 10_000, 1, 1_000_000),
@@ -413,8 +423,13 @@ func Load(getenv func(string) string) (Config, error) {
 		if !c.Auth.CookieSecure {
 			l.fail("COOKIE_SECURE", "must be true in production")
 		}
-		if c.Documents.Storage.Driver == "s3" && !c.Documents.Storage.S3TLS {
-			l.fail("S3_TLS", "must be true in production")
+		// Sans TLS seulement vers un service du réseau Docker (SeaweedFS, « s3:8333 ») : le
+		// trafic ne quitte pas le serveur.
+		if st := c.Documents.Storage; st.Driver == "s3" && !st.S3TLS && !internalHost(st.S3Endpoint) {
+			l.fail("S3_TLS", "must be true in production, unless S3_ENDPOINT is a service of the Docker network (such as s3:8333)")
+		}
+		if c.SMTP.SinkAddr != "" {
+			l.fail("SMTP_SINK_ADDR", "is not allowed in production")
 		}
 	}
 
@@ -436,6 +451,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("trusted_proxies", len(c.HTTP.TrustedProxies)),
 		slog.Int("signing_keys", len(c.Auth.SigningKeys)),
 		slog.String("smtp", fmt.Sprintf("%s:%d (%s)", c.SMTP.Host, c.SMTP.Port, c.SMTP.TLSMode)),
+		slog.Int("smtp_sink_domains", len(c.SMTP.SinkDomains)),
 		slog.Bool("cookie_secure", c.Auth.CookieSecure),
 		slog.Bool("expo_push", c.Push.ExpoAccessToken != ""),
 		slog.Int("worker_concurrency", c.Jobs.Concurrency),
@@ -653,6 +669,30 @@ func (l *loader) list(key string) []string {
 		}
 	}
 	return out
+}
+
+// domains valide une liste de domaines email (« example.bj, test »), en minuscules.
+func (l *loader) domains(key string) []string {
+	var out []string
+	for _, item := range l.list(key) {
+		d := strings.ToLower(strings.TrimPrefix(item, "."))
+		if strings.ContainsAny(d, "@/: ") || strings.Contains(d, "..") || strings.HasSuffix(d, ".") {
+			l.fail(key, "%q is not a domain name such as example.bj", item)
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// internalHost : hôte sans point (« s3:8333 ») ni adresse IP, donc un service du réseau Docker.
+func internalHost(endpoint string) bool {
+	host := endpoint
+	if h, _, err := net.SplitHostPort(endpoint); err == nil {
+		host = h
+	}
+	_, err := netip.ParseAddr(host)
+	return host != "" && host != "localhost" && !strings.Contains(host, ".") && err != nil
 }
 
 func (l *loader) prefixes(key string) []netip.Prefix {

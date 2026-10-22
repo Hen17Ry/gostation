@@ -39,7 +39,7 @@ func (r *Renderer) date(t time.Time) string { return t.In(r.loc).Format("02/01/2
 // DataRequestReceived accuse réception d'une demande (confirmée) et en donne l'échéance.
 func (r *Renderer) DataRequestReceived(to, firstName, kind, ref string, due time.Time, contact string) (Message, error) {
 	return r.render(tmplStationStatus, to, "Votre demande a bien été reçue – GoStation", templateData{
-		Title: "Demande reçue", Preheader: "Référence " + ref + " : réponse au plus tard le " + r.date(due) + ".",
+		Title:     "Demande reçue",
 		FirstName: firstName, Badge: "Demande reçue", Tone: "info",
 		Lead: "Nous avons bien reçu votre demande de " + DataRequestLabel(kind) + " (référence " + ref + ").",
 		Next: "Nous y répondrons au plus tard le " + r.date(due) + "." + contactSentence(contact),
@@ -54,7 +54,7 @@ func (r *Renderer) DataRequestCode(to, firstName, kind, ref, code string, ttl ti
 		next = "Envoyez ce code, avec la référence " + ref + ", à " + contact + "."
 	}
 	return r.render(tmplDataRequestCode, to, "Confirmez votre demande – GoStation", templateData{
-		Title: "Confirmez votre demande", Preheader: "Un code pour confirmer votre demande (référence " + ref + ").",
+		Title:     "Confirmez votre demande",
 		FirstName: firstName, Code: code, ExpiresDays: int(ttl.Hours() / 24),
 		Lead: "Nous avons reçu une demande de " + DataRequestLabel(kind) + " concernant votre compte GoStation " +
 			"(référence " + ref + "). Pour confirmer qu'elle vient bien de vous, communiquez ce code à l'équipe GoStation :",
@@ -77,14 +77,13 @@ func (r *Renderer) DataRequestClosed(to, firstName, kind, ref string, accepted b
 		d.Title, d.Badge, d.Tone, d.ReasonLabel = "Demande refusée", "Demande refusée", "danger", "Motif"
 		d.Lead = "Nous ne pouvons pas donner suite à votre demande de " + DataRequestLabel(kind) + " (référence " + ref + ")."
 	}
-	d.Preheader = d.Lead
 	return r.render(tmplStationStatus, to, subject, d)
 }
 
 // DataExportReady prévient que la copie des données est prête dans l'application.
 func (r *Renderer) DataExportReady(to, firstName string, expires time.Time) (Message, error) {
 	return r.render(tmplStationStatus, to, "La copie de vos données est prête – GoStation", templateData{
-		Title: "Copie de vos données prête", Preheader: "Disponible dans l'application jusqu'au " + r.date(expires) + ".",
+		Title:     "Copie de vos données prête",
 		FirstName: firstName, Badge: "Prête", Tone: "success",
 		Lead: "La copie de vos données personnelles est prête. Ouvrez GoStation, puis Compte > Mes données, pour la télécharger.",
 		Next: "Elle reste disponible 24 heures (jusqu'au " + expires.In(r.loc).Format("02/01/2006 à 15h04") + "), puis elle est supprimée.",
@@ -108,7 +107,7 @@ func (r *Renderer) AccountDeleted(to, firstName, cause string) (Message, error) 
 		lead = "Votre compte GoStation, inutilisé depuis longtemps, a été supprimé comme annoncé."
 	}
 	return r.render(tmplStationStatus, to, "Votre compte a été supprimé – GoStation", templateData{
-		Title: "Compte supprimé", Preheader: lead, FirstName: firstName, Badge: "Compte supprimé", Tone: "info",
+		Title: "Compte supprimé", FirstName: firstName, Badge: "Compte supprimé", Tone: "info",
 		Lead: lead,
 		Next: "Vos données personnelles ont été effacées. Certaines informations sont conservées pour une durée limitée, " +
 			"sans lien avec vous, comme l'explique la politique de confidentialité de l'application.",
@@ -119,7 +118,7 @@ func (r *Renderer) AccountDeleted(to, firstName, cause string) (Message, error) 
 func (r *Renderer) InactivityWarning(to, firstName string, inactiveFor time.Duration, deletion time.Time) (Message, error) {
 	months := int(math.Round(inactiveFor.Hours() / 24 / 30.44))
 	return r.render(tmplStationStatus, to, "Votre compte GoStation va être supprimé – GoStation", templateData{
-		Title: "Compte inactif", Preheader: "Sans connexion d'ici le " + r.date(deletion) + ", votre compte sera supprimé.",
+		Title:     "Compte inactif",
 		FirstName: firstName, Badge: "Compte inactif", Tone: "danger",
 		Lead: fmt.Sprintf("Votre compte GoStation n'a pas été utilisé depuis près de %d mois. Sans connexion de votre part, "+
 			"il sera supprimé le %s.", months, r.date(deletion)),

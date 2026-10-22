@@ -125,3 +125,26 @@ func TestDisabledWithoutDSN(t *testing.T) {
 	none.Report(context.Background(), errors.New("boom"), nil)
 	none.Flush(time.Millisecond)
 }
+
+// Événement de test des commandes errtrack-test : un message étiqueté par service, refusé sans DSN.
+func TestSendTest(t *testing.T) {
+	tr := &transport{}
+	tk, err := errtrack.New(errtrack.Config{
+		DSN: "https://public@glitchtip.example/1", Environment: "staging", Service: "worker", Transport: tr,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := tk.SendTest("worker", time.Second)
+	if err != nil || id == "" {
+		t.Fatalf("SendTest = %q, %v", id, err)
+	}
+	if len(tr.events) != 1 || tr.events[0].Message != "GlitchTip test event (worker)" ||
+		tr.events[0].Tags["service"] != "worker" || tr.events[0].Environment != "staging" {
+		t.Fatalf("events = %+v", tr.events)
+	}
+	off, _ := errtrack.New(errtrack.Config{})
+	if _, err := off.SendTest("api", time.Millisecond); err == nil {
+		t.Fatal("SendTest without DSN must fail")
+	}
+}

@@ -50,6 +50,50 @@ func TestTemplates(t *testing.T) {
 	}
 }
 
+// Régression (score mail-tester du staging) : SpamAssassin pénalise le texte invisible
+// (FONT_INVIS_MSGID, -2,5) ; l'ancien pré-en-tête masqué et le liseré en font-size 0 en étaient.
+func TestEmailsHaveNoHiddenText(t *testing.T) {
+	loc, _ := time.LoadLocation("Africa/Porto-Novo")
+	r, err := NewRenderer(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 10, 13, 5, 0, 0, time.UTC)
+	render := map[string]func() (Message, error){
+		"verify":  func() (Message, error) { return r.VerifyEmail("afi@example.bj", "Afi", "048213", 15*time.Minute) },
+		"reset":   func() (Message, error) { return r.ResetPassword("afi@example.bj", "Afi", "112233", 15*time.Minute) },
+		"changed": func() (Message, error) { return r.PasswordChanged("afi@example.bj", "Afi", now) },
+		"approved": func() (Message, error) {
+			return r.StationStatus("afi@example.bj", "Afi", "Station Akpakpa", StationApproved, "")
+		},
+		"corrected": func() (Message, error) {
+			return r.StationCorrected("afi@example.bj", "Afi", "Station Akpakpa", []string{"name"}, "Coquille")
+		},
+		"received": func() (Message, error) {
+			return r.DataRequestReceived("afi@example.bj", "Afi", "access", "DR-1", now, "")
+		},
+		"code": func() (Message, error) {
+			return r.DataRequestCode("afi@example.bj", "Afi", "access", "DR-1", "123456", time.Hour, "")
+		},
+		"export":     func() (Message, error) { return r.DataExportReady("afi@example.bj", "Afi", now) },
+		"deleted":    func() (Message, error) { return r.AccountDeleted("afi@example.bj", "Afi", DeletedBySelf) },
+		"inactivity": func() (Message, error) { return r.InactivityWarning("afi@example.bj", "Afi", 700*24*time.Hour, now) },
+	}
+	hidden := []string{"display:none", "opacity:0", "color:transparent", "font-size:0", "max-height:0", "visibility:hidden"}
+	for name, fn := range render {
+		m, err := fn()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		html := strings.ReplaceAll(m.HTML, " ", "")
+		for _, h := range hidden {
+			if strings.Contains(html, h) {
+				t.Errorf("%s: hidden text style %q in HTML", name, h)
+			}
+		}
+	}
+}
+
 func TestStationStatusEmails(t *testing.T) {
 	loc, _ := time.LoadLocation("Africa/Porto-Novo")
 	r, err := NewRenderer(loc)

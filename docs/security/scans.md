@@ -48,7 +48,7 @@ Les 77 alertes remontent à 6 paquets transitifs. `npm audit fix --force` propos
 
 | Image | Rôle | HIGH / CRITICAL | Corrigibles | Décision |
 |---|---|---|---|---|
-| `gostation-api` (distroless, Go 1.27.2) | API et worker | 0 / 0 | — | — |
+| `gostation-api` (distroless, Go 1.27.3) | API et worker | 0 / 0 | — | Go 1.27.2 → 1.27.3 le 2026-10-22 : CVE-2026-111943 (`crypto/x509`, élevée), signalée par la CI |
 | `redis:8.10.2-alpine` | Prod et dev | 0 / 0 | — | — |
 | `axllent/mailpit:v1.31.6` | Dev seulement | 0 / 0 | — | Mise à jour depuis 1.31.4 (4 élevées dans le binaire) |
 | `postgis/postgis:18-3.6` (Debian 13) | Prod et dev | 120 / 6 | 25, toutes dans `gosu` (bibliothèque standard Go) | `gosu` ne sert qu'à quitter root au démarrage, sans entrée externe ; le reste attend des correctifs Debian. Port jamais exposé en prod ; image re-téléchargée à chaque mise à jour (`docs/DEPLOY.md`) |

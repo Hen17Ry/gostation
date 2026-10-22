@@ -118,6 +118,12 @@ make worker-up      # worker seul dans Docker (une seule instance : le scheduler
 make admin-create email=… first=… last=…   # crée un admin (mot de passe saisi au clavier, jamais en argument)
 make admin-reset-2fa email=…               # réinitialise la 2FA d'un admin
 
+# Staging (VPS, docs/DEPLOY.md §17 ; configuration : deploy/staging.env, 600, gitignoré)
+make deploy-staging [REF=origin/main]      # env poussé, code à REF, build, migrations, redémarrage (détaché du SSH)
+make rollback-staging v=…                  # api, worker et proxy sur une version déjà construite
+make staging-tunnel                        # Mailpit (127.0.0.1:18025) et pilotage des E2E (127.0.0.1:18097)
+scripts/staging.sh prod <commande>         # scripts/prod.sh sur le serveur : ps, logs, backup, seed, admin-create…
+
 # Recherche et stats admin
 make purge-dry-run  # simule les purges de conservation : lignes que chaque règle traiterait maintenant, sans rien modifier
 make legal-html     # HTML statique des textes légaux (docs/legal/*.md → var/legal/)
@@ -136,6 +142,7 @@ npm run lint        # ESLint + Prettier ;  npm run typecheck : tsc -b
 npm test            # Vitest (unitaires et composants)
 npm run build && npm run check:bundle   # build de production + budget du JS initial (< 200 Ko gzip)
 npm run e2e         # Playwright sur le build (vite preview, 4173) et une pile isolée (make up suffit : base gostation_e2e, API 8095)
+npm run e2e:staging # mêmes scénarios contre l'admin du staging (fixtures et admins créés par SSH, supprimés à la fin)
 npm run screenshots # captures de Web/docs/screenshots (chaque écran, clair/sombre, 1440 et 1024 px)
 ```
 
@@ -148,6 +155,7 @@ npm run gen:api | gen:tokens | gen:map-styles | gen:icons | gen:legal   # types 
 npm run lint        # ESLint + Prettier ;  npm run typecheck : tsc --noEmit
 npm test            # Jest (logique et composants)
 npm run e2e         # Maestro (.maestro/) contre la pile isolée (base gostation_e2e, API 8095) ; build release installé
+npm run e2e:staging # Maestro contre le staging (build preview installé, tunnel SSH), push réel compris ; comptes de test supprimés
 npm run screenshots # captures de docs/screenshots/ (chaque écran, clair et sombre)
 npm run perf        # Flashlight (FPS, CPU, RAM) : recherche + défilement, navigation → var/perf/
 npm run states      # états mis en scène sur la pile isolée (aucune station, fermée/signalée, hors connexion, localisation refusée, alerte de retour en stock, compte, guidage simulé, OSRM coupé) + captures

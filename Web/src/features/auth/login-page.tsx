@@ -4,9 +4,11 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 
 import type { AdminChallenge, AdminSession } from '@/api/schemas'
 import { Logo } from '@/components/brand/logo'
+import { EnvBadge } from '@/components/layout/env-badge'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
 import { Skeleton } from '@/components/ui/skeleton'
 import { t } from '@/i18n'
+import { pageTitle } from '@/lib/app-env'
 
 import { safeRedirect } from './api'
 import { BrandPanel } from './brand-panel'
@@ -46,7 +48,7 @@ export function LoginPage({ redirect, reason }: { redirect?: string; reason?: Lo
   const [step, setStep] = useState<Step>({ kind: 'credentials', notice: initialNotice(reason) })
 
   useEffect(() => {
-    document.title = `${t.auth.signInTitle} · ${t.app.name}`
+    document.title = pageTitle(`${t.auth.signInTitle} · ${t.app.name}`)
   }, [])
 
   function finish(firstName: string) {
@@ -122,7 +124,10 @@ export function LoginPage({ redirect, reason }: { redirect?: string; reason?: Lo
         <main className="flex min-w-0 flex-col px-5 py-6 sm:px-10">
           <div className="flex items-center justify-between">
             <Logo className="lg:invisible" />
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <EnvBadge />
+              <ThemeToggle />
+            </div>
           </div>
           <div className="flex flex-1 items-center justify-center py-10">
             <div className={wide ? 'w-full max-w-[460px]' : 'w-full max-w-[380px]'}>

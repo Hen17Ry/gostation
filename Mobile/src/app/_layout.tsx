@@ -9,6 +9,7 @@ import { useEffect } from 'react'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
+import { StagingFrame } from '@/components/staging-frame'
 import { ToastHost } from '@/components/ui/toast'
 import { useAuthBootstrap } from '@/features/auth/use-auth-bootstrap'
 import { useMustAcceptPolicy } from '@/features/legal/policy-gate'
@@ -39,7 +40,9 @@ export default function RootLayout() {
         <ThemeProvider>
           <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
             <BottomSheetModalProvider>
-              <Root />
+              <StagingFrame>
+                <Root />
+              </StagingFrame>
             </BottomSheetModalProvider>
             {/* Après les panneaux (portail du fournisseur) : un toast reste au-dessus de leur voile. */}
             <ToastHost />

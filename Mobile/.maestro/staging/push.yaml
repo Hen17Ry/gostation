@@ -1,0 +1,51 @@
+# Staging : réception réelle d'un push (Expo → FCM → téléphone), hors des parcours par défaut
+# (npm run e2e:staging). Gérant inscrit et validé, notifications autorisées, app en arrière-plan,
+# puis suspension par le pilotage : « Station suspendue » doit apparaître dans le volet.
+appId: bj.gostation.app
+name: Push réel (staging)
+---
+- runFlow: ../common/start.yaml
+- runFlow: ../common/manager-sign-up.yaml
+- runScript:
+    file: ../scripts/control.js
+    env:
+      ACTION: approve
+      EMAIL: ${output.email}
+- tapOn:
+    id: status-refresh
+- extendedWaitUntil:
+    visible:
+      id: reminders-intro-primary
+    timeout: 15000
+- tapOn:
+    id: reminders-intro-primary
+# Demande du système (Android 13+).
+- tapOn:
+    text: 'Autoriser'
+    optional: true
+- tapOn:
+    text: 'Allow'
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: setup-checklist
+    timeout: 15000
+# Enregistrement de l'appareil (POST /me/devices) après l'autorisation.
+- waitForAnimationToEnd:
+    timeout: 5000
+- pressKey: Home
+- runScript:
+    file: ../scripts/control.js
+    env:
+      ACTION: suspend
+      EMAIL: ${output.email}
+      REASON: Test des notifications (staging)
+- swipe:
+    start: 50%, 1%
+    end: 50%, 75%
+    duration: 500
+- extendedWaitUntil:
+    visible: Station suspendue
+    timeout: 60000
+- takeScreenshot: staging-push-received
+- pressKey: Back

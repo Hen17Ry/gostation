@@ -40,6 +40,8 @@ const TEXT: [Role, Role][] = [
   ['warning-subtle-foreground', 'card'],
   ['danger-subtle-foreground', 'danger-subtle'],
   ['info-subtle-foreground', 'info-subtle'],
+  // Bandeau « Staging » (src/components/staging-frame.tsx).
+  ['info-foreground', 'info'],
   ['background', 'foreground'],
 ]
 const UI: [Role, Role][] = [

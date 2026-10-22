@@ -1,0 +1,68 @@
+# Staging (docs/DEPLOY.md) : ajouté à docker-compose.prod.yml par GOSTATION_EXTRA_COMPOSE=
+# deploy/staging.compose.yml (.env.production du serveur). Jamais en production. Outils de test :
+#   - mailpit : reçoit les emails des adresses de test (SMTP_SINK_DOMAINS, comptes des E2E) ;
+#   - tools (profil tools) : seed des stations fictives, fixtures et nettoyage des E2E ;
+#   - e2e-control (profil e2e) : pilotage des parcours Maestro (e2efixtures serve).
+# Leurs ports ne sont publiés que sur la boucle locale du serveur : on y accède par un tunnel SSH
+# (make staging-tunnel), jamais depuis Internet. Commandes : scripts/prod.sh seed | e2e-*.
+
+x-tools-env: &tools-env
+  APP_ENV: ${APP_ENV:?}
+  DATABASE_URL: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}?sslmode=disable
+  REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
+  OSRM_URL: http://osrm:5000
+  DOCUMENTS_STORAGE_DIR: /var/lib/gostation/documents
+  # Autorise e2efixtures sur la base du staging (garde-fou, cmd/e2efixtures).
+  E2E_STAGING: "1"
+
+services:
+  mailpit:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.31.6}
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "2000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "127.0.0.1:8025:8025"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    deploy:
+      resources:
+        limits: { memory: 128m }
+    networks: [net]
+
+  worker:
+    depends_on:
+      mailpit: { condition: service_started }
+
+  tools:
+    build:
+      context: ./Backend
+      target: tools
+    image: gostation-tools:${RELEASE:-latest}
+    profiles: [tools]
+    env_file: ["${GOSTATION_ENV_FILE:-.env.production}"]
+    environment: *tools-env
+    networks: [net, storage]
+
+  e2e-control:
+    image: gostation-tools:${RELEASE:-latest}
+    profiles: [e2e]
+    command: ["/app/e2efixtures", "serve", "-addr", "0.0.0.0:8097"]
+    env_file: ["${GOSTATION_ENV_FILE:-.env.production}"]
+    environment: *tools-env
+    ports:
+      - "127.0.0.1:8097:8097"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      s3: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/app/e2efixtures", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks: [net, storage]

@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   /** Suivi des plantages (GlitchTip, D90) : vide, rien n'est chargé ni envoyé. */
   readonly VITE_SENTRY_DSN?: string
   readonly VITE_SENTRY_ENVIRONMENT?: string
+  /** Environnement du serveur (APP_ENV) : « staging » affiche le bandeau d'environnement. */
+  readonly VITE_APP_ENV?: string
 }
 
 interface ImportMeta {

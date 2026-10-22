@@ -23,8 +23,9 @@ import (
 // le dossier d'un gérant inscrit dans l'app, créer une station prête (approuvée, épinglée,
 // horaires, produits, stocks), modifier ses stocks comme depuis un autre appareil (conflit 412).
 // L'API n'a aucune route de test (D46) : ces actions passent par les services Go, sur la base E2E
-// seulement (garde-fou de setup) et sur la boucle locale seulement. Les scripts Maestro
-// (runScript, exécutés sur l'hôte) l'appellent en JSON.
+// seulement (garde-fou de setup) et sur la boucle locale seulement (staging : la boucle locale du
+// serveur, par un tunnel SSH). Les scripts Maestro (runScript, exécutés sur l'hôte) l'appellent en
+// JSON.
 func serve(ctx context.Context, getenv func(string) string, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8097", "adresse d'écoute (boucle locale uniquement)")
@@ -35,7 +36,10 @@ func serve(ctx context.Context, getenv func(string) string, args []string) error
 	if err != nil {
 		return fmt.Errorf("addr: %w", err)
 	}
-	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+	// Dans le conteneur du staging (E2E_STAGING=1), l'écoute est sur toutes les interfaces du
+	// conteneur, dont le port n'est publié que sur la boucle locale du serveur
+	// (deploy/staging.compose.yml).
+	if ip := net.ParseIP(host); getenv("E2E_STAGING") != "1" && host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return fmt.Errorf("refusing to listen on %s: loopback only", *addr)
 	}
 	f, done, err := setup(ctx, getenv)
@@ -47,6 +51,8 @@ func serve(ctx context.Context, getenv func(string) string, args []string) error
 	c := &control{f: f}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	// Sonde du healthcheck Docker (healthprobe attend 200 sur /readyz).
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("POST /managers/approve", c.handle(c.approve))
 	mux.HandleFunc("POST /managers/reject", c.handle(c.reject))
 	mux.HandleFunc("POST /managers/suspend", c.handle(c.suspend))

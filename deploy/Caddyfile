@@ -1,6 +1,7 @@
 # GoStation — reverse proxy de production (docker-compose.prod.yml, docs/DEPLOY.md).
-# TLS automatique (Let's Encrypt) pour chaque site ; DOMAIN et ACME_EMAIL viennent de
-# .env.production. Aucun journal d'accès (pas de directive log dans les sites) et un journal
+# TLS automatique (Let's Encrypt) pour chaque site ; DOMAIN, ACME_EMAIL, APP_ENV et
+# PUBLIC_EXTRA_HOSTS viennent de .env.production. L'API, l'admin et GlitchTip ne sont jamais
+# indexés ; le site public ne l'est qu'en production (APP_ENV, ci-dessous). Aucun journal d'accès (pas de directive log dans les sites) et un journal
 # d'erreurs expurgé (ci-dessous) : ni IP ni URL chez le proxy ; le journal d'accès de l'API masque
 # déjà les paramètres (règles 2 et 10). Les en-têtes de l'admin doivent rester identiques à ADMIN_HEADERS
 # (Web/build/csp.ts) : un test les compare.
@@ -33,6 +34,7 @@ api.{$DOMAIN} {
 	request_body {
 		max_size 6MB
 	}
+	header X-Robots-Tag "noindex, nofollow"
 	# Pas de sonde active : /readyz échoue quand OSRM est en panne, alors que l'API se replie
 	# sur le vol d'oiseau. Le healthcheck Docker redémarre l'API si besoin.
 	reverse_proxy api:8080
@@ -53,6 +55,7 @@ admin.{$DOMAIN} {
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Embedder-Policy "require-corp"
 		Cross-Origin-Resource-Policy "same-origin"
+		X-Robots-Tag "noindex, nofollow"
 		-Server
 	}
 	# Fichiers du build nommés par empreinte : cache d'un an ; le reste (index.html) revalidé.
@@ -68,7 +71,19 @@ admin.{$DOMAIN} {
 
 # Site public : politique de confidentialité, CGU, suppression de compte (lien exigé par Google
 # Play), générés depuis docs/legal/*.md. Adresses sans extension : /suppression-compte.
-{$DOMAIN} {
+# PUBLIC_EXTRA_HOSTS (www.<domaine>…) : servis aussi, et redirigés vers le domaine principal.
+{$DOMAIN} {$PUBLIC_EXTRA_HOSTS} {
+	@extra not host {$DOMAIN}
+	redir @extra https://{$DOMAIN}{uri} permanent
+	# Indexation en production seulement : un staging ne doit jamais apparaître dans un moteur.
+	map {env.APP_ENV} {robots_tag} {robots_disallow} {
+		production all ""
+		default "noindex, nofollow" /
+	}
+	header X-Robots-Tag {robots_tag}
+	respond /robots.txt "User-agent: *
+Disallow: {robots_disallow}
+"
 	root * /srv/public
 	encode zstd gzip
 	header {
@@ -85,10 +100,6 @@ admin.{$DOMAIN} {
 	file_server
 }
 
-www.{$DOMAIN} {
-	redir https://{$DOMAIN}{uri} permanent
-}
-
 # GlitchTip (D90) : reçoit les rapports de plantage des SDK (API, worker, admin, app) et sert son
 # interface. L'adresse IP du client ne lui parvient jamais : X-Forwarded-For et X-Real-IP sont
 # retirés, GlitchTip ne voit que l'adresse du proxy.
@@ -102,6 +113,7 @@ errors.{$DOMAIN} {
 	}
 	header {
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Robots-Tag "noindex, nofollow"
 		-Server
 	}
 }

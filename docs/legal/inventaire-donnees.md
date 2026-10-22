@@ -1,6 +1,6 @@
 # Inventaire des données personnelles — GoStation
 
-> **PROJET — à faire valider par un juriste.** Document interne, établi à partir du code au 16 octobre 2026 (étape 10A). Il décrit ce que fait réellement le logiciel ; il sert de base à la politique de confidentialité, au registre des traitements et aux formalités auprès de l'APDP.
+> **PROJET — à faire valider par un juriste.** Document interne, établi à partir du code au 16 octobre 2026 (étape 10A), mis à jour le 22 octobre 2026 (étape 10C : stockage, sauvegardes et sous-traitants du staging). Il décrit ce que fait réellement le logiciel ; il sert de base à la politique de confidentialité, au registre des traitements et aux formalités auprès de l'APDP.
 
 **Méthode.** Relecture du schéma (migrations `Backend/db/migrations`, 29 tables), des requêtes (`Backend/db/queries`), des clés Redis, des attributs de journalisation (`slog`) de l'API et du worker, des fichiers stockés (`DOCUMENTS_STORAGE_DIR`), du stockage local des apps (MMKV, SecureStore, `sessionStorage`) et des services tiers appelés. Les durées sont les valeurs par défaut de `Backend/internal/config` ; toutes sont réglables (`RETENTION_*`, `PRIVACY_*`) et restent **à valider par un juriste**.
 
@@ -73,7 +73,9 @@ Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `E
 | Justificatifs des gérants | `DOCUMENTS_STORAGE_DIR/stations/…` | Enveloppe AES-256-GCM (clé par fichier, enveloppée par `DOCUMENTS_ENCRYPTION_KEY`) | Voir le justificatif, section 1 |
 | Copies « Mes données » | `DOCUMENTS_STORAGE_DIR/personal-exports/…` | Idem | 24 heures |
 | Exports d'administration | `DOCUMENTS_STORAGE_DIR/exports/…` | Idem | 24 heures |
-| Sauvegardes de la base, des fichiers et de `.env.production` | Dépôt restic sur un bucket S3 dédié (`scripts/backup.sh`, quotidien) | restic (AES-256, clé `RESTIC_PASSWORD`) ; fichiers déjà chiffrés par l'app | 7 quotidiennes, 4 hebdomadaires, 3 mensuelles : une donnée purgée disparaît des sauvegardes 3 mois au plus après. Ni Redis, ni GlitchTip |
+| Sauvegardes de la base, des fichiers et de `.env.production` | Dépôt restic sur le serveur (`scripts/backup.sh`, quotidien), copié vers Google Drive (`BACKUP_RCLONE_REMOTE`, rclone, accès limité au dossier créé) | restic (AES-256, clé `RESTIC_PASSWORD`, jamais confiée à Google) ; fichiers déjà chiffrés par l'app | 7 quotidiennes, 4 hebdomadaires, 3 mensuelles : une donnée purgée disparaît des sauvegardes 3 mois au plus après, plus 30 jours dans la corbeille de Google Drive. Ni Redis, ni GlitchTip |
+
+Les fichiers sont stockés dans SeaweedFS, stockage objet compatible S3 qui tourne sur le serveur (`STORAGE_DRIVER=s3`, mêmes chemins comme clés d'objet), sur un réseau interne que seuls l'API, le worker et les sauvegardes joignent.
 
 ## 5. Sur les téléphones et dans le navigateur
 
@@ -95,8 +97,9 @@ Envoyés seulement si un DSN est configuré (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `E
 | Expo (650 Industries, Inc.) | Service de push Expo (`exp.host`), mises à jour de l'app (`u.expo.dev`), builds EAS | Jeton push, contenu technique des notifications (iOS : titre et texte ; Android : type et identifiants), adresse IP ; code de l'app (builds) | États-Unis | Sous-traitant ; transfert hors du Bénin à encadrer |
 | Google (Firebase Cloud Messaging) | Livraison des push Android | Jeton FCM, message de données | États-Unis et autres | Sous-traitant (via Expo) ; transfert à encadrer |
 | OpenFreeMap | Tuiles des fonds de carte (app et admin) | Adresse IP, zones de carte affichées, user agent | À vérifier | Destinataire technique ; pas de contrat à ce jour (question au juriste) |
-| Fournisseur SMTP | Envoi des emails | Adresse email, prénom, contenu (codes, réponses aux demandes) | Choisi à l'étape 10C | Sous-traitant |
-| Hébergeur | Serveurs, base, fichiers, sauvegardes, journaux | Toutes les données | Choisi à l'étape 10C | Sous-traitant |
+| Brevo (Sendinblue SAS) | Envoi des emails (`smtp-relay.brevo.com`) | Adresse email, prénom, contenu (codes, réponses aux demandes) ; **suivi des ouvertures et des clics actif par défaut** (pixel, liens réécrits : adresse IP, appareil, heure d'ouverture) | France (Union européenne) ; lieux d'hébergement à confirmer dans le contrat de sous-traitance de Brevo | Sous-traitant ; suivi à désactiver (écart E9) |
+| Hébergeur | Serveurs, base, fichiers, sauvegardes locales, journaux | Toutes les données | Staging : VPS Wayhost (localisation à vérifier) ; production : à choisir (D4) | Sous-traitant |
+| Google (Google Drive) | Copie hors du serveur des sauvegardes | Toutes les données, **chiffrées par restic** (clé jamais confiée à Google) ; métadonnées des fichiers du dépôt | États-Unis et autres | Sous-traitant ; transfert à encadrer (question 24 au juriste) |
 | OSRM | Calcul d'itinéraire | Position de départ et d'arrivée | **Auto-hébergé** : aucun transfert | — |
 
 Aucun outil d'analyse d'audience ni de publicité n'est intégré. Le suivi des plantages (GlitchTip) est **auto-hébergé** : aucun transfert (section 3 bis).
@@ -113,5 +116,6 @@ Aucun outil d'analyse d'audience ni de publicité n'est intégré. Le suivi des 
 | E6 | Corrigé en 10B : les demandes de déplacement d'épingle (`station_location_requests`) n'avaient pas de purge | — | Règle `location_requests` : supprimées 12 mois après la décision (création pour une demande remplacée), celles en attente restent (`TestRetentionPurges`) |
 | E7 | Les tuiles OpenFreeMap révèlent l'adresse IP et la zone affichée à un tiers sans contrat | Indication de la position approximative | Contrat, ou tuiles auto-hébergées (10C) |
 | E8 | Corrigé en 10A : l'anonymisation laissait sur la ligne du compte les motifs libres de désactivation et de retrait du droit de signaler (et échouait pour un compte désactivé) | — | `AnonymizeUser` les efface (`TestDeletionOfDisabledAccount`) |
+| E9 | Brevo ajoute à chaque email un pixel de suivi d'ouverture et réécrit les liens (suivi des clics), sans que l'application le demande | Mesure de qui ouvre les emails et quand, non prévue par les finalités | Désactiver le suivi des ouvertures et des clics des emails transactionnels dans Brevo (avant la production) |
 
 Aucune autre donnée personnelle collectée ou journalisée hors de cet inventaire n'a été trouvée.
