@@ -21,9 +21,11 @@ set -Eeuo pipefail
 HOST="${STAGING_SSH:-deploy@45.93.21.86}"
 DIR="${STAGING_DIR:-/srv/gostation}"
 ENV_LOCAL="$ROOT_DIR/deploy/staging.env"
-# Connexions SSH regroupées (une authentification pour toute la commande) et réessayées.
+# Connexions SSH regroupées dans une connexion maître gardée 10 min : Wayhost ferme le port 22
+# quelques minutes à une IP qui ouvre 4 ou 5 connexions en peu de temps (filtrage en amont du
+# serveur, ni ufw ni fail2ban), ce que feraient sinon les E2E (un appel par admin de test).
 SSH_OPTS=(-o ConnectionAttempts=3 -o ServerAliveInterval=30 -o ControlMaster=auto
-  -o "ControlPath=$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=60)
+  -o "ControlPath=$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=600)
 
 remote() { ssh "${SSH_OPTS[@]}" "$HOST" "$@"; }
 
