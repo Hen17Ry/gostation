@@ -136,6 +136,7 @@ rollback() {
   docker image inspect "gostation-api:$v" "gostation-proxy:$v" > /dev/null 2>&1 || die "images de la version $v absentes"
   warn "les migrations ne sont pas annulées : une version antérieure doit rester compatible avec le schéma (docs/DEPLOY.md)"
   RELEASE="$v" compose up -d --no-build --wait api worker caddy
+  printf '%s\n' "$v" >> "$ROOT/var/releases"
   ok "api, worker et proxy en version $v"
 }
 

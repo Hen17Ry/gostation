@@ -23,6 +23,14 @@ if [[ -n "${GOSTATION_EXTRA_COMPOSE:-}" ]]; then
 fi
 export GOSTATION_COMPOSE_FILE
 
+# Version des images gostation-* : celle en service (dernière ligne de var/releases, écrite par
+# deploy et rollback), pour que restore, migrate, admin-create ou errtrack-test ne relancent ni ne
+# construisent jamais une autre version (gostation-api:latest). deploy fixe la sienne.
+if [[ -z "${RELEASE:-}" && -s "$PROD_ROOT/var/releases" ]]; then
+  RELEASE="$(tail -n1 "$PROD_ROOT/var/releases")"
+fi
+export RELEASE="${RELEASE:-}"
+
 # shellcheck source=scripts/_lib.sh
 . "$PROD_ROOT/scripts/_lib.sh"
 
