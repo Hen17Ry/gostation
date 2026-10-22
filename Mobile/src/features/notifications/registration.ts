@@ -44,6 +44,22 @@ export async function registerThisDevice(deps: PushRegistrationDeps = defaults):
 }
 
 /**
+ * Filtre des événements de token. Sur Android, chaque lecture du token (getExpoPushTokenAsync
+ * compris) réémet l'événement avec la même valeur (PushTokenModule.getDevicePushTokenAsync
+ * d'expo-notifications) : sans ce filtre, chaque enregistrement déclenchait le suivant, une boucle
+ * de POST /me/devices (jusqu'à 15 par seconde, vue sur le staging). Vrai seulement pour un token
+ * d'appareil différent du dernier vu ; le premier vu (écho de la lecture du lancement) est retenu.
+ */
+export function tokenChangeFilter(): (deviceToken: string) => boolean {
+  let last: string | null = null
+  return (deviceToken) => {
+    const changed = last !== null && deviceToken !== last
+    last = deviceToken
+    return changed
+  }
+}
+
+/**
  * À chaque lancement, compte connecté à l'email vérifié et autorisation accordée : enregistre
  * l'appareil, puis à chaque changement de token. Le logout et la révocation de la session
  * suppriment le token côté serveur (règle 12) : rien à faire ici.
@@ -54,8 +70,11 @@ export function usePushRegistration(deps: PushRegistrationDeps = defaults) {
   const userId = me?.emailVerified ? me.id : null
   useEffect(() => {
     if (!userId || !granted) return
+    const changed = tokenChangeFilter()
     void registerThisDevice(deps)
-    const sub = Notifications.addPushTokenListener(() => void registerThisDevice(deps))
+    const sub = Notifications.addPushTokenListener(({ data }) => {
+      if (changed(String(data))) void registerThisDevice(deps)
+    })
     return () => sub.remove()
   }, [userId, granted, deps])
 }
