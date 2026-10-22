@@ -14,7 +14,7 @@ set -uo pipefail
 DOMAIN="${DOMAIN:-gostation.bj}"
 EXPECTED_A="${EXPECTED_A:-45.93.21.86}"
 EXPECTED_AAAA="${EXPECTED_AAAA:-2a12:a080:1:1::10b2}"
-NAMES="${NAMES:-@ api admin errors}"
+NAMES="${NAMES:-@ www api admin errors}"
 problems=()
 problem() { problems+=("$*"); }
 
