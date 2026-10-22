@@ -57,7 +57,15 @@ cd "$1"
 git fetch --quiet --prune --tags origin
 git checkout --quiet --detach "$2"
 git log -1 --format='  %h %s'
-scripts/prod.sh deploy
+# Détaché de la session SSH : une coupure réseau n'interrompt ni le build ni les migrations. Le
+# journal reste sur le serveur ; on le suit jusqu'à la fin et on rend le code de sortie du déploiement.
+mkdir -p var
+log="var/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
+echo "  journal : $1/$log"
+nohup scripts/prod.sh deploy > "$log" 2>&1 < /dev/null &
+pid=$!
+tail -n +1 --pid="$pid" -f "$log"
+wait "$pid"
 EOF
 }
 

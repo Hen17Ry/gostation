@@ -266,6 +266,8 @@ services:
       VALKEY_URL: ""
       SECRET_KEY: ${GLITCHTIP_SECRET_KEY:?}
       GLITCHTIP_DOMAIN: https://errors.${DOMAIN:?}
+      # Nom public seulement (et localhost pour la sonde de santé de l'image) : pas de joker.
+      ALLOWED_HOSTS: errors.${DOMAIN:?},localhost
       DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:?}
       # Le SMTP de l'application par défaut (STARTTLS) ; GLITCHTIP_EMAIL_URL pour un autre.
       EMAIL_URL: ${GLITCHTIP_EMAIL_URL:-smtp+tls://${SMTP_USERNAME}:${SMTP_PASSWORD}@${SMTP_HOST}:${SMTP_PORT}}
