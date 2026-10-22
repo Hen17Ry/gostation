@@ -1,6 +1,5 @@
 import Constants from 'expo-constants'
 import { router } from 'expo-router'
-import * as Sentry from '@sentry/react-native'
 import {
   BellRing,
   Bug,
@@ -34,7 +33,7 @@ import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
 import { useMe } from '@/features/auth/use-me'
 import { t } from '@/i18n'
-import { isStaging } from '@/lib/app-env'
+import { isStaging, triggerTestCrash } from '@/lib/app-env'
 import { haptics } from '@/lib/haptics'
 import { usePrefs } from '@/stores/prefs'
 
@@ -230,10 +229,10 @@ export default function Account() {
   )
 }
 
-/** Plantage natif volontaire (staging) : le SDK l'enregistre et l'envoie à GlitchTip au lancement suivant. */
+/** Plantage volontaire (staging), après confirmation. */
 function confirmTestCrash() {
   Alert.alert(t.env.testCrash, t.env.testCrashConfirm, [
     { text: t.common.cancel, style: 'cancel' },
-    { text: t.env.crashNow, style: 'destructive', onPress: () => Sentry.nativeCrash() },
+    { text: t.env.crashNow, style: 'destructive', onPress: triggerTestCrash },
   ])
 }

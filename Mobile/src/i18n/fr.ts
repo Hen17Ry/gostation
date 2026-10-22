@@ -15,7 +15,7 @@ export const fr = {
     diagnostics: 'Staging',
     testCrash: 'Plantage de test',
     testCrashHint: 'Vérifie la remontée des plantages (GlitchTip).',
-    testCrashConfirm: 'L’app va se fermer. Le rapport part à sa réouverture.',
+    testCrashConfirm: 'L’app va planter et envoyer le rapport. Fermez-la ensuite, puis rouvrez-la.',
     crashNow: 'Planter l’app',
   },
   common: {
