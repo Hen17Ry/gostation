@@ -32,7 +32,7 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Text } from '@/components/ui/text'
-import { searchOrigin, useLocation } from '@/features/location/location-store'
+import { LOW_ACCURACY_M, searchOrigin, useLocation } from '@/features/location/location-store'
 import { openExternalNavigation } from '@/features/navigation/external'
 import { departBearing, instructionText, type ManeuverIcon, maneuverIcon } from '@/features/navigation/instructions'
 import { guidance as computeGuidance, prepareRoute, type PreparedRoute } from '@/features/navigation/progress'
@@ -262,6 +262,11 @@ export default function RouteScreen() {
           )}
           {phase === 'preview' && prepared && (
             <Preview prepared={prepared} name={name} voice={voice} onVoice={() => setVoice(!voice)} onStart={start} />
+          )}
+          {navigating && guidance.accuracyM !== null && guidance.accuracyM > LOW_ACCURACY_M && (
+            <Banner tone="warning">
+              {loc.precise ? t.route.weakSignal(formatDistance(guidance.accuracyM)) : t.route.weakSignalApproximate}
+            </Banner>
           )}
           {navigating && prepared && (
             <NavigationPanel

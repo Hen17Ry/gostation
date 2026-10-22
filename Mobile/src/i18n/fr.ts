@@ -17,6 +17,16 @@ export const fr = {
     testCrashHint: 'Vérifie la remontée des plantages (GlitchTip).',
     testCrashConfirm: 'L’app va planter et envoyer le rapport. Fermez-la ensuite, puis rouvrez-la.',
     crashNow: 'Planter l’app',
+    location: 'Localisation',
+    locationProvider: (kind: string, playServices: boolean) =>
+      kind === 'android'
+        ? 'LocationManager (sans services Google)'
+        : playServices
+          ? 'expo-location (services Google)'
+          : 'expo-location',
+    locationTiming: (known: string, fix: string, accuracy: string) =>
+      `connue ${known}, mesure ${fix}, ±\u00a0${accuracy}`,
+    locationNone: 'aucune mesure',
   },
   common: {
     retry: 'Réessayer',
@@ -71,12 +81,26 @@ export const fr = {
     deniedBody: 'Touchez la carte pour choisir le lieu autour duquel chercher.',
     pickHint: 'Touchez la carte pour placer le point de recherche',
     picked: 'Point de recherche choisi',
+    pickShort: 'Touchez la carte',
     useMine: 'Utiliser ma position',
     mine: 'Ma position',
     openSettings: 'Ouvrir les réglages',
     locating: 'Localisation…',
     unavailable: 'Position indisponible. Choisissez un lieu sur la carte.',
     centerOnMe: 'Centrer sur ma position',
+    timeoutTitle: 'Position introuvable pour le moment',
+    timeoutBody:
+      'Le GPS cherche encore le signal, souvent plus longtemps à l’intérieur. Réessayez près d’une fenêtre ou choisissez le lieu sur la carte.',
+    offTitle: 'Localisation du téléphone désactivée',
+    offBody: 'Activez-la dans les réglages du téléphone, ou choisissez le lieu sur la carte.',
+    openLocationSettings: 'Activer la localisation',
+    pickOnMap: 'Choisir sur la carte',
+    lowAccuracy: (distance: string) => `Précision faible · ±\u00a0${distance}`,
+    lowAccuracyA11y: (distance: string) => `Position peu précise, à ${distance} près`,
+    approximate: 'Position approximative',
+    approximateBody:
+      'Vous avez autorisé la position approximative : distances et guidage seront moins précis. Le guidage pas à pas demande la position précise.',
+    enablePrecise: 'Activer la position précise',
   },
   search: {
     title: 'Que cherchez-vous ?',
@@ -158,6 +182,8 @@ export const fr = {
   },
   route: {
     title: 'Itinéraire',
+    weakSignal: (distance: string) => `Signal GPS faible : position à ${distance} près. Le guidage peut se décaler.`,
+    weakSignalApproximate: 'Position approximative : activez la position précise pour suivre le guidage.',
     summary: (duration: string, distance: string) => `${duration} · ${distance}`,
     arrivalAt: (time: string) => `Arrivée ${time}`,
     start: 'Démarrer',
