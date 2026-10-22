@@ -19,6 +19,7 @@ import { PressableScale } from '@/components/ui/pressable-scale'
 import { Text } from '@/components/ui/text'
 import { toast } from '@/components/ui/toast'
 import { type LocateFailure, precisionWarning, searchOrigin, useLocation } from '@/features/location/location-store'
+import { useLocationPermissionSync } from '@/features/location/use-permission-sync'
 import { t } from '@/i18n'
 import { AnimatedView } from '@/lib/animated'
 import { formatDistance } from '@/lib/format'
@@ -112,6 +113,9 @@ export function MapHome() {
     return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps -- une fois, à l'ouverture
   }, [])
+
+  // Retour des réglages du système (premier plan) : permission relue ; accordée, la carte se centre.
+  useLocationPermissionSync((p) => map.current?.centerOn(p, { zoom: 13, bottom: sheetHeight(0) }))
 
   // Au retour sur l'onglet (réglages système modifiés), on relit la permission.
   useFocusEffect(
