@@ -1,6 +1,6 @@
 # GoStation — État des lieux
 
-> Mis à jour le 2026-10-22 après l'étape 10D (finitions du staging : suivi des plantages de l'app, Brevo, client Google personnel pour rclone), branche `fix/staging-finish` fusionnée dans `main`. Étape 10C (staging sur le VPS Wayhost) le même jour ; version précédente : 2026-10-21 (étape 10B). Chaque affirmation vient d'une commande exécutée ou d'un fichier cité ; ce qui n'a pas été vérifié est signalé.
+> Mis à jour le 2026-10-22 après le correctif `fix/no-gms` (téléphones Android sans Google Play Services, §3 quater). Avant : étape 10D (finitions du staging : suivi des plantages de l'app, Brevo, client Google personnel pour rclone), branche `fix/staging-finish` fusionnée dans `main`. Étape 10C (staging sur le VPS Wayhost) le même jour ; version précédente : 2026-10-21 (étape 10B). Chaque affirmation vient d'une commande exécutée ou d'un fichier cité ; ce qui n'a pas été vérifié est signalé.
 
 ## 1. Résumé
 
@@ -8,6 +8,7 @@
 - Les étapes 10C et 10D ont révélé **huit problèmes** que la pile locale ne montrait pas. Six défauts du code sont corrigés, dont un grave dans l'app : une **boucle d'enregistrement de l'appareil push** sur Android (jusqu'à 15 requêtes par seconde) ; les autres : texte invisible dans les emails (mail-tester 6,9 → 9,3/10), palette ⌘K non conforme pendant une recherche, version des images perdue après une restauration, déploiement interrompu par une coupure SSH, plantage de test inopérant. Les plantages de l'app non reçus venaient de la **zone DNS de gostation.bj**, incohérente chez Wayhost : le DNS est passé chez Cloudflare le 2026-10-22, `make check-dns` est vert et les plantages de l'APK arrivent dans GlitchTip.
 - Juridique toujours en projet : 21 « À COMPLÉTER », aucune formalité APDP. Avant la production, aussi : pixel de suivi de Brevo (impossible à couper par configuration), serveur de production distinct (§4). Le client Google personnel de rclone est en place, `www` est servi.
 - Bêta fermée Android : possible avec l'APK `preview` (distribution interne EAS) contre le staging.
+- **Téléphones sans Google Play Services** (Huawei récents) : la localisation passait par le fused provider de Google et échouait (« Position indisponible »). Repli sur le LocationManager d'Android par un module natif local ; sans push possible, la boîte de réception est relue à l'ouverture et le gérant voit un rappel dans l'app. Règle ajoutée à CLAUDE.md : tout le code mobile doit fonctionner sans Google Play Services (§3 quater).
 
 ## 2. Étapes
 
@@ -40,7 +41,7 @@
 | Restauration | ✅ 9 stations supprimées après la sauvegarde, restauration en 27 s : 5 000 stations, même empreinte de la table, mêmes stocks et stats ; restauration des fichiers vérifiée en local seulement (aucun justificatif sur le staging au moment du test) |
 | Retour arrière | ✅ `make rollback-staging v=16bdbec` : api, worker et proxy sur la version demandée |
 | Surveillance | ✅ `.github/workflows/monitor.yml` essayé en local (panne détectée, certificat lu) ; première exécution planifiée après la fusion |
-| App `preview` (build 17) | ✅ APK EAS en distribution interne, bandeau Staging, API du staging ; Maestro sur Galaxy S10 (Android 12) : recherche sans compte, itinéraire, inscription, gérant de l'inscription aux stocks, **push réel reçu** (notification « Station suspendue » dans le volet) ; 2 `POST /me/devices` pour deux parcours (5 068 en 10 min avec la build 15) ; comptes de test supprimés. Recherche et itinéraire depuis la position réelle du téléphone (position simulée impossible sur un vrai appareil) |
+| App `preview` (build 17, avant `fix/no-gms`) | ✅ APK EAS en distribution interne, bandeau Staging, API du staging ; Maestro sur Galaxy S10 (Android 12) : recherche sans compte, itinéraire, inscription, gérant de l'inscription aux stocks, **push réel reçu** (notification « Station suspendue » dans le volet) ; 2 `POST /me/devices` pour deux parcours (5 068 en 10 min avec la build 15) ; comptes de test supprimés. Recherche et itinéraire depuis la position réelle du téléphone (position simulée impossible sur un vrai appareil) |
 
 ## 3. Vérifié le 2026-10-21
 
@@ -88,6 +89,49 @@ Corrigé aussi : le scénario E2E de réordonnancement au clavier, qui envoyait 
 
 > **Note sur l'historique** : le message du commit `65d6d2d` (« fix(mobile): make the staging test crash reach GlitchTip ») est inexact. Ce commit remplace bien `Sentry.nativeCrash()` par une erreur JavaScript fatale, mais aucun rapport n'atteignait GlitchTip à ce moment-là. Le commit étant dans `main`, son message n'a pas été réécrit.
 
+### 3 quater. Téléphones sans Google Play Services (`fix/no-gms`, 2026-10-22)
+
+**Constat** : sur un Huawei Y8p (AQM-LX1, Android 10, sans `com.google.android.gms`), « Position indisponible » malgré la localisation activée.
+
+**Diagnostic** (`adb logcat`) : chaque appel d'expo-location (dernière position, mesure équilibrée, mesure précise) échouait aussitôt avec `GooglePlayServicesUtil: … requires the Google Play Store, but it is missing` et `GoogleApiManager: … SERVICE_INVALID`. expo-location n'a que le fused provider sur Android, sans repli ni option du type `forceLocationManager`. Les permissions n'étaient pas en cause (précise et approximative accordées ; Android 10 ne propose pas l'approximative). Le provider `network` du système (com.huawei.lbs) répondait, à ±240 m en intérieur, et le GPS ne voyait aucun satellite. La carte MapLibre (moteur LocationManager) recevait bien des positions. FirebaseMessaging échouait de même (« Google Play services missing ») : aucun token push.
+
+**Correctif** :
+- Module natif local `Mobile/modules/gostation-location` (Kotlin, autolinking d'Expo) : détection de Play Services (`GoogleApiAvailability`), dernière position connue, mesure GPS + réseau avec délai, suivi. Aucune dépendance aux services Huawei.
+- `src/features/location/provider.ts` : expo-location avec les services (ou sur iOS), LocationManager sans eux. Dernière position (< 5 min) affichée tout de suite puis affinée ; 5 s d'attente si une position est déjà affichée, 15 s sinon ; ensuite, message avec « Réessayer », « Choisir sur la carte » ou « Activer la localisation ». Précision > 100 m (pastille sur la carte, bandeau pendant le guidage) et position approximative (demande de la position précise) signalées.
+- Push : sans Play Services, ni token ni demande d'autorisation ; indicateur dans Compte (« Notifications push indisponibles sur ce téléphone »), aussi dans les réglages des notifications et les favoris avec alerte ; boîte de réception relue au retour au premier plan quand aucun push ne peut l'annoncer ; gérant : bandeau sur l'écran Stocks au-delà de 4 h sans mise à jour ni confirmation (pour tous les téléphones).
+- Staging : Compte › Staging › Localisation affiche le fournisseur et les délais de la dernière mesure (jamais de coordonnées), ce qui sert aux mesures ci-dessous.
+
+**Défauts trouvés pendant les essais et corrigés** (chacun avec son test) : une recherche attendait jusqu'à 10 s une mesure qui n'apportait rien (le réseau de Huawei met parfois plus de 13 s à répondre de nouveau en intérieur), et le module natif pouvait dépasser son délai global ; au retour des réglages du système avec la permission accordée, la carte affichait encore « Localisation désactivée » (défaut antérieur : la permission n'était relue qu'au changement d'onglet), et l'écran d'itinéraire n'offrait aucune issue après un refus définitif.
+
+**Vérifié sur le Huawei Y8p** (sans services Google, Android 10, en intérieur ; build local, APK `preview` 23 puis 24 contre le staging) :
+
+| Vérification | Résultat |
+|---|---|
+| Fournisseur | ✅ LocationManager (Compte › Staging › Localisation) ; écoutes GPS + réseau visibles dans `dumpsys location`, libérées à la fin du guidage |
+| Position au lancement à froid (9 lancements) | ✅ dernière position connue affichée en **0,1 à 0,2 s** ; sans position connue récente, mesure en **3,4 à 6,9 s** ; ±240 m (réseau, aucun satellite en intérieur) : pastille « Précision faible · ± 240 m » |
+| Recherche | ✅ position prête en ≤ 5,1 s (position connue reprise faute de mieux), résultats en 5 à 7 s, outil de mesure compris ; 10 stations sur le staging |
+| Itinéraire et guidage | ✅ trajet OSRM du staging, manœuvres et suivi de la position, bandeau « Signal GPS faible : position à 240 m près » ; déplacement réel non essayé (téléphone immobile) |
+| Localisation du téléphone coupée | ✅ « Localisation du téléphone désactivée », « Activer la localisation » ouvre les réglages de localisation du système, « Choisir sur la carte » puis recherche depuis le point choisi |
+| Refus de la permission | ✅ après un refus, Android 10 ne redemande plus : « Ouvrir les réglages » ; accordée là, le retour dans l'app localise et centre la carte |
+| Push | ✅ « Notifications push indisponibles sur ce téléphone » dans Compte ; aucune demande d'autorisation ; écran des rappels du gérant adapté (« C'est compris ») |
+| Gérant sans push (compte synthétique, pile E2E isolée) | ✅ bandeau « Vos stocks sont-ils à jour ? Dernière mise à jour il y a 10 h » ; 3 rappels du worker dans la boîte de réception à l'ouverture ; une notification créée app en arrière-plan apparaît au retour au premier plan (badge 3 → 4 en moins de 5 s) |
+| Tests | ✅ Mobile 292/292 (détection de Play Services, choix du fournisseur, store de position, délais, push indisponible, rappel des 4 h, permission relue), lint, types ; CI verte |
+
+**Vérifié sur le Galaxy S10** (services Google, Android 12 ; build local contre la pile E2E isolée, puis APK `preview` 24 contre le staging) :
+
+| Vérification | Résultat |
+|---|---|
+| Fournisseur | ✅ expo-location (fused), comportement d'avant |
+| Position au lancement à froid (6 lancements) | ✅ dernière position connue en **0,1 s**, ±100 m, assez récente pour se passer d'une nouvelle mesure |
+| Position approximative (Android 12) | ✅ carte « Position approximative » ; « Activer la position précise » ouvre la demande du système (« Passer à la position exacte »), l'avertissement disparaît ensuite |
+| Recherche, itinéraire, guidage (APK 24, staging) | ✅ 10 stations, trajet OSRM, guidage sans bandeau de signal faible |
+| Push réel (Expo → FCM), app en arrière-plan | ✅ appareil enregistré (une ligne `device_tokens` pour le S10, aucune pour le Huawei connecté au même compte) ; notification `station_reported` affichée par le système (canal `reports`, présentée par la tâche des messages de données) |
+| Écran des rappels du gérant | ✅ inchangé (« C'est compris », sans le bandeau du push indisponible) |
+
+**APK des testeurs** : `preview` 24 (commit `8f93ab6`, staging), https://expo.dev/accounts/hen_ry/projects/gostation/builds/4004bc65-04d6-4ce5-b858-f3be77ce671a. Le module natif change l'empreinte (`runtimeVersion`) : les builds 21 et antérieurs ne reçoivent pas ce correctif par EAS Update, il faut installer l'APK 24.
+
+Données de test : un compte gérant synthétique sur la pile E2E isolée (base `gostation_e2e`, supprimée avec `scripts/e2e-stack.sh down`) ; base de dev non utilisée ; sur le staging, des recherches et des itinéraires sans compte (seules les statistiques anonymes par cellule H3 en gardent la trace).
+
 ## 4. Ce qui reste à faire
 
 ### Bloquant pour la mise en production
@@ -105,6 +149,18 @@ Corrigé aussi : le scénario E2E de réordonnancement au clavier, qui envoyait 
 - Écarts ASVS acceptés ou à traiter (`docs/security/asvs.md`) : sessions mobiles glissantes sans plafond, pas de poivre sur les mots de passe, pas d'antivirus sur les justificatifs, code par email de 15 min, indicateur de robustesse absent, inscription non générique.
 - Dépendances : 4 paquets Expo en retard de correctif (`expo install --check`), à monter avec un build ; `braces` et `node-forge` sans version corrigée (outillage de build, `scans.md`).
 - E7 : contrat OpenFreeMap ou tuiles auto-hébergées.
+
+### Push sur les téléphones Huawei (Push Kit, non implémenté)
+
+Sans Play Services, FCM ne fonctionne pas. Deux options : **Huawei Push Kit** (HMS, présent sur les Huawei) ou la **relecture de la boîte de réception** à l'ouverture (faite). Pour Push Kit, il faut :
+
+1. Un **compte HUAWEI ID** et l'**inscription HUAWEI Developers** avec vérification d'identité : en entreprise, licence commerciale (nom, numéro d'enregistrement, numéro fiscal) et pièce d'identité du contact accompagnée d'un justificatif bancaire valable au moins 6 mois, nom complet en caractères latins ; examen en 1 à 2 jours ouvrés. À vérifier : la vérification individuelle et la présence du Bénin dans les pays servis (pages « Service Countries/Regions », illisibles sans navigateur).
+2. Dans **AppGallery Connect** : un projet, puis une app Android `bj.gostation.app` ; l'emplacement de stockage des données si la console le demande.
+3. **Push Kit activé** pour l'app (Manage APIs, ou Grow › Push Kit › Enable now).
+4. Les **empreintes SHA-256** de chaque clé de signature : `preview` et `production` (`eas credentials`), clé de debug pour les builds locaux, et la clé d'AppGallery si l'app y est publiée avec la signature d'AppGallery. À enregistrer **avant** de télécharger le fichier suivant.
+5. Le fichier **`agconnect-services.json`**, traité comme `google-services.json` : jamais commité, variable EAS de type fichier.
+6. Pour le worker : l'**App ID** et l'**identifiant / secret client OAuth 2.0** de l'app (API serveur de Push Kit) dans `.env` (secrets).
+7. Côté code (plus tard) : dépôt Maven de Huawei, plugin Gradle `agcp` et SDK `com.huawei.hms:push` par un module natif ou un plugin de configuration (expo-notifications ne gère pas HMS ; état du plugin React Native de Huawei à vérifier) ; un `Pusher` HMS dans le worker et le fournisseur de chaque appareil. Comportement différent de FCM : un message de données n'atteint pas une app arrêtée de force (D75 à revoir pour les boutons du rappel). Nouveau service tiers : inventaire, politique de confidentialité, fiche Play, APDP.
 
 ### Plus tard
 
@@ -146,5 +202,5 @@ Corrigés depuis le 2026-10-20 : CI absente, données de test dans la base de de
 ## 8. Les 3 prochaines actions recommandées
 
 1. **Trancher Brevo** (§7, 2) avant d'inviter des testeurs extérieurs.
-2. **Bêta fermée Android** avec l'APK `preview` (build 21) auprès de quelques gérants et utilisateurs de Cotonou, en mesurant la perf sur un Android de 2 à 3 Go (D50).
+2. **Bêta fermée Android** avec l'APK `preview` (build 24, compatible avec les téléphones sans services Google) auprès de quelques gérants et utilisateurs de Cotonou, en mesurant la perf sur un Android de 2 à 3 Go (D50).
 3. **Préparer la production** : serveur, `.env.production`, zone ou noms DNS dédiés, environnement EAS `production`, réponses du juriste.
