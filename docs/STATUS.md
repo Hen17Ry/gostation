@@ -84,6 +84,8 @@ Tous corrigés sur `feat/staging`, chacun avec un test de régression qui échou
 
 Corrigé aussi : le scénario E2E de réordonnancement au clavier, qui envoyait la flèche avant que dnd-kit l'écoute.
 
+> **Note sur l'historique** : le message du commit `65d6d2d` (« fix(mobile): make the staging test crash reach GlitchTip ») est inexact. Ce commit remplace bien `Sentry.nativeCrash()` par une erreur JavaScript fatale, mais aucun rapport n'atteignait GlitchTip à ce moment-là. Le commit étant dans `main`, son message n'a pas été réécrit.
+
 ## 4. Ce qui reste à faire
 
 ### Bloquant pour la mise en production

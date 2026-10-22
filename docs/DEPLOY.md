@@ -329,7 +329,7 @@ Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts
 |---|---|
 | Serveur | VPS Wayhost, Ubuntu 24.04, 2 vCPU, 8 Go de RAM, 97 Go, swap 4 Go ; `45.93.21.86` et `2a12:a080:1:1::10b2` ; utilisateurs `ubuntu` (sudo) et `deploy` (Docker, `/srv/gostation`) |
 | Sites | `https://gostation.bj` (public, en noindex hors production), `https://api.gostation.bj`, `https://admin.gostation.bj`, `https://errors.gostation.bj` |
-| `www` | Non servi : son DNS pointe encore vers une ancienne IP (bug Wayhost). Une fois corrigé : `PUBLIC_EXTRA_HOSTS=www.gostation.bj` dans `deploy/staging.env`, puis `make deploy-staging` |
+| `www` | Non servi : son DNS pointe encore vers une ancienne IP (bug Wayhost, ticket ouvert). Procédure d'ajout : « Ajouter www » ci-dessous |
 | Configuration | `deploy/staging.env` sur le poste (600, gitignoré), copié en `.env.production` à chaque déploiement (`env-push` liste les clés modifiées, jamais les valeurs) ; `APP_ENV=staging`, `GOSTATION_EXTRA_COMPOSE=deploy/staging.compose.yml` |
 | Identification | Bandeau « Staging » dans l'admin (liseré, badge, titre d'onglet) et dans l'app (`EXPO_PUBLIC_APP_ENV=staging`), `X-Robots-Tag: noindex` et `robots.txt` fermé sur le site public, stations nommées « Station démo NNNN – ville », marques « … Démo », « Adresse fictive » |
 | Emails | Brevo (`smtp-relay.brevo.com:587`, expéditeur `noreply@gostation.bj`, SPF, DKIM et DMARC) ; les adresses de test (`example.bj`, `*.test`) partent vers le Mailpit du serveur (`SMTP_SINK_*`), jamais chez Brevo |
@@ -344,6 +344,18 @@ Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts
 - **Limite de connexions SSH**, en amont aussi : après 4 ou 5 connexions ouvertes en peu de temps, le port 22 ne répond plus pendant ~5 min (ni ufw ni fail2ban n'y sont pour rien). `scripts/staging.sh` garde une connexion maître 10 min (`ControlPersist`), que toutes ses commandes réutilisent ; pour une longue session : `ssh -fNM -o ControlPath="$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=6h deploy@45.93.21.86`.
 - **Image cloud-init** : `PasswordAuthentication yes` dans `50-cloud-init.conf`, d'où le fichier `00-gostation.conf` (§3).
 - **DNS** chez Wayhost : `@`, `api`, `admin`, `errors` en A et AAAA ; DKIM, SPF et DMARC de Brevo.
+
+### Ajouter www
+
+Seulement une fois le DNS corrigé : Caddy demande le certificat au redémarrage, et Let's Encrypt bloque un nom pendant une heure après 5 validations échouées.
+
+```bash
+dig +short www.gostation.bj A       # doit donner 45.93.21.86
+dig +short www.gostation.bj AAAA    # doit donner 2a12:a080:1:1::10b2 (ou rien, sans enregistrement AAAA)
+sed -i 's/^PUBLIC_EXTRA_HOSTS=.*/PUBLIC_EXTRA_HOSTS=www.gostation.bj/' deploy/staging.env
+make deploy-staging                 # env poussé, Caddy redémarré : certificat de www émis
+curl -sI https://www.gostation.bj/suppression-compte | grep -iE '^HTTP|^location'   # 301 vers https://gostation.bj/suppression-compte
+```
 
 ### Poste d'exploitation
 
