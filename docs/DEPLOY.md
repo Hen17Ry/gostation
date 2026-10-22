@@ -1,8 +1,8 @@
 # Déploiement — runbook
 
-> Indépendant du fournisseur : un VPS Ubuntu, un domaine, un SMTP, deux buckets S3. Tout le reste tourne dans `docker-compose.prod.yml` et se pilote par `scripts/prod.sh`. Répété de bout en bout en local le 2026-10-21 (§13). Fichiers : `docker-compose.prod.yml`, `deploy/` (Caddyfile, image du proxy, init de PostgreSQL), `.env.production.example`, `scripts/{gen-prod-secrets,prod,backup,restore}.sh`.
+> Indépendant du fournisseur : un VPS Ubuntu, un domaine, un SMTP et un espace de stockage hors du serveur pour la copie des sauvegardes (Google Drive par rclone, ou tout remote rclone). Tout le reste tourne dans `docker-compose.prod.yml` (stockage objet SeaweedFS compris) et se pilote par `scripts/prod.sh`. Répété en local le 2026-10-21 (§13), puis déployé en staging sur un VPS Wayhost le 2026-10-22 (§17). Fichiers : `docker-compose.prod.yml`, `deploy/` (Caddyfile, image du proxy, init de PostgreSQL, configuration de GlitchTip, outils du staging), `.env.production.example`, `scripts/{gen-prod-secrets,prod,backup,restore,staging,gdrive-authorize}.sh`.
 
-**Sommaire** : 1. Vue d'ensemble · 2. Prérequis · 3. Serveur · 4. Pare-feu · 5. Docker · 6. DNS et email · 7. Stockage S3 · 8. Premier déploiement · 9. Mise à jour · 10. Sauvegarde · 11. Restauration · 12. Retour arrière · 13. Répéter en local · 14. Secrets · 15. Supervision · 16. Dépannage
+**Sommaire** : 1. Vue d'ensemble · 2. Prérequis · 3. Serveur · 4. Pare-feu · 5. Docker · 6. DNS et email · 7. Stockage des fichiers · 8. Premier déploiement · 9. Mise à jour · 10. Sauvegarde · 11. Restauration · 12. Retour arrière · 13. Répéter en local · 14. Secrets · 15. Supervision · 16. Dépannage · 17. Staging (VPS Wayhost)
 
 ## 1. Vue d'ensemble
 
@@ -21,9 +21,10 @@ flowchart LR
     RDS[("Redis AOF")]
     OSRM["OSRM"]
     GT["GlitchTip"]
+    S3F[("SeaweedFS<br/>(S3, réseau interne)")]
+    RES[("Dépôt restic local")]
   end
-  S3F[("Bucket fichiers<br/>(S3)")]
-  S3B[("Bucket sauvegardes<br/>(restic)")]
+  DRV[("Copie hors du serveur<br/>(rclone : Google Drive)")]
   SMTP["SMTP"]
   APP --> CADDY
   ADM --> CADDY
@@ -33,7 +34,8 @@ flowchart LR
   API --> PG & RDS & OSRM & S3F
   WRK --> PG & RDS & S3F & SMTP
   GT --> PG
-  VPS -. "scripts/backup.sh (cron)" .-> S3B
+  VPS -. "scripts/backup.sh (cron)" .-> RES
+  RES -. "rclone sync" .-> DRV
 ```
 
 | Site | Contenu |
@@ -43,18 +45,19 @@ flowchart LR
 | `https://admin.<domaine>` | Admin web (build statique, CSP stricte de `Web/dist/csp.txt`) |
 | `https://errors.<domaine>` | GlitchTip (rapports de plantage, D90) ; l'IP des clients ne lui parvient pas |
 
-Seul Caddy publie des ports. PostgreSQL, Redis, OSRM, l'API, le worker et GlitchTip ne sont joignables que sur le réseau Docker interne (`172.31.0.0/24`, Caddy en `172.31.0.10`, seule adresse dont l'API accepte `X-Forwarded-For`).
+Seul Caddy publie des ports. PostgreSQL, Redis, OSRM, l'API, le worker et GlitchTip ne sont joignables que sur le réseau Docker interne (`172.31.0.0/24`, Caddy en `172.31.0.10`, seule adresse dont l'API accepte `X-Forwarded-For`). SeaweedFS est sur un second réseau interne (`storage`) que seuls l'API et le worker rejoignent.
 
 ## 2. Prérequis
 
 | Élément | Exigence |
 |---|---|
-| VPS | Ubuntu Server LTS (26.04 ou 24.04), **2 vCPU, 4 Go de RAM**, 40 Go SSD, IPv4 publique (IPv6 bienvenue). Localisation : à arbitrer avec le juriste (APDP, transferts hors du Bénin, D4) |
+| VPS | Ubuntu Server LTS (26.04 ou 24.04), **2 vCPU, 4 Go de RAM** (8 Go confortables), 40 Go SSD, IPv4 publique (IPv6 bienvenue). Au repos, les 9 services occupent ~700 Mo ; les builds (Go, Vite) montent à ~2,5 Go. Localisation : à arbitrer avec le juriste (APDP, transferts hors du Bénin, D4) |
 | Domaine | Un domaine dont vous gérez la zone DNS (5 enregistrements, §6) |
 | SMTP | Un service d'envoi transactionnel avec STARTTLS ou TLS (port 587 ou 465), un domaine d'envoi vérifié (SPF, DKIM, DMARC), identifiants SMTP |
-| Stockage S3 | Deux buckets privés chez un fournisseur compatible S3 : `…-files` (fichiers chiffrés de l'app) et `…-backups` (restic), chacun avec sa clé d'accès limitée à son bucket ; idéalement les sauvegardes dans une autre région ou chez un autre fournisseur |
+| Stockage des fichiers | Rien à fournir : SeaweedFS (compatible S3) tourne dans le compose. Un fournisseur S3 externe reste possible (§7) |
+| Copie des sauvegardes | Un remote rclone hors du serveur : Google Drive (accès `drive.file`, `scripts/gdrive-authorize.sh`) ou un bucket chez un autre fournisseur |
 | Expo | `EXPO_ACCESS_TOKEN` (déjà dans le `.env` de dev), accès au projet EAS `@hen_ry/gostation` |
-| Poste d'exploitation | Un coffre de mots de passe pour `DOCUMENTS_ENCRYPTION_KEY`, `RESTIC_PASSWORD` et les identifiants des buckets |
+| Poste d'exploitation | Un coffre de mots de passe pour `DOCUMENTS_ENCRYPTION_KEY`, `RESTIC_PASSWORD` et les accès au remote rclone ; `rclone` (autorisation Google Drive) |
 
 ## 3. Serveur
 
@@ -65,17 +68,30 @@ timedatectl set-timezone UTC                      # horodatages en UTC ; l'app g
 apt update && apt full-upgrade -y
 apt install -y git ufw fail2ban unattended-upgrades python3 openssl
 dpkg-reconfigure -plow unattended-upgrades        # mises à jour de sécurité automatiques
+# Redémarrage automatique à 04:00 UTC si une mise à jour du noyau l'exige
+printf 'Unattended-Upgrade::Automatic-Reboot "true";\nUnattended-Upgrade::Automatic-Reboot-Time "04:00";\n' > /etc/apt/apt.conf.d/52gostation
 adduser --disabled-password --gecos "" deploy
 mkdir -p /home/deploy/.ssh && cp ~/.ssh/authorized_keys /home/deploy/.ssh/ && chown -R deploy: /home/deploy/.ssh
-# SSH : clés seulement, pas de root
-sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/; s/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
-systemctl reload ssh
-# 2 Go de swap (marge pour les builds Node et Go)
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+# SSH : clés seulement, pas de root. sshd garde la première valeur lue : « 00- » passe avant le
+# 50-cloud-init.conf des images cloud, qui remet PasswordAuthentication yes.
+cat > /etc/ssh/sshd_config.d/00-gostation.conf <<'CONF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+X11Forwarding no
+MaxAuthTries 3
+CONF
+sshd -t && systemctl reload ssh
+# fail2ban sur SSH (nftables, journal systemd)
+printf '[DEFAULT]\nbanaction = nftables\nbanaction_allports = nftables[type=allports]\nbackend = systemd\n[sshd]\nenabled = true\n' > /etc/fail2ban/jail.d/gostation.conf
+systemctl restart fail2ban
+# Swap : 2 Go minimum, 4 Go sur un serveur de 8 Go (marge pour les builds Node et Go)
+fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
 
-Vérifier qu'une nouvelle session `ssh deploy@<ip>` fonctionne avant de fermer la session root.
+Vérifier qu'une nouvelle session `ssh deploy@<ip>` fonctionne, et que `ssh -o PubkeyAuthentication=no deploy@<ip>` est refusée, avant de fermer la session root. Avec `MaxAuthTries 3`, un client qui propose d'abord d'autres clés est coupé : sur le poste, une entrée `Host` avec `IdentityFile` et `IdentitiesOnly yes` (§17).
 
 ## 4. Pare-feu
 
@@ -117,13 +133,11 @@ Email (chez le fournisseur SMTP, pour le domaine de `SMTP_FROM`) : SPF (`TXT v=s
 
 `admin.<domaine>` et `api.<domaine>` doivent rester sous le même domaine : les cookies `SameSite=Strict` de l'admin en dépendent (D43).
 
-## 7. Stockage S3
+## 7. Stockage des fichiers
 
-1. Créer le bucket des fichiers (privé, sans site web, sans accès public) et une clé limitée à ce bucket (lecture, écriture, suppression). Le bucket ne reçoit que des fichiers déjà chiffrés par l'application (enveloppe AES-256-GCM).
-2. Créer le bucket des sauvegardes et une clé dédiée. Activer si possible le versionnage ou un verrouillage d'objets (une compromission du serveur ne doit pas pouvoir effacer l'historique) ; restic chiffre tout (AES-256) avec `RESTIC_PASSWORD`.
-3. Renseigner dans `.env.production` : `S3_ENDPOINT` (hôte sans `https://`), `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PATH_STYLE` (`true` si le fournisseur l'exige), puis `RESTIC_REPOSITORY=s3:https://<hôte>/<bucket-sauvegardes>`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` (et `BACKUP_S3_REGION` si la région n'est pas `us-east-1`).
+Par défaut, **SeaweedFS** (service `s3` du compose, compatible S3, image figée par `SEAWEEDFS_IMAGE`) : bucket `S3_BUCKET` créé au démarrage, clés `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` générées par `scripts/gen-prod-secrets.sh`, aucun accès anonyme, interface d'administration et WebDAV coupés, sur le réseau interne `storage` (API, worker et sauvegardes seulement). Il ne reçoit que des fichiers déjà chiffrés par l'application (enveloppe AES-256-GCM) ; `scripts/backup.sh` en garde un miroir dans chaque sauvegarde. Valeurs de `.env.production.example` : `S3_ENDPOINT=s3:8333`, `S3_TLS=false`, `S3_PATH_STYLE=true`.
 
-Sans S3, `STORAGE_DRIVER=local` garde les fichiers dans le volume `documents` (sauvegardé lui aussi) : acceptable pour un staging.
+**Fournisseur S3 externe** (option) : créer un bucket privé (sans site web ni accès public) et une clé limitée à ce bucket (lecture, écriture, suppression), puis renseigner `S3_ENDPOINT` (hôte sans `https://`), `S3_REGION`, `S3_BUCKET`, les clés, `S3_TLS=true` et `S3_PATH_STYLE` selon le fournisseur.
 
 ## 8. Premier déploiement
 
@@ -137,11 +151,11 @@ nano .env.production                 # remplacer chaque fill-me (domaine, SMTP, 
 scripts/prod.sh check                # refuse tant qu'il reste un fill-me ou un change-me
 ```
 
-Copier tout de suite dans le coffre de mots de passe : `DOCUMENTS_ENCRYPTION_KEY` (sans elle, les justificatifs sont perdus), `RESTIC_PASSWORD` (sans lui, les sauvegardes sont illisibles), `APP_SECRET`, les clés S3.
+Copier tout de suite dans le coffre de mots de passe : `DOCUMENTS_ENCRYPTION_KEY` (sans elle, les justificatifs sont perdus), `RESTIC_PASSWORD` (sans lui, les sauvegardes sont illisibles), `APP_SECRET`, les clés S3. Une variable ajoutée au modèle après la création du fichier : `scripts/gen-prod-secrets.sh --sync .env.production` (secret généré, rien d'autre modifié).
 
 ```bash
 scripts/prod.sh osrm-prepare         # extrait Bénin (~50 Mo) et graphe OSRM (~1 min)
-scripts/prod.sh deploy               # build api + proxy, migrations, démarrage, attente des healthchecks
+scripts/prod.sh deploy               # build api + proxy, migrations, démarrage, attente des healthchecks (~5 min sur 2 vCPU)
 scripts/prod.sh admin-create ada@<domaine> Ada Admin   # mot de passe saisi au clavier, 2FA au premier login
 ```
 
@@ -158,9 +172,11 @@ Puis se connecter à `https://admin.<domaine>` (configuration de la 2FA, 10 code
 
 **GlitchTip** (suivi des plantages, D90) :
 
-1. `scripts/prod.sh glitchtip-superuser` (email et mot de passe du premier compte ; l'inscription publique est fermée). Au tout premier démarrage, GlitchTip crée son schéma : `errors.<domaine>` répond 502 pendant une à deux minutes.
-2. Sur `https://errors.<domaine>` : créer l'organisation GoStation et trois projets, `api` (Go), `admin` (JavaScript), `mobile` (React Native) ; noter les trois DSN.
-3. Dans `.env.production` : `SENTRY_DSN` (projet api, utilisé par l'API et le worker), `VITE_SENTRY_DSN` (projet admin, figé dans le build : redéployer). `scripts/prod.sh deploy`.
+```bash
+scripts/prod.sh glitchtip-setup      # compte GLITCHTIP_ADMIN_*, organisation, équipe, projets api, admin et mobile
+```
+
+Le script (`deploy/glitchtip-setup.py`, idempotent) n'affiche que les trois DSN (`SENTRY_DSN`, `VITE_SENTRY_DSN`, `MOBILE_SENTRY_DSN`) ; les reporter dans `.env.production` (depuis le poste, pour le staging : `scripts/staging.sh glitchtip-setup` les écrit directement dans `deploy/staging.env`), puis `scripts/prod.sh deploy` (`VITE_SENTRY_DSN` est figé dans le build de l'admin et ajouté à sa CSP). L'IP des clients est anonymisée dans chaque projet ; GlitchTip n'accepte que son nom public (`ALLOWED_HOSTS`). Au tout premier démarrage, GlitchTip crée son schéma : `errors.<domaine>` répond 502 pendant une à deux minutes. Contrôle : `scripts/prod.sh errtrack-test` (un événement de l'API et un du worker) ; l'admin et l'app envoient leurs plantages directement.
 
 **App mobile** : variables EAS de l'environnement `production` (et `preview` pour le staging), puis un nouveau build :
 
@@ -168,7 +184,7 @@ Puis se connecter à `https://admin.<domaine>` (configuration de la 2FA, 10 code
 cd Mobile
 eas env:create --environment production --name EXPO_PUBLIC_API_URL --value https://api.<domaine> --visibility plaintext
 eas env:create --environment production --name EXPO_PUBLIC_SENTRY_DSN --value <DSN du projet mobile> --visibility plaintext
-eas build --profile production --platform android
+EXPO_NO_DOTENV=1 eas build --profile production --platform android
 ```
 
 **Google Play** : URL de la politique `https://<domaine>/politique-confidentialite`, URL de suppression de compte `https://<domaine>/suppression-compte`.
@@ -199,13 +215,16 @@ crontab -e
 30 1 * * * cd /srv/gostation && scripts/prod.sh backup >> /var/lib/gostation-backup/backup.log 2>&1
 ```
 
+Copie hors du serveur (`BACKUP_RCLONE_REMOTE`, par exemple `gdrive:gostation-backups/production`) : sur le poste qui a un navigateur, `scripts/gdrive-authorize.sh deploy/<env>.rclone.conf` (accès `drive.file` : rclone ne voit que le dossier qu'il crée), puis `scripts/prod.sh backup-remote-setup < deploy/<env>.rclone.conf` sur le serveur (jamais collé au clavier). Contrôle : `scripts/backup.sh remote` (taille de la copie). **rclone utilise par défaut un `client_id` Google partagé, en cours de retrait par Google en 2026** : avant la production, créer son propre client OAuth (rclone.org/drive/#making-your-own-client-id) et refaire l'autorisation.
+
 (1 h 30 UTC = 2 h 30 à Porto-Novo.) Chaque passage :
 
 1. `pg_dump -Fc` de la base GoStation ;
 2. les fichiers : miroir incrémental du bucket (rclone) ou volume local ;
 3. `.env.production` (nécessaire pour relire les fichiers) ;
-4. `restic backup` vers `RESTIC_REPOSITORY` (chiffré, dédupliqué), puis `restic forget --prune` : **7 quotidiennes, 4 hebdomadaires, 3 mensuelles** (une donnée purgée disparaît des sauvegardes 3 mois au plus après, durée indiquée dans la politique) ;
-5. `restic check` sur un septième des données (tout le dépôt chaque semaine).
+4. `restic backup` vers `RESTIC_REPOSITORY` (dépôt local du serveur, chiffré, dédupliqué), puis `restic forget --prune` : **7 quotidiennes, 4 hebdomadaires, 3 mensuelles** (une donnée purgée disparaît des sauvegardes 3 mois au plus après, durée indiquée dans la politique ; sur Google Drive, 30 jours de corbeille en plus) ;
+5. `restic check` sur un septième des données (tout le dépôt chaque semaine) ;
+6. `rclone sync` du dépôt vers `BACKUP_RCLONE_REMOTE` (déjà chiffré par restic).
 
 Non sauvegardés : Redis (sessions, files, quotas, cache : après une restauration, tout le monde se reconnecte), GlitchTip, certificats. Lister les sauvegardes : `scripts/prod.sh snapshots`. Surveiller `backup.log` (ou ajouter un ping vers un service de surveillance de tâches cron en fin de commande).
 
@@ -224,8 +243,10 @@ Le script arrête l'API et le worker, recrée la base et y restaure le dump, rem
 
 ```bash
 git clone https://github.com/Hen17Ry/gostation.git /srv/gostation && cd /srv/gostation
-# .env.production minimal, depuis le coffre : RESTIC_REPOSITORY, RESTIC_PASSWORD,
-# BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY (chmod 600)
+# .env.production minimal, depuis le coffre : RESTIC_REPOSITORY (chemin local), RESTIC_PASSWORD,
+# BACKUP_RCLONE_REMOTE (chmod 600) ; puis le rclone.conf du poste (§10)
+scripts/prod.sh backup-remote-setup < rclone.conf
+scripts/backup.sh pull                    # rapatrie la copie hors du serveur dans le dépôt local
 scripts/prod.sh restore env latest        # récupère le .env.production sauvegardé
 mv .env.production.restored .env.production
 scripts/prod.sh osrm-prepare && scripts/prod.sh deploy
@@ -240,6 +261,8 @@ Mettre à jour le DNS si l'IP a changé. Les sessions et les files d'attente rep
 scripts/prod.sh versions                  # versions construites sur ce serveur
 scripts/prod.sh rollback <version>        # api, worker et proxy sur les images de cette version
 ```
+
+La version en service est la dernière ligne de `var/releases` (écrite par `deploy` et `rollback`) : toutes les autres commandes (`restore`, `migrate`, `admin-create`, `errtrack-test`) reprennent cette version, jamais une image `latest`. Staging, depuis le poste : `make rollback-staging v=<version>` (§17).
 
 Les migrations ne sont jamais annulées automatiquement. Règle de développement : une migration doit rester compatible avec la version précédente du code (ajouter avant d'utiliser, supprimer une version plus tard). Si une version a modifié le schéma de façon incompatible : restaurer la sauvegarde prise avant le déploiement (§11) ; en lancer une juste avant tout déploiement risqué (`scripts/prod.sh backup`).
 
@@ -281,7 +304,7 @@ Répétition du 2026-10-21 : 9 services sains, seul Caddy publie des ports ; en-
 - `scripts/prod.sh ps` (healthchecks), `scripts/prod.sh logs api` (journaux JSON sans IP, position ni email, rotation 3 × 10 Mo par service).
 - GlitchTip : erreurs 5xx, panics, tâches en échec définitif, plantages de l'admin et de l'app (alertes par email à configurer dans chaque projet).
 - Espace disque : `df -h /var/lib/docker` (PostgreSQL, OSRM, images).
-- Externe (recommandé) : une sonde sur `https://api.<domaine>/healthz` toutes les minutes.
+- Externe : `.github/workflows/monitor.yml` contrôle `/readyz` et l'expiration du certificat toutes les 30 min (trois essais avant l'alerte) ; en cas d'échec, une issue `monitoring` est ouverte, commentée tant que la panne dure, puis fermée au premier contrôle réussi. URL surchargeable par la variable de dépôt `MONITOR_READYZ_URL`. Toutes les 30 et non 15 min : chaque exécution compte pour au moins une minute d'Actions (~1 440 min/mois sur un quota gratuit de 2 000 pour un dépôt privé). GitHub ne lance les tâches planifiées que depuis la branche par défaut, parfois avec du retard.
 
 ## 16. Dépannage
 
@@ -293,3 +316,97 @@ Répétition du 2026-10-21 : 9 services sains, seul Caddy publie des ports ; en-
 | Emails non reçus | `scripts/prod.sh logs worker` (code SMTP), SPF/DKIM, `SMTP_TLS` |
 | Fichiers illisibles après une restauration | `DOCUMENTS_ENCRYPTION_KEY` différente de celle de la sauvegarde : reprendre celle du `.env.production` sauvegardé |
 | GlitchTip ne reçoit rien | DSN vide ou erroné ; `errors.<domaine>` résolu ; pour l'admin, origine du DSN absente de la CSP (rebuild après avoir renseigné `VITE_SENTRY_DSN`) |
+| `ssh` expire juste après quelques commandes | Filtrage de l'hébergeur en amont (Wayhost : le port 22 se ferme quelques minutes à une IP qui ouvre des connexions en rafale). Une connexion maître (`scripts/staging.sh` la garde 10 min) ; attendre ~5 min ; `sudo fail2ban-client status sshd` pour écarter fail2ban |
+| `ssh` coupé avant le mot de passe de la clé | `MaxAuthTries 3` : le client propose d'autres clés d'abord ; `IdentitiesOnly yes` dans `~/.ssh/config` |
+| Ports 80 et 443 injoignables de l'extérieur, joignables sur le serveur | Pare-feu du panneau de l'hébergeur (en plus d'ufw) : ouvrir TCP 80, TCP 443 et UDP 443, en IPv4 et IPv6 |
+| Note mail-tester basse | Texte invisible dans un gabarit (test `TestEmailsHaveNoHiddenText`) ; pixels de suivi du fournisseur SMTP (à désactiver) |
+
+## 17. Staging (VPS Wayhost)
+
+Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts/staging.sh` et les cibles `make *-staging`. Jamais de données réelles : stations fictives, comptes de test supprimés après chaque campagne.
+
+| Élément | Valeur |
+|---|---|
+| Serveur | VPS Wayhost, Ubuntu 24.04, 2 vCPU, 8 Go de RAM, 97 Go, swap 4 Go ; `45.93.21.86` et `2a12:a080:1:1::10b2` ; utilisateurs `ubuntu` (sudo) et `deploy` (Docker, `/srv/gostation`) |
+| Sites | `https://gostation.bj` (public, en noindex hors production), `https://api.gostation.bj`, `https://admin.gostation.bj`, `https://errors.gostation.bj` |
+| `www` | Non servi : son DNS pointe encore vers une ancienne IP (bug Wayhost). Une fois corrigé : `PUBLIC_EXTRA_HOSTS=www.gostation.bj` dans `deploy/staging.env`, puis `make deploy-staging` |
+| Configuration | `deploy/staging.env` sur le poste (600, gitignoré), copié en `.env.production` à chaque déploiement (`env-push` liste les clés modifiées, jamais les valeurs) ; `APP_ENV=staging`, `GOSTATION_EXTRA_COMPOSE=deploy/staging.compose.yml` |
+| Identification | Bandeau « Staging » dans l'admin (liseré, badge, titre d'onglet) et dans l'app (`EXPO_PUBLIC_APP_ENV=staging`), `X-Robots-Tag: noindex` et `robots.txt` fermé sur le site public, stations nommées « Station démo NNNN – ville », marques « … Démo », « Adresse fictive » |
+| Emails | Brevo (`smtp-relay.brevo.com:587`, expéditeur `noreply@gostation.bj`, SPF, DKIM et DMARC) ; les adresses de test (`example.bj`, `*.test`) partent vers le Mailpit du serveur (`SMTP_SINK_*`), jamais chez Brevo |
+| Fichiers | SeaweedFS (§7) |
+| Sauvegardes | Dépôt restic local `/var/lib/gostation-backup/restic`, copié vers `gdrive:gostation-backups/staging` (Google Drive, accès `drive.file`) |
+| Suivi des plantages | GlitchTip, organisation GoStation, projets `api`, `admin`, `mobile`, environnement `staging` |
+| App | Variables EAS de `preview` : `EXPO_PUBLIC_API_URL=https://api.gostation.bj`, `EXPO_PUBLIC_APP_ENV=staging`, `EXPO_PUBLIC_SENTRY_DSN` (projet mobile), `EXPO_PUBLIC_SENTRY_ENVIRONMENT=staging`. `production` pointe aussi sur `https://api.gostation.bj` en attendant un serveur de production |
+
+### Spécificités de Wayhost
+
+- **Pare-feu du panneau**, en amont d'ufw : 80 et 443 y sont fermés par défaut. Ouvrir TCP 80, TCP 443 et UDP 443 (HTTP/3), en IPv4 et IPv6. Symptôme : les ports répondent sur le serveur, la connexion expire depuis l'extérieur.
+- **Limite de connexions SSH**, en amont aussi : après 4 ou 5 connexions ouvertes en peu de temps, le port 22 ne répond plus pendant ~5 min (ni ufw ni fail2ban n'y sont pour rien). `scripts/staging.sh` garde une connexion maître 10 min (`ControlPersist`), que toutes ses commandes réutilisent ; pour une longue session : `ssh -fNM -o ControlPath="$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=6h deploy@45.93.21.86`.
+- **Image cloud-init** : `PasswordAuthentication yes` dans `50-cloud-init.conf`, d'où le fichier `00-gostation.conf` (§3).
+- **DNS** chez Wayhost : `@`, `api`, `admin`, `errors` en A et AAAA ; DKIM, SPF et DMARC de Brevo.
+
+### Poste d'exploitation
+
+```
+# ~/.ssh/config : sans IdentitiesOnly, d'autres clés passent avant et MaxAuthTries 3 coupe la connexion
+Host gostation-staging 45.93.21.86
+  HostName 45.93.21.86
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+```
+
+Le serveur récupère le code avec une clé de déploiement GitHub en lecture seule (`~deploy/.ssh/github_deploy`, empreinte de github.com vérifiée).
+
+### Mise en place (rejouable)
+
+```bash
+scripts/gen-prod-secrets.sh deploy/staging.env      # poste : secrets générés, 600
+# remplir DOMAIN, ACME_EMAIL, APP_ENV=staging, GOSTATION_EXTRA_COMPOSE, SMTP_* (SMTP_PASSWORD collé
+# par l'exploitant), SMTP_SINK_ADDR=mailpit:1025, SMTP_SINK_DOMAINS=example.bj,test,
+# BACKUP_RCLONE_REMOTE=gdrive:gostation-backups/staging, GLITCHTIP_ADMIN_EMAIL
+scripts/gdrive-authorize.sh                         # deploy/staging.rclone.conf (navigateur)
+# serveur : §3 à §5, clé de déploiement, git clone dans /srv/gostation
+scripts/staging.sh env-push && scripts/staging.sh prod check
+scripts/staging.sh prod osrm-prepare
+scripts/staging.sh backup-remote-setup
+make deploy-staging REF=origin/main
+scripts/staging.sh prod seed                        # 5 000 stations fictives, 30 jours de stats
+scripts/staging.sh glitchtip-setup                  # DSN écrits dans deploy/staging.env
+make deploy-staging REF=origin/main                 # API, worker et admin avec leurs DSN
+scripts/staging.sh prod errtrack-test
+scripts/staging.sh prod admin-create <email> <prénom> <nom>   # terminal interactif : mot de passe au clavier
+```
+
+Crontab de `deploy` :
+
+```
+30 1 * * * cd /srv/gostation && scripts/prod.sh backup >> /var/lib/gostation-backup/backup.log 2>&1
+15 */4 * * * cd /srv/gostation && scripts/prod.sh seed -refresh >> /srv/gostation/var/seed-refresh.log 2>&1
+```
+
+Le second redonne des âges réalistes aux stocks fictifs : sans lui, ils sortent de la recherche au bout de 24 h.
+
+### Mise à jour et retour arrière
+
+```bash
+make deploy-staging                   # REF=origin/main par défaut ; REF=origin/<branche> pour essayer une branche
+scripts/staging.sh prod versions      # versions construites
+make rollback-staging v=<version>     # api, worker et proxy sur une version déjà construite
+```
+
+`deploy-staging` pousse `deploy/staging.env`, place le serveur sur `REF`, puis lance `scripts/prod.sh deploy` **détaché de la session SSH** (journal `var/deploy-<date>.log` sur le serveur, suivi depuis le poste) : une coupure réseau n'interrompt ni le build ni les migrations. Les migrations ne sont jamais annulées (§12) : avant un déploiement risqué, `scripts/staging.sh prod backup`.
+
+### Tests contre le staging
+
+| Commande | Ce qui se passe |
+|---|---|
+| `cd Web && npm run e2e:staging` | Scénarios Playwright de l'admin contre `https://admin.gostation.bj` (TLS, CSP et en-têtes réels). Fixtures et admins de test créés par SSH, puis supprimés avec leurs données (`e2e-cleanup`) |
+| `cd Mobile && npm run e2e:staging` | Parcours Maestro sur le téléphone branché (build `preview`) : tunnel SSH vers Mailpit et le pilotage (`e2e-control`), recherche, itinéraire, inscription, gérant et stocks, push réel ; comptes de test supprimés à la fin |
+| `make staging-tunnel` | Mailpit (`127.0.0.1:18025`) et pilotage des parcours (`127.0.0.1:18097`), jamais exposés sur Internet |
+
+### Avant la production
+
+- **Brevo** : désactiver le suivi des ouvertures et des clics des emails transactionnels (pixels sans `alt`, −0,5 à mail-tester ; et un traitement de données que l'inventaire ne prévoit pas).
+- **rclone** : `client_id` Google propre (§10).
+- **Suivi des plantages de l'app** : aucun rapport mobile n'atteint encore GlitchTip (`docs/STATUS.md` §3 ter) ; le plantage de test est dans Compte › Staging.
+- Un serveur et un `.env.production` distincts du staging ; l'environnement EAS `production` repointé vers l'API de production.

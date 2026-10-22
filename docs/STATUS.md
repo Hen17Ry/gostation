@@ -1,24 +1,44 @@
 # GoStation — État des lieux
 
-> Mis à jour le 2026-10-21 après l'étape 10B (sécurité, CI, stabilisation, préparation du déploiement), branche `feat/hardening` fusionnée dans `main`. Première version : 2026-10-20 sur `7e7ae97`. Chaque affirmation vient d'une commande exécutée ou d'un fichier cité ; ce qui n'a pas été vérifié est signalé (§3, fin).
+> Mis à jour le 2026-10-22 après l'étape 10C (staging sur le VPS Wayhost, build `preview` Android), branche `feat/staging` fusionnée dans `main`. Version précédente : 2026-10-21 (étape 10B). Chaque affirmation vient d'une commande exécutée ou d'un fichier cité ; ce qui n'a pas été vérifié est signalé (§3, fin).
 
 ## 1. Résumé
 
-- Le code de la V1 est complet ; l'étape 10B est faite : sécurité (E1, E6, en-têtes, CSP stricte, revue ASVS, scans), tests stables, CI GitHub Actions verte, suivi des plantages (GlitchTip), déploiement prêt et **répété de bout en bout en local** (compose de production, TLS, stockage S3, sauvegarde et restauration).
-- **Rien n'est encore déployé** : il manque un serveur, un domaine, un SMTP et deux buckets S3 (liste exacte au §7). Avec eux, le staging se monte en suivant `docs/DEPLOY.md`.
-- Juridique toujours en projet : 21 « À COMPLÉTER » (politique 12, CGU 4, registre 3, page de suppression 1, fiche Play 1), aucune formalité APDP.
-- Bêta fermée Android : possible dès le staging en ligne, `EXPO_PUBLIC_API_URL` renseigné dans EAS et un nouveau build (le SDK de suivi des plantages est natif, et aucun build ne contient encore « Mes données »).
+- **Le staging est en ligne** sur un VPS Wayhost : `https://gostation.bj`, `https://api.gostation.bj`, `https://admin.gostation.bj`, `https://errors.gostation.bj` (TLS Let's Encrypt, `APP_ENV=staging`, bandeau Staging, noindex, 5 000 stations fictives). Runbook : `docs/DEPLOY.md` §17.
+- L'étape a révélé **sept défauts** que la pile locale ne montrait pas. Six sont corrigés, dont un grave dans l'app : une **boucle d'enregistrement de l'appareil push** sur Android (jusqu'à 15 requêtes par seconde, data et batterie) ; les autres : texte invisible dans les emails (mail-tester 6,9 → 9,3/10), palette ⌘K non conforme pendant une recherche, version des images perdue après une restauration, déploiement interrompu par une coupure SSH, plantage de test inopérant. **Non résolu** : les plantages de l'app n'atteignent pas GlitchTip (§3 ter).
+- Juridique toujours en projet : 21 « À COMPLÉTER », aucune formalité APDP. Avant la production, aussi : suivi des emails chez Brevo à couper, `client_id` Google propre pour rclone, serveur de production distinct (§4).
+- Bêta fermée Android : possible avec l'APK `preview` (distribution interne EAS) contre le staging.
 
 ## 2. Étapes
 
 | # | Étape | État | Commit / branche |
 |---|---|---|---|
 | 0 à 7 | Fondations, socle, auth, stations, recherche, notifications, API admin, web admin | ✅ Faites | voir l'historique (`git log --merges`) |
-| 8 | Mobile : parcours utilisateur, gérant, push, build | 🟡 Android fait ; build `production` sans URL d'API ; iOS jamais construit | `feat/mobile`, `feat/mobile-manager`, `feat/push` |
+| 8 | Mobile : parcours utilisateur, gérant, push, build | 🟡 Android fait, APK `preview` contre le staging ; iOS jamais construit | `feat/mobile`, `feat/mobile-manager`, `feat/push`, `feat/staging` |
 | 9a | Données personnelles | ✅ Code fait ; textes en projet | `feat/privacy` → `7e7ae97` |
 | 9b | Sécurité (10B) | ✅ Faite | `feat/hardening` |
 | 9c | Tests et CI | ✅ CI verte ; perf mobile non mesurée sur la cible (D50) | `feat/hardening` |
-| 9d | Déploiement (10C) | 🟡 Prêt et répété en local ; aucun serveur | `feat/hardening` |
+| 9d | Déploiement (10C) | ✅ Staging en ligne (VPS Wayhost) ; production à monter | `feat/hardening`, `feat/staging` |
+
+## 3. Vérifié le 2026-10-22 (staging)
+
+| Vérification | Résultat |
+|---|---|
+| Serveur | ✅ Ubuntu 24.04 à jour, swap 4 Go, SSH par clé seulement (mot de passe refusé, root interdit), ufw (22, 80, 443 TCP, 443 UDP), fail2ban, mises à jour de sécurité automatiques ; Docker 29.9, Compose v5.6 |
+| DNS | ✅ `@`, `api`, `admin`, `errors` en A et AAAA vers le VPS ; `www` exclu (pointe ailleurs, bug Wayhost) ; SPF, DKIM, DMARC de Brevo |
+| Déploiement | ✅ 9 services sains, seul Caddy publie des ports (Mailpit et le pilotage des E2E sur la boucle locale) ; `make deploy-staging` validé trois fois (~5 min), détaché de la session SSH |
+| TLS | ✅ Let's Encrypt sur les 4 noms, expiration le 2027-01-19 ; HTTP redirigé (308) |
+| `/healthz`, `/readyz` | ✅ `{"status":"ok"}` ; `ready` avec postgres, redis et osrm `ok` |
+| En-têtes et CSP | ✅ HSTS, nosniff, `X-Frame-Options: DENY`, `Referrer-Policy`, CSP stricte de l'admin (origines API, GlitchTip et tuiles seulement), COOP/COEP/CORP, `X-Robots-Tag: noindex` sur les 4 sites, `robots.txt` fermé ; aucune violation de CSP dans le navigateur |
+| Recherche publique | ✅ 5 stations démo à moins de 1 km de Cotonou, trajets OSRM réels (`routingApproximate: false`) |
+| E2E Playwright de l'admin contre le staging | ✅ 20/20 (premier passage : 18/20, deux défauts corrigés, §3 ter) ; données de test supprimées (18 comptes, 6 stations, 8 fichiers) |
+| GlitchTip | ✅ un événement de l'API, du worker et de l'admin, environnement `staging`, sans utilisateur ni IP. ❌ **App mobile : aucun rapport reçu** (§3 ter, dernière ligne) ; le projet `mobile` accepte pourtant un événement au format du SDK envoyé depuis le poste |
+| Emails | ✅ inscriptions réelles envoyées par Brevo ; mail-tester **9,3/10** (6,9 avant correctif) ; réception sur Gmail : à confirmer |
+| Sauvegarde | ✅ restic local (6,3 Mio, `restic check` sans erreur) et copie Google Drive identique (6 fichiers, 6 475 518 octets) ; cron quotidien à 01:30 UTC |
+| Restauration | ✅ 9 stations supprimées après la sauvegarde, restauration en 27 s : 5 000 stations, même empreinte de la table, mêmes stocks et stats ; restauration des fichiers vérifiée en local seulement (aucun justificatif sur le staging au moment du test) |
+| Retour arrière | ✅ `make rollback-staging v=16bdbec` : api, worker et proxy sur la version demandée |
+| Surveillance | ✅ `.github/workflows/monitor.yml` essayé en local (panne détectée, certificat lu) ; première exécution planifiée après la fusion |
+| App `preview` (build 17) | ✅ APK EAS en distribution interne, bandeau Staging, API du staging ; Maestro sur Galaxy S10 (Android 12) : recherche sans compte, itinéraire, inscription, gérant de l'inscription aux stocks, **push réel reçu** (notification « Station suspendue » dans le volet) ; 2 `POST /me/devices` pour deux parcours (5 068 en 10 min avec la build 15) ; comptes de test supprimés. Recherche et itinéraire depuis la position réelle du téléphone (position simulée impossible sur un vrai appareil) |
 
 ## 3. Vérifié le 2026-10-21
 
@@ -48,23 +68,41 @@ Cause des dépassements de délai (4 relevés le 2026-10-20, jusqu'à 9 sous une
 
 Dernier recours, justifié dans la configuration : délais de 15 s par test et de 3 s par attente (au lieu de 5 s et 1 s). Les suites seules restent sous 2 s par test.
 
+### 3 ter. Défauts révélés par le staging
+
+Tous corrigés sur `feat/staging`, chacun avec un test de régression qui échoue sur l'ancien code :
+
+| Défaut | Effet | Correctif |
+|---|---|---|
+| **Boucle d'enregistrement de l'appareil push** (Android) | Lire le token réémet l'événement de token (expo-notifications) : chaque `POST /me/devices` déclenchait le suivant, jusqu'à 15 par seconde (5 068 en 10 min), plus un appel à l'API d'Expo à chaque tour ; les 5 connexions d'OkHttp occupées faisaient attendre les autres requêtes (parcours gérant en échec) | Seul un token d'appareil différent du dernier vu réenregistre (`registration.test.ts`) |
+| Plantage de test inopérant | `Sentry.nativeCrash()` intercepté par ReactHost sous la New Architecture : écran blanc, rien d'envoyé | Erreur JavaScript fatale hors de React, le cas le plus courant (`app-env.test.ts`). **Ne suffit pas** : voir la ligne suivante (le message du commit `65d6d2d` annonce à tort que le rapport arrive) |
+| ❌ **Plantages de l'app non reçus par GlitchTip** (non résolu) | Ni le plantage natif, ni l'erreur JavaScript fatale (build 17, Galaxy S10) n'ont produit d'événement, même après relance de l'app. Le SDK démarre avec le bon DSN ; son gestionnaire global est bien dans la chaîne (seul expo-router l'enveloppe) ; ReactHost détruit l'instance JavaScript 6 ms après l'erreur | Pistes : `@sentry/react-native` 8.x, dont `android/expo-handler` capte les exceptions avalées par `ExpoReactHostDelegate` (absent de 7.11, version attendue par Expo SDK 57 ; 8.31.0 l'a) ; une build `preview` avec `debug: true` pour lire les journaux du SDK ; un `captureException` non fatal pour isoler le transport |
+| Texte invisible dans les emails | Pré-en-tête masqué et liseré en `font-size:0` : `FONT_INVIS_MSGID` (−2,5), mail-tester 6,9/10 | Pré-en-tête retiré (il répétait le texte visible), liseré en bordure ; 9,3/10 (`TestEmailsHaveNoHiddenText`) |
+| Palette ⌘K pendant une recherche | Indicateur `role="status"` dans la `listbox` (axe : `aria-required-children`, critique), visible seulement avec la latence réelle | Région de statut hors de la liste, toujours montée (`command-menu.test.tsx`) |
+| Version perdue après une restauration | `restore`, `migrate`, `errtrack-test` lançaient `gostation-api:latest` (construite au passage) | `RELEASE` = version en service (`var/releases`, aussi écrit par `rollback`) |
+| Déploiement lié à la session SSH | Une coupure réseau (deux pendant l'étape) aurait interrompu un build ou une migration | `scripts/prod.sh deploy` lancé sous `nohup`, journal suivi depuis le poste |
+
+Corrigé aussi : le scénario E2E de réordonnancement au clavier, qui envoyait la flèche avant que dnd-kit l'écoute.
+
 ## 4. Ce qui reste à faire
 
 ### Bloquant pour la mise en production
 
-1. **Serveur, domaine, SMTP, stockage S3** : choisir les fournisseurs (localisation des données : avis du juriste, D4), puis `docs/DEPLOY.md`. Liste exacte au §7.
-2. **URL de l'API dans l'app** : `EXPO_PUBLIC_API_URL` (et `EXPO_PUBLIC_SENTRY_DSN`) dans l'environnement EAS `production`, puis un build.
-3. **Juridique** : identité du responsable, réponses du juriste (23 questions), 21 « À COMPLÉTER », formalités APDP F1 à F5, `PRIVACY_CONTACT_EMAIL`.
-4. **Google Play** : compte, fiche, « Sécurité des données » (mise à jour : journaux de plantage), URL `https://<domaine>/politique-confidentialite` et `https://<domaine>/suppression-compte` (pages prêtes), clé de service pour `eas submit`.
+1. **Serveur de production** distinct du staging (même runbook, `docs/DEPLOY.md` §3 à §12 ; localisation des données : avis du juriste, D4), avec son `.env.production`, son GlitchTip et sa copie de sauvegarde ; puis repointer l'environnement EAS `production` (aujourd'hui sur l'API du staging) et y ajouter `EXPO_PUBLIC_SENTRY_DSN`.
+2. **Brevo** : désactiver le suivi des ouvertures et des clics des emails transactionnels (pixels ajoutés par Brevo : traitement de données absent de l'inventaire, et −0,5 à mail-tester).
+3. **rclone** : créer un `client_id` OAuth Google propre et refaire l'autorisation (celui de rclone est retiré par Google courant 2026 : la copie Drive peut cesser du jour au lendemain).
+4. **Juridique** : identité du responsable, réponses du juriste (24 questions, dont la copie des sauvegardes sur Google Drive et Brevo), 21 « À COMPLÉTER », formalités APDP F1 à F5, `PRIVACY_CONTACT_EMAIL` (provisoirement l'adresse personnelle sur le staging).
+5. **Google Play** : compte, fiche, « Sécurité des données » (journaux de plantage), URL `https://gostation.bj/politique-confidentialite` et `https://gostation.bj/suppression-compte` (pages en ligne), clé de service pour `eas submit`.
 
 ### Important
 
-- Nouveau build Android (SDK natif de suivi des plantages, « Mes données », réacceptation) et essai sur téléphone.
+- **Suivi des plantages de l'app** (§3 ter) : diagnostiquer, probablement monter `@sentry/react-native` en 8.x (gestionnaire Expo), puis revalider le plantage de test.
 - Mesurer la perf sur un Android de 2 à 3 Go (D50) ; Lighthouse mobile de l'admin (84 et 62, cible 85).
+- `www.gostation.bj` : une fois le DNS corrigé chez Wayhost, `PUBLIC_EXTRA_HOSTS=www.gostation.bj` puis `make deploy-staging`.
+- Limiter `POST /me/devices` côté serveur (quota par session) : la boucle corrigée dans l'app aurait dû être freinée par l'API aussi.
 - Écarts ASVS acceptés ou à traiter (`docs/security/asvs.md`) : sessions mobiles glissantes sans plafond, pas de poivre sur les mots de passe, pas d'antivirus sur les justificatifs, code par email de 15 min, indicateur de robustesse absent, inscription non générique.
 - Dépendances : 4 paquets Expo en retard de correctif (`expo install --check`), à monter avec un build ; `braces` et `node-forge` sans version corrigée (outillage de build, `scans.md`).
 - E7 : contrat OpenFreeMap ou tuiles auto-hébergées.
-- Base de dev : 2 comptes admin qui ressemblent à des comptes de test (`ada.1791655991@gostation.bj`, `docker.admin.1791656110@gostation.bj`, créés le 10/10 avec les comptes `@example.bj`) : à supprimer si vous confirmez.
 
 ### Plus tard
 
@@ -86,26 +124,25 @@ Corrigés depuis le 2026-10-20 : CI absente, données de test dans la base de de
 - **Délais de test relevés** (15 s, 3 s) en dernier recours : un test vraiment lent passerait plus longtemps inaperçu ; les causes évitables sont corrigées (§3 bis).
 - **SIGSEGV de Node** observés deux fois pendant les passages concurrents (un worker Vitest, un worker Jest), sans test en cause ni trace dans le journal du noyau : runtime ou machine, à surveiller en CI.
 - **Worker en instance unique** ; **un seul serveur** (pas de haute disponibilité) : les sauvegardes et le runbook de restauration couvrent la perte du serveur.
-- **Sauvegardes** : la clé du bucket des sauvegardes est sur le serveur ; activer le verrouillage d'objets chez le fournisseur.
+- **Sauvegardes** : le jeton Google Drive est sur le serveur ; un serveur compromis pourrait effacer la copie (30 jours de corbeille Drive seulement). En production : un remote à verrouillage d'objets, ou une copie tirée depuis une autre machine.
+- **Wayhost** : pare-feu du panneau et limite de connexions SSH en amont du serveur (contournés et documentés, `docs/DEPLOY.md` §17) ; un seul VPS pour le staging.
+- **Surveillance** sur le quota gratuit d'Actions (~1 440 min/mois sur 2 000) : si le quota est épuisé, la CI et la surveillance s'arrêtent ensemble.
+- **Plantages de l'app invisibles** : en l'état, aucun plantage de l'app n'atteint GlitchTip (§3 ter). Une exception d'un module natif ou une erreur JavaScript fatale laisse un écran blanc, sans rapport. À régler avant d'ouvrir la bêta à d'autres testeurs.
 - **Maestro** : un `retry` et 5 étapes `optional: true` ; **contournements** documentés (D56, D75, D77).
 
 ## 7. Ce qui dépend de vous
 
-Pour **déployer le staging**, il me faut exactement :
-
-| # | Élément | Détail |
+| # | Action | Détail |
 |---|---|---|
-| 1 | **VPS** | Ubuntu Server LTS (26.04 ou 24.04), 2 vCPU, 4 Go de RAM, 40 Go SSD, IPv4 publique ; accès SSH par clé pour un utilisateur sudo. Localisation à valider avec le juriste |
-| 2 | **Domaine** | Le nom choisi et l'accès à sa zone DNS, pour créer 5 enregistrements A (et AAAA) vers le serveur : `<domaine>`, `www`, `api`, `admin`, `errors` ; une adresse pour Let's Encrypt (`ACME_EMAIL`) |
-| 3 | **SMTP** | Hôte, port (587 ou 465), identifiant et mot de passe, adresse d'expédition (`no-reply@<domaine>`) ; domaine d'envoi vérifié chez le fournisseur (SPF, DKIM, DMARC à ajouter au DNS) |
-| 4 | **Stockage S3** | Fournisseur compatible S3 : endpoint, région, **deux buckets privés** (fichiers ; sauvegardes, si possible avec verrouillage d'objets, idéalement ailleurs que le serveur) et **deux clés d'accès**, chacune limitée à son bucket |
-| 5 | Contact vie privée | L'adresse `PRIVACY_CONTACT_EMAIL` (affichée dans les emails et la page de suppression) |
-| 6 | EAS | Rien à fournir : je crée `EXPO_PUBLIC_API_URL` et `EXPO_PUBLIC_SENTRY_DSN` dans l'environnement EAS une fois l'URL connue |
-
-Le reste (secrets, GlitchTip, admin, sauvegardes) se génère sur le serveur (`docs/DEPLOY.md` §8). Ensuite, hors staging : juriste et APDP (§4), compte Google Play, décision iOS, téléphone de test de 2 à 3 Go.
+| 1 | **Créer ton compte admin du staging** | Dans un terminal séparé (mot de passe saisi au clavier, jamais affiché) : `cd ~/Documents/Go-Station && scripts/staging.sh prod admin-create henry.gossou17@gmail.com <Prénom> <Nom>`, puis connexion sur `https://admin.gostation.bj` (2FA, 10 codes de secours à garder) |
+| 2 | **Confirmer la réception Gmail** | L'email de vérification envoyé à `henry.gossou17+inscription@gmail.com` (expéditeur `GoStation <noreply@gostation.bj>`) : arrivé en boîte de réception ou en spam ? |
+| 3 | **Brevo** | Désactiver le suivi des ouvertures et des clics des emails transactionnels |
+| 4 | **rclone** | Créer un client OAuth Google (`rclone.org/drive/#making-your-own-client-id`), puis refaire `scripts/gdrive-authorize.sh` |
+| 5 | **Wayhost** | Corriger le DNS de `www` ; dire où se trouve physiquement le VPS (inventaire, juriste) |
+| 6 | Juriste et APDP | 24 questions (`docs/legal/questions-juriste.md`), formalités, identité du responsable |
 
 ## 8. Les 3 prochaines actions recommandées
 
-1. **Choisir l'hébergeur, le domaine, le SMTP et le stockage S3** (§7), en tenant compte de l'avis du juriste sur la localisation ; lancer en parallèle les 23 questions au juriste.
-2. **Monter le staging** avec `docs/DEPLOY.md` (environ une demi-journée), puis `EXPO_PUBLIC_API_URL` dans EAS et un build `preview` : c'est la bêta fermée Android.
-3. **Mesurer sur un Android de 2 à 3 Go** (démarrage à froid, 60 fps, RAM) avant d'ouvrir la bêta au-delà de quelques testeurs.
+1. **Suivi des plantages de l'app** (§3 ter) : sans lui, une bêta élargie serait aveugle. Monter `@sentry/react-native` en 8.x sur une branche, une build `preview`, puis le plantage de test.
+2. **Brevo et rclone** (§7, 3 et 4) : deux réglages courts qui évitent un traitement de données non prévu et une copie de sauvegarde qui s'arrêterait sans prévenir.
+3. **Bêta fermée Android** avec l'APK `preview` auprès de quelques gérants et utilisateurs de Cotonou, en mesurant en parallèle la perf sur un Android de 2 à 3 Go (D50).
