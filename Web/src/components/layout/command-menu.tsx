@@ -151,7 +151,10 @@ export default function CommandMenu({ open, onOpenChange }: { open: boolean; onO
           présente pour que les lecteurs d'écran annoncent le début de la recherche. */}
       <div
         role="status"
-        className={cn('flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground', !pending && 'sr-only')}
+        className={cn(
+          'flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground',
+          !pending && 'sr-only',
+        )}
       >
         {pending && (
           <>
