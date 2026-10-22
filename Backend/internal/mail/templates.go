@@ -54,7 +54,6 @@ func NewRenderer(loc *time.Location) (*Renderer, error) {
 
 type templateData struct {
 	Title          string
-	Preheader      string
 	FirstName      string
 	Code           string
 	ExpiresMinutes int
@@ -88,7 +87,6 @@ func (r *Renderer) render(name, to, subject string, d templateData) (Message, er
 func (r *Renderer) VerifyEmail(to, firstName, code string, ttl time.Duration) (Message, error) {
 	return r.render(tmplVerifyEmail, to, "Confirmez votre adresse email – GoStation", templateData{
 		Title:          "Confirmez votre adresse email",
-		Preheader:      fmt.Sprintf("Votre code de vérification expire dans %d minutes.", int(ttl.Minutes())),
 		FirstName:      firstName,
 		Code:           code,
 		ExpiresMinutes: int(ttl.Minutes()),
@@ -99,7 +97,6 @@ func (r *Renderer) VerifyEmail(to, firstName, code string, ttl time.Duration) (M
 func (r *Renderer) ResetPassword(to, firstName, code string, ttl time.Duration) (Message, error) {
 	return r.render(tmplResetPassword, to, "Réinitialisation de votre mot de passe – GoStation", templateData{
 		Title:          "Réinitialisation du mot de passe",
-		Preheader:      fmt.Sprintf("Votre code de réinitialisation expire dans %d minutes.", int(ttl.Minutes())),
 		FirstName:      firstName,
 		Code:           code,
 		ExpiresMinutes: int(ttl.Minutes()),
@@ -110,7 +107,6 @@ func (r *Renderer) ResetPassword(to, firstName, code string, ttl time.Duration) 
 func (r *Renderer) PasswordChanged(to, firstName string, at time.Time) (Message, error) {
 	return r.render(tmplPasswordChanged, to, "Votre mot de passe a été modifié – GoStation", templateData{
 		Title:     "Mot de passe modifié",
-		Preheader: "Le mot de passe de votre compte GoStation vient d'être modifié.",
 		FirstName: firstName,
 		When:      at.In(r.loc).Format("02/01/2006 à 15h04"),
 	})
@@ -141,7 +137,6 @@ func (r *Renderer) StationCorrected(to, firstName, stationName string, fields []
 	d := templateData{FirstName: firstName, Reason: reason, Title: "Informations corrigées", Badge: "Informations corrigées", Tone: "info"}
 	d.Lead = "L'équipe GoStation a corrigé les informations de « " + stationName + " » : " + strings.Join(fields, ", ") + "."
 	d.Next = "Vérifiez votre fiche dans l'application. Si une information est inexacte, répondez à l'équipe GoStation."
-	d.Preheader = d.Lead
 	return r.render(tmplStationStatus, to, "Informations de votre station corrigées – GoStation", d)
 }
 
@@ -195,6 +190,5 @@ func (r *Renderer) StationStatus(to, firstName, stationName string, change Stati
 	default:
 		return Message{}, fmt.Errorf("mail: unknown station status change %q", change)
 	}
-	d.Preheader = d.Lead
 	return r.render(tmplStationStatus, to, subject, d)
 }
