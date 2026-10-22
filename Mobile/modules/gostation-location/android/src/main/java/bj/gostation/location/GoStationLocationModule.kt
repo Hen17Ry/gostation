@@ -152,6 +152,7 @@ class GoStationLocationModule : Module() {
   ) : LocationListenerCompat {
     private var best: Location? = null
     private var done = false
+    private var deadline = 0L
     private val finish = Runnable { finish() }
 
     fun start() {
@@ -162,7 +163,8 @@ class GoStationLocationModule : Module() {
         requests -= this
         return promise.reject(LocationServicesDisabledException())
       }
-      main.postDelayed(finish, options.timeoutMs.toLong())
+      deadline = SystemClock.uptimeMillis() + options.timeoutMs.toLong()
+      main.postAtTime(finish, deadline)
     }
 
     override fun onLocationChanged(location: Location) {
@@ -172,8 +174,9 @@ class GoStationLocationModule : Module() {
       if (location.accuracyOrMax() <= options.goodAccuracyM) {
         finish()
       } else if (first) {
+        // Attente d'une meilleure position, sans dépasser le délai global.
         main.removeCallbacks(finish)
-        main.postDelayed(finish, options.settleMs.toLong().coerceAtMost(options.timeoutMs.toLong()))
+        main.postAtTime(finish, minOf(SystemClock.uptimeMillis() + options.settleMs.toLong(), deadline))
       }
     }
 

@@ -43,7 +43,20 @@ describe('localisation (services Google ou LocationManager)', () => {
     resolveCurrent(fix(12, 0, 6.31))
     await expect(pending).resolves.toEqual({ lat: 6.31, lng: 2.41 })
     expect(useLocation.getState()).toMatchObject({ device: { lat: 6.31 }, accuracyM: 12, locating: false })
+    // Position connue déjà affichée : on attend moins longtemps une meilleure mesure.
+    expect(mockProvider.current).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 5_000 }))
+  })
+
+  it('sans position connue : délai complet de 15 s (GPS qui cherche le signal)', async () => {
+    mockProvider.current.mockResolvedValue(fix(12))
+    await useLocation.getState().locate()
     expect(mockProvider.current).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 15_000 }))
+  })
+
+  it('position mesurée il y a moins de 15 s : reprise telle quelle, même peu précise', async () => {
+    mockProvider.lastKnown.mockResolvedValue(fix(240, 5_000))
+    await expect(useLocation.getState().locate()).resolves.toEqual({ lat: 6.36, lng: 2.41 })
+    expect(mockProvider.current).not.toHaveBeenCalled()
   })
 
   it('dernière position récente et précise : pas de nouvelle mesure', async () => {

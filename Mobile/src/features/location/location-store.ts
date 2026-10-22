@@ -18,12 +18,22 @@ export type LocateFailure = 'off' | 'timeout'
 
 /** Dernière position connue montrée tout de suite si elle a moins de 5 min. */
 export const KNOWN_MAX_AGE_MS = 5 * 60_000
-/** Elle suffit, sans nouvelle mesure, si elle a moins d'une minute et ±100 m au plus. */
+/**
+ * Elle suffit, sans nouvelle mesure, si elle a moins d'une minute et ±100 m au plus, ou moins de
+ * 15 s quelle que soit sa précision (mesure qui vient d'être faite : en intérieur sans services
+ * Google, le réseau ne fait pas mieux, et le refaire coûterait jusqu'au délai).
+ */
 const KNOWN_FRESH_MS = 60_000
+const KNOWN_JUST_MEASURED_MS = 15_000
 /** Au-delà de ±100 m, la précision est signalée à l'utilisateur. */
 export const LOW_ACCURACY_M = 100
 /** Délai d'une mesure (GPS qui cherche encore le signal) avant le message et le choix sur la carte. */
 export const LOCATE_TIMEOUT_MS = 15_000
+/**
+ * Délai réduit quand une dernière position connue est déjà affichée : elle sert si rien de mieux
+ * n'arrive (le réseau de Huawei met parfois plus de 10 s à répondre de nouveau).
+ */
+export const REFINE_TIMEOUT_MS = 5_000
 const GOOD_ACCURACY_M = 50
 const SETTLE_MS = 3_000
 
@@ -58,7 +68,9 @@ const point = (f: Fix): LatLng => ({ lat: f.lat, lng: f.lng })
 
 /** Position utilisable sans nouvelle mesure : récente et précise. */
 export function isFreshEnough(f: Fix, now: number): boolean {
-  return now - f.at <= KNOWN_FRESH_MS && f.accuracyM !== null && f.accuracyM <= LOW_ACCURACY_M
+  const age = now - f.at
+  if (age <= KNOWN_JUST_MEASURED_MS) return true
+  return age <= KNOWN_FRESH_MS && f.accuracyM !== null && f.accuracyM <= LOW_ACCURACY_M
 }
 
 let inflight: Promise<LatLng | null> | null = null
@@ -96,9 +108,10 @@ export const useLocation = create<LocationState>((set, get) => ({
 
   /**
    * Position actuelle. La dernière position connue (< 5 min) est montrée tout de suite (`device`),
-   * puis affinée par une mesure (GPS et réseau) ; elle suffit seule si elle a moins d'une minute et
-   * ±100 m au plus. Pas de mesure au bout de 15 s : la dernière position connue sert, sinon
-   * `failure` (message, choix sur la carte). Un seul appel à la fois : les suivants l'attendent.
+   * puis affinée par une mesure (GPS et réseau) ; elle suffit seule si elle est assez récente
+   * (`isFreshEnough`). Pas de mesure au bout de 5 s (15 s sans position connue) : la dernière
+   * position connue sert, sinon `failure` (message, choix sur la carte). Un seul appel à la fois :
+   * les suivants l'attendent.
    */
   locate(opts?: { interactive?: boolean }) {
     if (get().permission !== 'granted') return Promise.resolve(null)
@@ -118,7 +131,7 @@ export const useLocation = create<LocationState>((set, get) => ({
           return point(known)
         }
         const fix = await provider.current({
-          timeoutMs: LOCATE_TIMEOUT_MS,
+          timeoutMs: known ? REFINE_TIMEOUT_MS : LOCATE_TIMEOUT_MS,
           goodAccuracyM: GOOD_ACCURACY_M,
           settleMs: SETTLE_MS,
           interactive: opts?.interactive,
@@ -158,7 +171,7 @@ export async function readPositionOnce(): Promise<LatLng | null> {
   const known = await provider.lastKnown(KNOWN_MAX_AGE_MS)
   if (known && isFreshEnough(known, Date.now())) return point(known)
   const fix = await provider.current({
-    timeoutMs: LOCATE_TIMEOUT_MS,
+    timeoutMs: known ? REFINE_TIMEOUT_MS : LOCATE_TIMEOUT_MS,
     goodAccuracyM: GOOD_ACCURACY_M,
     settleMs: SETTLE_MS,
     interactive: true,
