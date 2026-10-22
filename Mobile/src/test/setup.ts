@@ -47,6 +47,7 @@ jest.mock('@sentry/react-native', () => ({
   init: jest.fn(),
   setUser: jest.fn(),
   captureException: jest.fn(),
+  captureMessage: jest.fn(),
 }))
 
 jest.mock('expo-speech', () => ({ speak: jest.fn(), stop: jest.fn(async () => undefined) }))
