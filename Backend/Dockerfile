@@ -2,7 +2,7 @@
 # Image de l'API GoStation (et du worker : entrypoint /app/worker) : build cgo (h3-go) sur Debian
 # trixie, exécution distroless (glibc, sans shell) sous l'utilisateur non-root 65532.
 
-ARG GO_VERSION=1.27.2
+ARG GO_VERSION=1.27.3
 
 FROM golang:${GO_VERSION}-trixie AS build
 WORKDIR /src
