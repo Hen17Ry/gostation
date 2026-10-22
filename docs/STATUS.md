@@ -136,7 +136,7 @@ Corrigés depuis le 2026-10-20 : CI absente, données de test dans la base de de
 
 | # | Action | Détail |
 |---|---|---|
-| 1 | **Wayhost** | Donner la localisation du VPS ; supprimer l'ancienne zone gostation.bj de leurs serveurs (elle accepte les transferts de zone publics) |
+| 1 | **Wayhost** | Donner la localisation du VPS ; supprimer l'ancienne zone gostation.bj de leurs serveurs **après le 2026-10-24** (le `.bj` publiait l'ancienne délégation avec 24 h de cache : certains résolveurs, dont celui de la box du téléphone de test, l'interrogent encore ; elle accepte en outre les transferts de zone publics). D'ici là, le téléphone de test garde le DNS privé `dns.google` |
 | 2 | **Brevo** | Demander au support la désactivation du suivi des ouvertures et des clics du compte, sinon choisir un autre fournisseur (Mailjet le coupe par message) |
 | 3 | **Google Drive** | Supprimer le dossier `gostation-backups-ancien` ; retirer l'accès de l'ancienne application « rclone » (myaccount.google.com/permissions) ; supprimer `deploy/staging-old.rclone.conf` |
 | 4 | **Compte admin du staging** | Si ce n'est pas fait : `scripts/staging.sh prod admin-create henry.gossou17@gmail.com <Prénom> <Nom>` dans un terminal séparé |
