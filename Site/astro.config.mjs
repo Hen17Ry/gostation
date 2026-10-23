@@ -16,6 +16,10 @@ export default defineConfig({
   server: { host: '127.0.0.1', port: 4321 },
   vite: {
     plugins: [tailwindcss()],
+    // Un seul tsconfig pour tout ce qui est transformé, y compris l'analyseur des textes légaux
+    // importé de Mobile/ (dont le tsconfig étend expo/tsconfig.base, absent sans les dépendances
+    // de l'app, en CI et dans l'image du proxy).
+    tsconfig: './tsconfig.json',
     // Rien en data: (CSP stricte) : polices et scripts en fichiers.
     build: { assetsInlineLimit: 0 },
     // Sources hors du site : textes légaux (docs/legal), analyseur de l'app, tokens du web.
