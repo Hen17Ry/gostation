@@ -7,7 +7,7 @@ async function scrollToScene(page: import('@playwright/test').Page, scene: strin
   await page.evaluate(
     ([scene, fraction]) => {
       const el = document.querySelector(`[data-scene="${scene}"]`)!
-      const spacer = el.closest('.pin-spacer') ?? el
+      const spacer = el.closest('[data-pin]') ?? el
       const top = spacer.getBoundingClientRect().top + scrollY
       const length = Math.max(innerHeight, (spacer as HTMLElement).offsetHeight - innerHeight)
       window.scrollTo(0, top + Number(fraction) * length)
@@ -83,5 +83,35 @@ test.describe('Le parcours', () => {
       const results = await axe(scene)
       expect(results.violations.map((v) => `${scene} ${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`)).toEqual([])
     }
+  })
+  test('scènes créées à l’approche, détruites au loin, sans bouger la mise en page', async ({ page }) => {
+    test.setTimeout(90_000)
+    await page.goto('/?mode=lite')
+    await page.waitForTimeout(3000)
+    // Une scène épinglée existe quand ScrollTrigger a posé ses styles sur son enveloppe.
+    const live = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('[data-pin]')]
+          .filter((w) => w.style.length)
+          .map((w) => w.dataset.pin),
+      )
+    const height = () => page.evaluate(() => document.documentElement.scrollHeight)
+    const start = await height()
+    expect(await live()).toEqual(['opening', 'problem'])
+
+    await scrollToScene(page, 'managers', 0.5)
+    let now = await live()
+    expect(now).toContain('managers')
+    expect(now).not.toContain('problem')
+    // À un pixel près : arrondi de l'espace réservé (hauteur de fenêtre fractionnaire sur mobile).
+    expect(Math.abs((await height()) - start)).toBeLessThanOrEqual(1)
+    await expect(page.locator('[data-phone-body]')).toBeVisible()
+
+    await scrollToScene(page, 'opening', 0)
+    now = await live()
+    expect(now).toEqual(expect.arrayContaining(['opening', 'problem']))
+    expect(now).not.toContain('managers')
+    // À un pixel près : arrondi de l'espace réservé (hauteur de fenêtre fractionnaire sur mobile).
+    expect(Math.abs((await height()) - start)).toBeLessThanOrEqual(1)
   })
 })

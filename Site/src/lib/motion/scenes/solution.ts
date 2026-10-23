@@ -35,7 +35,7 @@ export function solution(rigs: Rigs, mm: gsap.MatchMedia) {
 
   mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
     const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, (p) => phone.setScreen(screenAt(p)))
+    const tl = pinned(section, (p) => phone.setScreen(screenAt(p), 1, p))
 
     // Le téléphone entre en pivotant (par la droite sur ordinateur, par le bas sur mobile).
     tl.fromTo(

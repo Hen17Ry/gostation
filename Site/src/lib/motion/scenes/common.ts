@@ -13,8 +13,8 @@ export const pinScreens = (section: HTMLElement) => {
 
 /**
  * Timeline d'une scène épinglée, de durée 1 (positions en fraction du passage) : épinglée sur un
- * écran, liée au défilement avec un léger amorti. onUpdate pilote souvent un objet partagé (écran
- * du téléphone) : au rafraîchissement, seule la scène en cours l'applique.
+ * écran, liée au défilement avec un léger amorti. onUpdate reçoit l'avancement aussi au
+ * rafraîchissement ; un objet partagé (écran du téléphone) départage lui-même les scènes.
  */
 export function pinned(section: HTMLElement, onUpdate?: (progress: number) => void) {
   const tl = gsap.timeline({
@@ -27,7 +27,7 @@ export function pinned(section: HTMLElement, onUpdate?: (progress: number) => vo
       pinSpacer: spacerOf(section),
       scrub: 0.9,
       onUpdate: onUpdate && ((self) => onUpdate(self.progress)),
-      onRefresh: onUpdate && ((self) => self.isActive && onUpdate(self.progress)),
+      onRefresh: onUpdate && ((self) => onUpdate(self.progress)),
     },
   })
   return invalidateOnResize(tl)

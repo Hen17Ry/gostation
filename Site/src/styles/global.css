@@ -241,6 +241,12 @@ html.lenis body {
 html.js:not([data-motion='reduced']) [data-pin] {
   padding-bottom: calc(var(--pin-screens) * var(--pin-vh, 100vh));
 }
+/* Pas d'ancrage du défilement : en épinglant, ScrollTrigger annule un instant l'espace réservé ; le
+   navigateur décalerait alors la position (scène créée au-dessus de l'écran après un saut). */
+html.js:not([data-motion='reduced']),
+html.js:not([data-motion='reduced']) body {
+  overflow-anchor: none;
+}
 
 /* ── Scènes (storyboard §2) ─────────────────────────────────────────────────────────────────── */
 @layer components {
