@@ -9,6 +9,10 @@ on:
       - "Site/**"
       - "Web/src/styles/globals.css"
       - "Web/src/lib/color.ts"
+      - "Mobile/scripts/gen-map-styles.mts"
+      - "Mobile/src/features/legal/markdown.ts"
+      - "docs/legal/**"
+      - "deploy/Caddyfile"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
