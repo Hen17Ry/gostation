@@ -11,7 +11,8 @@ test.describe('Ouverture', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveAccessibleName(
       "Le gaz, l'essence, le gasoil. Là où il y en a.",
     )
-    await expect(page.locator('[data-band]')).toBeInViewport()
+    // Sans GPU (CI), SwiftShader compile les shaders sur le fil principal : l'intro peut prendre du retard.
+    await expect(page.locator('[data-band]')).toBeInViewport({ timeout: 12_000 })
     // Après le remplissage : la 3D tourne, ou le site est passé en léger (WebGL lent ou absent).
     await expect
       .poll(
