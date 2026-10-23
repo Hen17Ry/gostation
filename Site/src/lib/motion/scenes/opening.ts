@@ -7,8 +7,9 @@
  */
 import { FRAME, SVG_SCALE, TILT } from '../../bottle'
 import { backdrop } from '../backdrop'
-import { gsap, ScrollTrigger, SplitText, type Motion } from '../engine'
+import { gsap, invalidateOnResize, ScrollTrigger, type Motion } from '../engine'
 import { marquee } from '../marquee'
+import { spacerOf } from './common'
 
 type Bottle3D = import('../../webgl/opening-bottle').OpeningBottle
 
@@ -23,8 +24,6 @@ export function opening(motion: Motion) {
   const qa = <T extends Element = SVGPathElement>(sel: string) => [...section.querySelectorAll<T>(sel)]
 
   const copy = q('[data-opening-copy]')!
-  const title = q('[data-opening-title]')!
-  const enter = qa<HTMLElement>('[data-opening-enter]')
   const art = q('[data-bottle-art]')!
   const stageEl = q('[data-bottle-stage]')!
   const sketch = q<SVGSVGElement>('[data-bottle-sketch]')!
@@ -48,19 +47,8 @@ export function opening(motion: Motion) {
   gsap.set(solid, { autoAlpha: motion.mode === 'lite' ? 1 : 0 })
   // y: 0 efface la translation du CSS d'avant le script (GSAP l'ajouterait au yPercent).
   gsap.set(band, { y: 0, yPercent: 101 })
-  gsap.set(enter, { autoAlpha: 0, y: 18 })
-
-  SplitText.create(title, {
-    type: 'lines',
-    mask: 'lines',
-    linesClass: 'title-line',
-    autoSplit: true,
-    onSplit: (self) => {
-      // « inherit » : le titre disparaît avec le bloc (opacité et visibilité), même pour les clics.
-      gsap.set(title, { visibility: 'inherit' })
-      return gsap.from(self.lines, { yPercent: 108, duration: 1, stagger: 0.09, ease: 'expo.out', delay: 0.4 })
-    },
-  })
+  // Le titre, le chapeau et les actions sont visibles dès le premier rendu (le titre est le LCP) :
+  // seuls le croquis, la bouteille et le bandeau font leur entrée.
   document.documentElement.classList.add('motion-ready')
 
   // ── Remplissage : une seule valeur pilote la 3D, le masque du croquis et la découpe 2D ─────
@@ -176,7 +164,6 @@ export function opening(motion: Motion) {
     .to(outline, { drawSVG: '100%', duration: 1, stagger: 0.14, ease: 'power2.inOut' }, 0.25)
     .to(detail, { drawSVG: '100%', duration: 0.55, stagger: 0.06, ease: 'power1.inOut' }, 0.85)
     .to(notes, { autoAlpha: 1, duration: 0.35, stagger: 0.12 }, 1.15)
-    .to(enter, { autoAlpha: 1, y: 0, duration: 0.7, stagger: 0.08, ease: 'expo.out' }, 0.75)
     .to(band, { yPercent: 0, duration: 0.9, ease: 'expo.out' }, 0.7)
 
   const fillTo = (duration: number) =>
@@ -224,8 +211,8 @@ export function opening(motion: Motion) {
         start: 'top top',
         end: () => `+=${window.innerHeight * (mobile ? 0.8 : 1)}`,
         pin: true,
+        pinSpacer: spacerOf(section),
         scrub: 0.8,
-        invalidateOnRefresh: true,
         onRefresh: () => {
           measure()
           apply()
@@ -239,6 +226,7 @@ export function opening(motion: Motion) {
         },
       },
     })
+    invalidateOnResize(scroll)
     pinTrigger = scroll.scrollTrigger ?? null
 
     scroll

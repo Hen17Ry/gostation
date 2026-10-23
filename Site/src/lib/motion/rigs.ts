@@ -10,7 +10,8 @@
 import { createScreenCanvas, loadMap, paint, screenKey, type Screen } from '../phone/painter'
 import type { PhoneModel } from '../webgl/phone-model'
 import type { Layer, Stage } from '../webgl/stage'
-import { gsap, type Motion } from './engine'
+import type { Motion } from './engine'
+import { setAlpha, setTransform, setVisibility } from './style'
 
 export type Pose = { x: number; y: number; scale: number; rotY: number; rotX: number; opacity: number }
 export const pose = (p: Partial<Pose> = {}): Pose => ({ x: 0, y: 0, scale: 1, rotY: 0, rotX: 0, opacity: 1, ...p })
@@ -61,7 +62,7 @@ export class PhoneRig {
   attach3D(three: Phone3D) {
     if (this.motion.mode !== 'full') return
     this.three = three
-    gsap.set(this.body, { visibility: 'hidden' })
+    setVisibility(this.body, 'hidden')
     this.key = ''
     this.repaint()
     this.apply()
@@ -72,7 +73,7 @@ export class PhoneRig {
       this.three.stage.show(this.three.layer, false)
       this.three = null
     }
-    gsap.set(this.body, { visibility: 'visible' })
+    setVisibility(this.body, 'visible')
     this.key = ''
     this.repaint()
     this.apply()
@@ -120,14 +121,8 @@ export class PhoneRig {
       stage.invalidate()
       return
     }
-    gsap.set(this.body, {
-      x: p.x,
-      y: p.y,
-      scale: p.scale,
-      rotationY: p.rotY,
-      rotationX: p.rotX,
-      autoAlpha: p.opacity,
-    })
+    setTransform(this.body, p.x, p.y, p.scale, p.rotY, p.rotX)
+    setAlpha(this.body, p.opacity)
   }
 }
 
@@ -139,8 +134,8 @@ export class CityRig {
 
   apply = () => {
     const p = compose([this.poses.in, this.poses.cam, this.poses.out])
-    gsap.set(this.layer, { autoAlpha: p.opacity })
-    gsap.set(this.map, { x: p.x, y: p.y, scale: p.scale })
+    setAlpha(this.layer, p.opacity)
+    setTransform(this.map, p.x, p.y, p.scale)
   }
 
   /** Point de la carte (unités) → point de l'écran, carte au repos (object-fit: cover). */
@@ -160,7 +155,7 @@ export class EarthRig {
 
   attach3D(globe: { stage: Stage; layer: Layer; root: import('three').Group }) {
     this.globe = globe
-    gsap.set(this.svg, { visibility: 'hidden' })
+    setVisibility(this.svg, 'hidden')
     this.apply()
   }
 
@@ -168,7 +163,7 @@ export class EarthRig {
     if (!this.globe) return
     this.globe.stage.show(this.globe.layer, false)
     this.globe = null
-    gsap.set(this.svg, { visibility: 'visible' })
+    setVisibility(this.svg, 'visible')
     this.apply()
   }
 
@@ -186,7 +181,8 @@ export class EarthRig {
       stage.invalidate()
       return
     }
-    gsap.set(this.svg, { x: p.x, y: p.y, scale: p.scale, autoAlpha: p.opacity, transformOrigin: '50% 50%' })
+    setTransform(this.svg, p.x, p.y, p.scale)
+    setAlpha(this.svg, p.opacity)
   }
 }
 

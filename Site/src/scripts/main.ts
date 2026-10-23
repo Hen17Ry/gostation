@@ -6,6 +6,7 @@
 import { currentMode } from '@/lib/mode'
 import { backdrop } from '@/lib/motion/backdrop'
 import { gsap, ScrollTrigger, startEngine } from '@/lib/motion/engine'
+import { hasHardwareGpu } from '@/lib/motion/gpu'
 import { headerTone } from '@/lib/motion/header-tone'
 import { createRigs, load3D } from '@/lib/motion/rigs'
 import { companies } from '@/lib/motion/scenes/companies'
@@ -18,8 +19,20 @@ import { solution } from '@/lib/motion/scenes/solution'
 
 headerTone()
 
-const mode = currentMode()
-if (mode !== 'reduced') {
+const initial = currentMode()
+// Le moteur démarre après le premier rendu complet : le titre (le LCP) ne l'attend pas, et le CSS
+// d'avant le script donne déjà l'état de départ (croquis, bouteille et téléphone masqués, bandeau
+// en bas).
+if (initial !== 'reduced') requestAnimationFrame(() => setTimeout(() => animate(initial)))
+
+function animate(requested: Exclude<typeof initial, 'reduced'>) {
+  let mode = requested
+  // Sans processeur graphique, la 3D bloquerait le fil principal : version légère d'emblée.
+  if (mode === 'full' && !/[?&]mode=full\b/.test(location.search) && !hasHardwareGpu()) {
+    mode = 'lite'
+    document.documentElement.dataset.motion = 'lite'
+    document.documentElement.dataset.degraded = 'gpu'
+  }
   const motion = startEngine(mode)
   const rigs = createRigs(motion)
   backdrop.apply()
@@ -28,13 +41,24 @@ if (mode !== 'reduced') {
   rigs.earth.apply()
 
   opening(motion)
+
+  // Scènes 2 à 8 : créées dans l'ordre de la page (les épinglages se calculent ainsi), d'un seul
+  // tenant juste après le premier affichage (le titre n'attend pas, l'intro n'a pas commencé),
+  // puis un seul rafraîchissement de ScrollTrigger, aussitôt : il rend sans objet les mesures que
+  // chaque déclencheur de timeline reporte d'une image et celui que chaque épinglage programme
+  // (une à une, chaque scène en coûterait un, plus cher que le précédent).
   const mm = gsap.matchMedia()
-  problem(rigs, mm)
-  solution(rigs, mm)
-  route(rigs, mm)
-  managers(rigs, mm)
-  companies(rigs)
-  final(rigs, mm)
+  requestAnimationFrame(() =>
+    setTimeout(() => {
+      problem(rigs, mm)
+      solution(rigs, mm)
+      route(rigs, mm)
+      managers(rigs, mm)
+      companies(rigs)
+      final(rigs, mm)
+      ScrollTrigger.refresh()
+    }),
+  )
 
   // Ressources des scènes suivantes, chargées à leur approche (données mobiles chères) ou quand le
   // navigateur est libre : la ville et la 3D à l'approche de la scène 2, l'espace à la scène 6.

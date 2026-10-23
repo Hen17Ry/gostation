@@ -3,10 +3,10 @@
  * routes, OSRM) se dessine et un zémidjan le suit au rythme du défilement ; le téléphone guide
  * étape par étape ; à l'arrivée, l'épingle pulse et le badge « mis à jour il y a 12 min » se pose.
  */
-import { city as data } from '../../city'
+import { city as data, fractionsOnPolyline, pathCenter } from '../../city'
 import { NAV_STEPS, type Screen } from '../../phone/painter'
 import type { Rigs } from '../rigs'
-import { end, fractionsAlong, local, pinned, steps } from './common'
+import { end, local, pinned, steps } from './common'
 
 const DRAW = { from: 0.14, length: 0.7 }
 
@@ -27,8 +27,8 @@ export function route(rigs: Rigs, mm: gsap.MatchMedia) {
   const { phone, city } = rigs
 
   // Manœuvres le long du tracé : l'écran du téléphone passe à la suivante quand le zémidjan y arrive.
-  const marks = fractionsAlong(
-    line,
+  const marks = fractionsOnPolyline(
+    data.route.d,
     NAV_STEPS.map((s) => s.at),
   )
   const screenAt = (p: number): Screen => {
@@ -42,8 +42,7 @@ export function route(rigs: Rigs, mm: gsap.MatchMedia) {
   }
 
   // Cadrage : le centre du trajet vient en `focus` (fraction de l'écran), agrandi `zoom` fois.
-  const box = line.getBBox()
-  const center = [box.x + box.width / 2, box.y + box.height / 2] as const
+  const center = pathCenter(data.route.d)
   const camera = (focus: readonly [number, number], zoom: number) => {
     const [px, py] = city.toScreen(center, { width: data.width, height: data.height })
     const cx = window.innerWidth / 2

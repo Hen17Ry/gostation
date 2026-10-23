@@ -4,7 +4,7 @@
  * réseau et l'aperçu du panneau entrent.
  */
 import { backdrop } from '../backdrop'
-import { gsap } from '../engine'
+import { gsap, invalidateOnResize } from '../engine'
 import type { Rigs } from '../rigs'
 
 export function companies(rigs: Rigs) {
@@ -12,11 +12,12 @@ export function companies(rigs: Rigs) {
   if (!section) return
   const { phone } = rigs
 
-  gsap
-    .timeline({
+  invalidateOnResize(
+    gsap.timeline({
       defaults: { ease: 'none' },
       scrollTrigger: { trigger: section, start: 'top bottom', end: 'top 30%', scrub: 0.6 },
-    })
+    }),
+  )
     .fromTo(backdrop.w, { darkOut: 1 }, { darkOut: 0, duration: 1, onUpdate: backdrop.apply }, 0)
     .fromTo(
       phone.poses.out,
@@ -25,15 +26,19 @@ export function companies(rigs: Rigs) {
       0,
     )
 
+  // Déclencheurs portés par des timelines, pas par des tweens : ScrollTrigger reporte alors leur
+  // mesure au rafraîchissement unique qui suit la création des scènes (main.ts), au lieu d'une
+  // mise en page forcée par déclencheur.
+  const entering = (trigger: Element, start: string) =>
+    gsap.timeline({ scrollTrigger: { trigger, start, toggleActions: 'play none none reverse' } })
   const reveal = (targets: gsap.TweenTarget, vars: gsap.TweenVars, trigger: Element) =>
-    gsap.from(targets, {
+    entering(trigger, 'top 78%').from(targets, {
       autoAlpha: 0,
       y: 28,
       duration: 0.7,
       ease: 'expo.out',
       stagger: 0.08,
       ...vars,
-      scrollTrigger: { trigger, start: 'top 78%', toggleActions: 'play none none reverse' },
     })
 
   const copy = section.querySelector('[data-companies-copy]')
@@ -41,25 +46,23 @@ export function companies(rigs: Rigs) {
   const network = section.querySelector('[data-network]')
   if (network) {
     reveal(network, {}, network)
-    gsap.from(network.querySelectorAll('[data-net-station]'), {
+    entering(network, 'top 70%').from(network.querySelectorAll('[data-net-station]'), {
       autoAlpha: 0,
       scale: 0.3,
       transformOrigin: '50% 50%',
       duration: 0.5,
       ease: 'back.out(2)',
       stagger: 0.07,
-      scrollTrigger: { trigger: network, start: 'top 70%', toggleActions: 'play none none reverse' },
     })
   }
   const dashboard = section.querySelector('[data-dashboard]')
   if (dashboard) {
     reveal(dashboard, { delay: 0.1 }, dashboard)
-    gsap.from(dashboard.querySelectorAll('[data-bar]'), {
+    entering(dashboard, 'top 75%').from(dashboard.querySelectorAll('[data-bar]'), {
       scaleX: 0,
       duration: 0.9,
       ease: 'expo.out',
       stagger: 0.08,
-      scrollTrigger: { trigger: dashboard, start: 'top 75%', toggleActions: 'play none none reverse' },
     })
   }
 }

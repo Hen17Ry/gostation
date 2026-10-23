@@ -9,13 +9,13 @@ import Marquee from '../Marquee.astro'
 
 <section id="ouverture" class="opening" aria-labelledby="ouverture-titre" data-scene="opening" data-theme="page">
   <div class="opening-copy" data-opening-copy>
-    <h1 id="ouverture-titre" class="opening-title reveal-fallback" data-opening-title>
+    <h1 id="ouverture-titre" class="opening-title" data-opening-title>
       <span class="title-a">Le gaz, l'essence, le gasoil.</span> <span class="title-b">Là où il y en a.</span>
     </h1>
-    <p class="opening-lede reveal-fallback" data-opening-enter>
+    <p class="opening-lede">
       GoStation vous montre la station la plus proche qui a votre produit en stock, puis vous y guide.
     </p>
-    <div class="opening-actions reveal-fallback" data-opening-enter>
+    <div class="opening-actions">
       <a class="btn btn-primary btn-lg" href={downloadHref} data-download>
         <Icon name="download" />
         <span>Télécharger l'app</span>
@@ -25,9 +25,7 @@ import Marquee from '../Marquee.astro'
         <Icon name="arrow-down" />
       </a>
     </div>
-    <p class="opening-note reveal-fallback" data-opening-enter>
-      Android · gratuit
-    </p>
+    <p class="opening-note">Android · gratuit</p>
   </div>
 
   <Bottle />
@@ -89,11 +87,6 @@ import Marquee from '../Marquee.astro'
       color: var(--color-brand-500);
     }
   }
-  /* SplitText : chaque ligne glisse dans son masque. */
-  .opening-title :global(.title-line) {
-    padding-bottom: 0.06em;
-  }
-
   .opening-lede {
     max-width: 30rem;
     margin: 1.5rem 0 0;
@@ -141,13 +134,7 @@ import Marquee from '../Marquee.astro'
     );
   }
 
-  /* Avant le script (modes animés) : titre et entrées masqués, bandeau sous l'écran. */
-  :global(html.js:not([data-motion='reduced'])) .opening-title {
-    visibility: hidden;
-  }
-  :global(html.js:not([data-motion='reduced'])) [data-opening-enter] {
-    opacity: 0;
-  }
+  /* Avant le script (modes animés) : le bandeau attend sous l'écran son entrée. */
   :global(html.js:not([data-motion='reduced'])) .opening :global([data-band]) {
     transform: translateY(101%);
   }

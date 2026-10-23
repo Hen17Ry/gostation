@@ -56,6 +56,10 @@ import Space from './Space.astro'
     opacity: 1;
     visibility: visible;
   }
+  /* Avant le script (modes animés) : le téléphone attend son entrée (scène 3), le moteur le révèle. */
+  :global(html.js:not([data-motion='reduced'])) .bd-phone :global([data-phone-body]) {
+    visibility: hidden;
+  }
   /* Version réduite et sans JavaScript : pas de décor fixe, chaque scène a son illustration. */
   :global(html:not(.js)) .backdrop > :not(.bd-night):not(.bd-orange),
   :global(html[data-motion='reduced']) .backdrop > :not(.bd-night):not(.bd-orange) {

@@ -3,9 +3,10 @@
  * nuit tombe en fondu sur Cotonou, un trajet erre d'une station à l'autre, chacune en rupture,
  * jusqu'à un achat au hasard.
  */
+import { city as data, fractionsOnPolyline } from '../../city'
 import { backdrop } from '../backdrop'
 import type { Rigs } from '../rigs'
-import { end, fractionsAlong, pinned, steps, theme } from './common'
+import { end, pinned, steps, theme } from './common'
 
 export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
   const section = document.querySelector<HTMLElement>('[data-scene="problem"]')
@@ -22,11 +23,7 @@ export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
   const city = rigs.city
 
   // Où chaque station visitée se trouve le long du trajet (fraction de sa longueur).
-  const stopPoints = stops.map((g) => {
-    const m = g.transform.baseVal.consolidate()?.matrix
-    return [m?.e ?? 0, m?.f ?? 0]
-  })
-  const fractions = fractionsAlong(path, stopPoints)
+  const fractions = fractionsOnPolyline(data.wander.d, data.wander.stops)
   const DRAW = { from: 0.2, length: 0.66 }
   const at = (f: number) => DRAW.from + DRAW.length * f
 

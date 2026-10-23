@@ -5,7 +5,7 @@
  * Scène 8 — Questions : l'espace s'efface en fondu vers le fond de page.
  */
 import { backdrop } from '../backdrop'
-import { gsap } from '../engine'
+import { gsap, invalidateOnResize } from '../engine'
 import type { Rigs } from '../rigs'
 import { end, pinned, theme } from './common'
 
@@ -101,11 +101,12 @@ export function final(rigs: Rigs, mm: gsap.MatchMedia) {
   // Scène 8 : l'espace et la Terre s'effacent vers le fond de page.
   const questions = document.querySelector('[data-scene="questions"]')
   if (questions) {
-    gsap
-      .timeline({
+    invalidateOnResize(
+      gsap.timeline({
         defaults: { ease: 'none' },
         scrollTrigger: { trigger: questions, start: 'top bottom', end: 'top 35%', scrub: 0.6 },
-      })
+      }),
+    )
       .fromTo(backdrop.w, { spaceOut: 1 }, { spaceOut: 0, duration: 1, onUpdate: backdrop.apply }, 0)
       .fromTo(
         earth.poses.out,

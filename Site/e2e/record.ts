@@ -54,7 +54,9 @@ const WAYPOINTS: [scene: string, fraction: number, ms: number, label?: string][]
 
 /** Capture en WebP (qualité 86) : légère pour le dépôt, fidèle pour la relecture. */
 async function capture(page: Page, name: string) {
-  await sharp(await page.screenshot()).webp({ quality: 86 }).toFile(`${captures}${name}.webp`)
+  await sharp(await page.screenshot())
+    .webp({ quality: 86 })
+    .toFile(`${captures}${name}.webp`)
 }
 
 test.describe.configure({ mode: 'serial' })

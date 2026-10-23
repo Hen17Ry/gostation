@@ -4,7 +4,7 @@
  * problème…). Aucune scène n'anime la valeur d'une autre : défiler dans un sens ou dans l'autre,
  * ou sauter d'un lien, donne toujours le même mélange, et chaque passage est un fondu.
  */
-import { gsap } from './engine'
+import { setAlpha } from './style'
 
 const weights = { orangeIn: 0, orangeOut: 1, nightIn: 0, emberIn: 0, darkOut: 1, spaceIn: 0, spaceOut: 1 }
 export type BackdropWeights = typeof weights
@@ -22,7 +22,7 @@ export const backdrop = {
   apply() {
     els ??= layers()
     const w = weights
-    const set = (el: HTMLElement | null, v: number) => el && gsap.set(el, { autoAlpha: Math.max(0, Math.min(1, v)) })
+    const set = (el: HTMLElement | null, v: number) => el && setAlpha(el, v)
     set(els.orange, w.orangeIn * w.orangeOut)
     set(els.night, w.nightIn * w.darkOut)
     set(els.ember, w.emberIn * w.darkOut)

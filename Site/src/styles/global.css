@@ -130,21 +130,6 @@ html.lenis body {
   overscroll-behavior: contain;
 }
 
-/*
- * Repli : si le moteur d'animation n'a pas pris la main 4 s après l'affichage (script bloqué,
- * erreur réseau), les éléments masqués avant leur entrée réapparaissent.
- */
-@keyframes gs-fallback {
-  to {
-    opacity: 1;
-    transform: none;
-    visibility: visible;
-  }
-}
-html.js:not(.motion-ready) .reveal-fallback {
-  animation: gs-fallback 0.4s 4s forwards;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
