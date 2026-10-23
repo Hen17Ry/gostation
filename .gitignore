@@ -81,3 +81,4 @@ Thumbs.db
 
 # Vidéos du parcours (npm run record) : lourdes et refaites à chaque itération, gardées hors du dépôt.
 docs/landing/*.webm
+docs/landing/*.mp4
