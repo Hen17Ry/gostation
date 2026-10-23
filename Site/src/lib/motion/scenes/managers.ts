@@ -39,9 +39,10 @@ export function managers(rigs: Rigs, mm: gsap.MatchMedia) {
         { rotY: 0, x: 0, y: 0, scale: 1 },
         {
           rotY: 360,
+          // Compense la pose de la scène 4 (téléphone décalé et réduit) : il revient au centre.
           x: mobile ? 0 : () => -window.innerWidth * 0.03,
-          y: mobile ? () => -window.innerHeight * 0.04 : 0,
-          scale: mobile ? 1.04 : 1.1,
+          y: mobile ? () => -window.innerHeight * 0.2 : 0,
+          scale: mobile ? 1.28 : 1.1,
           duration: 0.24,
           ease: 'power2.inOut',
           onUpdate: phone.apply,

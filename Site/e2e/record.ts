@@ -3,12 +3,13 @@
  * Ordinateur : crans de molette envoyés dans la page (Lenis les lisse), comme un visiteur. Mobile :
  * défilement natif progressif (le doigt). Chromium emploie le GPU de la machine (ANGLE) : la 3D
  * tourne comme chez un visiteur ; la page indique le mode réellement joué (data-motion).
- * Vidéos (.webm) hors du dépôt ; captures dans docs/landing/captures/.
+ * Vidéos (.webm) hors du dépôt ; captures en WebP dans docs/landing/captures/.
  */
 import { mkdirSync, renameSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { test, type Page } from '@playwright/test'
+import sharp from 'sharp'
 
 const out = fileURLToPath(new URL('../../docs/landing/', import.meta.url))
 const captures = `${out}captures/`
@@ -50,6 +51,11 @@ const WAYPOINTS: [scene: string, fraction: number, ms: number, label?: string][]
   ['questions', 0.35, 2600, '23-questions'],
   ['end', 1, 2200, '24-pied-de-page'],
 ]
+
+/** Capture en WebP (qualité 86) : légère pour le dépôt, fidèle pour la relecture. */
+async function capture(page: Page, name: string) {
+  await sharp(await page.screenshot()).webp({ quality: 86 }).toFile(`${captures}${name}.webp`)
+}
 
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(() => mkdirSync(captures, { recursive: true }))
@@ -123,7 +129,7 @@ for (const target of targets) {
       recordVideo: { dir: tmp, size },
     })
     const page = await context.newPage()
-    const shot = (label: string) => page.screenshot({ path: `${captures}${target.name}-${label}.png` })
+    const shot = (label: string) => capture(page, `${target.name}-${label}`)
 
     await page.goto('/?mode=full')
     await page.mouse.move(target.viewport.width - 4, target.viewport.height / 2)
@@ -167,7 +173,7 @@ test('captures des autres modes (léger, réduit, sombre)', async ({ browser }) 
       const page = await context.newPage()
       await page.goto(url)
       await page.waitForTimeout(reduced ? 600 : 4500)
-      await page.screenshot({ path: `${captures}${target.name}-${label}.png` })
+      await capture(page, `${target.name}-${label}`)
       if (!reduced) {
         for (const [scene, fraction, name] of [
           ['solution', 0.75, 'recherche'],
@@ -175,7 +181,7 @@ test('captures des autres modes (léger, réduit, sombre)', async ({ browser }) 
         ] as const) {
           await page.evaluate((y) => window.scrollTo(0, y), await positionOf(page, scene, fraction))
           await page.waitForTimeout(1800)
-          await page.screenshot({ path: `${captures}${target.name}-${label}-${name}.png` })
+          await capture(page, `${target.name}-${label}-${name}`)
         }
       }
       await context.close()
