@@ -25,7 +25,7 @@ x-backend-env: &backend-env
 
 services:
   # Reverse proxy : TLS automatique (Let's Encrypt) pour api., admin., errors. et le site public.
-  # Image construite par deploy/proxy.Dockerfile : Caddy + build de l'admin + pages légales.
+  # Image construite par deploy/proxy.Dockerfile : Caddy + build de l'admin + site public (Site/).
   caddy:
     <<: [*restart, *logging]
     build:
@@ -37,6 +37,13 @@ services:
         VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
         # Bandeau « Staging » de l'admin (absent en production).
         VITE_APP_ENV: ${APP_ENV:-production}
+        # Site public : adresse canonique, environnement (noindex hors production), téléchargement
+        # de l'app (APK du build preview en staging, Google Play plus tard), contact.
+        PUBLIC_SITE_URL: https://${DOMAIN:?}
+        PUBLIC_APP_ENV: ${APP_ENV:-production}
+        PUBLIC_APK_URL: ${PUBLIC_APK_URL:-}
+        PUBLIC_CONTACT_EMAIL: ${PUBLIC_CONTACT_EMAIL:-contact@${DOMAIN:?}}
+        PUBLIC_WHATSAPP_NUMBER: ${PUBLIC_WHATSAPP_NUMBER:-}
     image: gostation-proxy:${RELEASE:-latest}
     environment:
       DOMAIN: ${DOMAIN:?}
