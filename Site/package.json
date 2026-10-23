@@ -16,7 +16,8 @@
     "e2e": "playwright test --project=e2e --project=e2e-mobile",
     "record": "playwright test --project=record",
     "gen:screens": "node scripts/gen-screens.mjs",
-    "gen:og": "node scripts/gen-og.mjs"
+    "gen:og": "node scripts/gen-og.mjs",
+    "lighthouse": "node scripts/lighthouse.mjs"
   },
   "dependencies": {
     "@astrojs/react": "^7.1.1",
