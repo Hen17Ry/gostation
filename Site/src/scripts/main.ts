@@ -1,13 +1,14 @@
 /**
  * Point d'entrée de la page : le mode est déjà posé sur <html> (script en ligne, lib/mode.ts). En
  * version réduite (ou sans JavaScript), rien ne s'anime : seule la teinte de l'en-tête suit les
- * sections. Les scènes sont créées dans l'ordre de la page (les épinglages se calculent ainsi).
+ * sections. Les scènes 2 à 8 sont créées à l'approche du visiteur (lib/motion/lazy-scenes.ts).
  */
 import { currentMode } from '@/lib/mode'
 import { backdrop } from '@/lib/motion/backdrop'
-import { gsap, ScrollTrigger, startEngine } from '@/lib/motion/engine'
+import { ScrollTrigger, startEngine } from '@/lib/motion/engine'
 import { hasHardwareGpu } from '@/lib/motion/gpu'
 import { headerTone } from '@/lib/motion/header-tone'
+import { lazyScenes } from '@/lib/motion/lazy-scenes'
 import { createRigs, load3D } from '@/lib/motion/rigs'
 import { companies } from '@/lib/motion/scenes/companies'
 import { final } from '@/lib/motion/scenes/final'
@@ -35,30 +36,29 @@ function animate(requested: Exclude<typeof initial, 'reduced'>) {
   }
   const motion = startEngine(mode)
   const rigs = createRigs(motion)
-  backdrop.apply()
-  rigs.phone.apply()
-  rigs.city.apply()
-  rigs.earth.apply()
+  // Un rafraîchissement de ScrollTrigger rend les timelines sans leurs rappels (jusqu'à leur fin,
+  // puis retour) : les décors partagés sont recomposés juste après, sinon une couche garderait la
+  // valeur d'un rendu intermédiaire.
+  const applyRigs = () => {
+    backdrop.apply()
+    rigs.phone.apply()
+    rigs.city.apply()
+    rigs.earth.apply()
+  }
+  applyRigs()
+  ScrollTrigger.addEventListener('refresh', applyRigs)
 
   opening(motion)
 
-  // Scènes 2 à 8 : créées dans l'ordre de la page (les épinglages se calculent ainsi), d'un seul
-  // tenant juste après le premier affichage (le titre n'attend pas, l'intro n'a pas commencé),
-  // puis un seul rafraîchissement de ScrollTrigger, aussitôt : il rend sans objet les mesures que
-  // chaque déclencheur de timeline reporte d'une image et celui que chaque épinglage programme
-  // (une à une, chaque scène en coûterait un, plus cher que le précédent).
-  const mm = gsap.matchMedia()
-  requestAnimationFrame(() =>
-    setTimeout(() => {
-      problem(rigs, mm)
-      solution(rigs, mm)
-      route(rigs, mm)
-      managers(rigs, mm)
-      companies(rigs)
-      final(rigs, mm)
-      ScrollTrigger.refresh()
-    }),
-  )
+  // Scènes 2 à 8 : créées à l'approche du visiteur, détruites quand il est loin.
+  lazyScenes(rigs, [
+    ['[data-scene="problem"]', problem],
+    ['[data-scene="solution"]', solution],
+    ['[data-scene="route"]', route],
+    ['[data-scene="managers"]', managers],
+    ['[data-scene="companies"]', companies],
+    ['[data-scene="final"]', final],
+  ])
 
   // Ressources des scènes suivantes, chargées à leur approche (données mobiles chères) ou quand le
   // navigateur est libre : la ville et la 3D à l'approche de la scène 2, l'espace à la scène 6.

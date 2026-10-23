@@ -5,17 +5,24 @@ import { gsap, invalidateOnResize } from '../engine'
 /** Enveloppe de la scène dans la page (pages/index.astro), employée comme pin-spacer. */
 export const spacerOf = (section: HTMLElement) => section.closest<HTMLElement>('[data-pin]') ?? undefined
 
+/** Longueur d'épinglage en écrans, lue dans le CSS (global.css : --pin-screens, mobile compris). */
+export const pinScreens = (section: HTMLElement) => {
+  const spacer = spacerOf(section)
+  return (spacer && parseFloat(getComputedStyle(spacer).getPropertyValue('--pin-screens'))) || 1
+}
+
 /**
  * Timeline d'une scène épinglée, de durée 1 (positions en fraction du passage) : épinglée sur un
- * écran, liée au défilement avec un léger amorti.
+ * écran, liée au défilement avec un léger amorti. onUpdate reçoit l'avancement aussi au
+ * rafraîchissement ; un objet partagé (écran du téléphone) départage lui-même les scènes.
  */
-export function pinned(section: HTMLElement, screens: number, onUpdate?: (progress: number) => void) {
+export function pinned(section: HTMLElement, onUpdate?: (progress: number) => void) {
   const tl = gsap.timeline({
     defaults: { ease: 'none' },
     scrollTrigger: {
       trigger: section,
       start: 'top top',
-      end: () => `+=${window.innerHeight * screens}`,
+      end: () => `+=${window.innerHeight * pinScreens(section)}`,
       pin: true,
       pinSpacer: spacerOf(section),
       scrub: 0.9,
@@ -24,6 +31,16 @@ export function pinned(section: HTMLElement, screens: number, onUpdate?: (progre
     },
   })
   return invalidateOnResize(tl)
+}
+
+/**
+ * Fin de scène : le texte s'efface juste avant que la scène ne remonte, pour ne jamais passer sous
+ * l'en-tête. immediateRender: false : sans effet avant 0,96 (la scène peut aussi le faire entrer).
+ */
+export function leave(tl: gsap.core.Timeline, section: HTMLElement) {
+  const copy = section.querySelector('.scene-copy')
+  if (!copy) return
+  tl.fromTo(copy, { autoAlpha: 1, y: 0 }, { autoAlpha: 0, y: -20, duration: 0.04, immediateRender: false }, 0.96)
 }
 
 /** Termine la timeline exactement à 1 (les positions des étapes sont des fractions). */

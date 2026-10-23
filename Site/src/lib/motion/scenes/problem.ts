@@ -5,8 +5,9 @@
  */
 import { city as data, fractionsOnPolyline } from '../../city'
 import { backdrop } from '../backdrop'
+import { gsap } from '../engine'
 import type { Rigs } from '../rigs'
-import { end, pinned, steps, theme } from './common'
+import { end, leave, pinned, steps, theme } from './common'
 
 export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
   const section = document.querySelector<HTMLElement>('[data-scene="problem"]')
@@ -20,16 +21,23 @@ export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
   const duoDark = q<HTMLElement>('[data-duo-dark]', section)
   const kicker = q<HTMLElement>('[data-kicker]', section)
   const scrim = q<HTMLElement>('[data-scrim]', section)
+  const copy = q<HTMLElement>('.scene-copy', section)
   const city = rigs.city
+
+  // Avant l'épinglage : la scène remonte sur la fin de l'ouverture (global.css) et son titre
+  // apparaît pendant que l'orange envahit l'écran ; il est en place quand l'orange le couvre.
+  gsap
+    .timeline({ scrollTrigger: { trigger: section, start: 'top 38%', end: 'top 6%', scrub: 0.6 } })
+    .fromTo(copy, { autoAlpha: 0 }, { autoAlpha: 1, ease: 'power1.out' })
 
   // Où chaque station visitée se trouve le long du trajet (fraction de sa longueur).
   const fractions = fractionsOnPolyline(data.wander.d, data.wander.stops)
   const DRAW = { from: 0.2, length: 0.66 }
   const at = (f: number) => DRAW.from + DRAW.length * f
 
-  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
-    const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2 : 2.4, (p) => theme(section, p < 0.12 ? 'brand' : 'night'))
+  // Points de rupture : la durée d'épinglage change (global.css), la scène est recréée.
+  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, () => {
+    const tl = pinned(section, (p) => theme(section, p < 0.12 ? 'brand' : 'night'))
 
     // Le titre reste un temps sur l'orange, puis la nuit tombe comme un coucher de soleil : l'orange
     // s'attarde et s'assombrit de plus en plus vite (fondu, jamais une coupure). La nuit est posée
@@ -78,6 +86,7 @@ export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
     )
 
     steps(tl, items, [...fractions.map(at), 0.86])
+    leave(tl, section)
     end(tl)
   })
 }

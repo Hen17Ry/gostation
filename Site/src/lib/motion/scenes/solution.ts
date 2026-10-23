@@ -6,7 +6,7 @@
 import { city as data } from '../../city'
 import type { Screen } from '../../phone/painter'
 import type { Rigs } from '../rigs'
-import { end, local, pinned, steps } from './common'
+import { end, leave, local, pinned, steps } from './common'
 
 /** Écran du téléphone selon l'avancement de la scène (taps, paliers, résultats). */
 function screenAt(p: number): Screen {
@@ -35,7 +35,7 @@ export function solution(rigs: Rigs, mm: gsap.MatchMedia) {
 
   mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
     const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2.6 : 3, (p) => phone.setScreen(screenAt(p)))
+    const tl = pinned(section, (p) => phone.setScreen(screenAt(p), 1, p))
 
     // Le téléphone entre en pivotant (par la droite sur ordinateur, par le bas sur mobile).
     tl.fromTo(
@@ -82,6 +82,7 @@ export function solution(rigs: Rigs, mm: gsap.MatchMedia) {
     )
 
     steps(tl, items, [0.04, 0.32, 0.62, 0.8])
+    leave(tl, section)
     end(tl)
   })
 }

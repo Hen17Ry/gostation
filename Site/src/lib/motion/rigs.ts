@@ -41,6 +41,7 @@ export class PhoneRig {
     out: pose(),
   }
   private screen: Screen = { kind: 'search', product: null, size: null }
+  private readonly requests = new Map<number, { screen: Screen; progress: number }>()
   private key = ''
   private three: Phone3D | null = null
   private anchor = { cx: 0, cy: 0, height: 1 }
@@ -93,8 +94,21 @@ export class PhoneRig {
     })
   }
 
-  setScreen(screen: Screen) {
-    this.screen = screen
+  /**
+   * Écran demandé par une scène, de rang `rank` (ordre dans la page) à l'avancement `progress` :
+   * la plus avancée des scènes atteintes l'emporte, quel que soit l'ordre des rappels (ScrollTrigger
+   * suit l'ordre de création des déclencheurs, et une scène peut être recréée, lazy-scenes.ts).
+   */
+  setScreen(screen: Screen, rank: number, progress: number) {
+    this.requests.set(rank, { screen, progress })
+    let shown: Screen | null = null
+    let best = -1
+    for (const [r, request] of this.requests) {
+      if (request.progress > 0 && r > best) [shown, best] = [request.screen, r]
+    }
+    // Aucune scène atteinte : l'écran de départ de la première.
+    shown ??= this.requests.get(Math.min(...this.requests.keys()))!.screen
+    this.screen = shown
     this.repaint()
   }
 

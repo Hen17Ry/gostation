@@ -30,7 +30,14 @@ export function invalidateOnResize(tl: gsap.core.Timeline) {
   return tl
 }
 
+/**
+ * Hauteur de fenêtre des calculs de ScrollTrigger (relue à chaque rafraîchissement), exposée au
+ * CSS : l'espace réservé aux épinglages (global.css) mesure exactement ce que ScrollTrigger y met.
+ */
+const exposeViewport = () => document.documentElement.style.setProperty('--pin-vh', `${window.innerHeight}px`)
+
 ScrollTrigger.addEventListener('refreshInit', () => {
+  exposeViewport()
   const viewport = viewportSize()
   if (viewport === lastViewport) return
   lastViewport = viewport
@@ -104,6 +111,7 @@ export type { Motion }
 
 export function startEngine(mode: Exclude<MotionMode, 'reduced'>): Motion {
   const motion = new Motion(mode)
+  exposeViewport()
 
   // Barre d'adresse mobile : pas de recalcul à chaque apparition ou disparition. Ni au
   // DOMContentLoaded ni au load : chaque épinglage créé programme déjà le sien, les polices ont le

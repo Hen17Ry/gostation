@@ -128,4 +128,11 @@ const faq = [
     font-weight: 600;
     text-underline-offset: 3px;
   }
+  /* Modes animés : sur l'espace du final (scenes/final.ts pose le thème). */
+  .questions[data-theme='night'] {
+    --foreground: var(--night-foreground);
+    --muted-foreground: var(--color-neutral-300);
+    --border: color-mix(in oklch, var(--color-white) 16%, transparent);
+    --brand-text: var(--color-brand-400);
+  }
 </style>

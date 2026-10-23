@@ -65,4 +65,34 @@ export function companies(rigs: Rigs) {
       stagger: 0.08,
     })
   }
+
+  // En remontant, chaque bloc s'efface juste avant de passer sous l'en-tête. Par filter: opacity(),
+  // que GSAP n'anime pas : les apparitions ci-dessus gardent seules l'opacité, les deux se
+  // multiplient. Remis à zéro à chaque création de la scène (elle peut être recréée, lazy-scenes.ts).
+  const header = document.querySelector<HTMLElement>('[data-site-header] .header-bar')
+  const blocks = [...(copy?.children ?? []), network, dashboard].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement,
+  )
+  for (const el of blocks) el.style.filter = ''
+  const written = new Map<HTMLElement, number>()
+  // Porté par une timeline (vide) : ScrollTrigger reporte sa mesure au rafraîchissement commun. Un
+  // déclencheur autonome se mesurerait tout de suite, en rendant au passage les scènes d'avant dans
+  // le contexte de celle-ci (leurs tweens internes y seraient rangées, lazy-scenes.ts).
+  gsap.timeline({
+    scrollTrigger: {
+      trigger: section,
+      start: 'top 40%',
+      end: 'bottom top',
+      onUpdate: () => {
+        const line = (header?.getBoundingClientRect().bottom ?? 64) + 8
+        const tops = blocks.map((el) => el.getBoundingClientRect().top)
+        blocks.forEach((el, i) => {
+          const alpha = Math.round(Math.min(1, Math.max(0, (tops[i]! - line) / 56)) * 100) / 100
+          if (alpha === (written.get(el) ?? 1)) return
+          written.set(el, alpha)
+          el.style.filter = alpha === 1 ? '' : `opacity(${alpha})`
+        })
+      },
+    },
+  })
 }

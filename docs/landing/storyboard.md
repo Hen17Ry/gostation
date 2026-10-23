@@ -55,7 +55,10 @@ qu'une autre anime : on peut défiler dans les deux sens ou sauter d'un lien, l'
 
 **Barre d'en-tête** : sa teinte suit ce qu'elle recouvre (`data-theme` des sections : verre clair
 ou sombre selon le système sur « page », verre sombre sur la nuit, barre presque opaque sur
-l'orange ; le bandeau qui envahit l'écran porte lui-même `brand`).
+l'orange ; le bandeau qui envahit l'écran porte lui-même `brand`). Elle reste toujours au-dessus et
+assez opaque pour que rien ne se lise au travers ; aucun texte ne passe dessous : chaque scène
+épinglée efface son texte juste avant de remonter (0,96 → 1), et les blocs des compagnies
+s'effacent en approchant de la barre. Les titres épinglés démarrent sous elle.
 
 ### Trois modes, une seule histoire
 
@@ -135,7 +138,8 @@ lissage). « Timeline » = animation liée au défilement, de 0 (début de l'ép
 | --- | --- |
 | 0 → 0,3 | Titre, chapeau et actions montent de 64 px et s'effacent ; la bouteille pivote de 120° et monte |
 | tout le long | Le bandeau accélère avec la vitesse de défilement (dans le sens du défilement) et s'incline (`skewX` ±8°) : notre « flou de vitesse » en transform |
-| 0,42 → 0,92 | **Le bandeau inonde l'écran** : son fond s'étire vers le haut (`scaleY`, origine en bas) ; son texte monte et s'efface ; la bouteille s'enfonce et rapetisse ; l'ombre de contact s'efface |
+| 0,42 → 0,92 | **Le bandeau inonde l'écran** : son fond s'étire vers le haut (`scaleY`, origine en bas) ; son texte monte et s'efface (0,42 → 0,62, avant que le titre du problème n'arrive) ; la bouteille s'enfonce et rapetisse ; l'ombre de contact s'efface |
+| 0,62 → 1 | Le titre du problème monte avec sa scène (qui chevauche la fin de l'ouverture) et apparaît sur l'orange |
 | 0,92 → 1 | Sous le bandeau qui couvre tout, le décor fixe prend le même orange : la section peut partir, l'orange reste, et le titre de la scène 2 arrive dessus |
 
 **Mobile** — colonne : titre en haut (3 lignes), bouteille au centre (36 svh), bandeau de 22 svh
@@ -152,8 +156,11 @@ aucun épinglage.
 
 **Texte** (kicker « Le problème », qui apparaît avec la nuit)
 
-- H2 : « Mais quand la bouteille est vide… » : il monte sur l'orange laissé par l'ouverture (texte
-  sombre), puis passe en clair quand la nuit tombe (deux copies superposées en fondu).
+- H2 : « Mais quand la bouteille est vide… » : la scène chevauche la fin de l'ouverture (hauteur
+  de sa section) ; elle remonte pendant que l'orange envahit l'écran et son titre y apparaît en
+  fondu (`'top 38%'` → `'top 6%'`, texte sombre, une fois le texte du bandeau parti) : jamais d'aplat orange vide, l'épinglage
+  commence à l'instant où celui de l'ouverture finit. Il passe en clair quand la nuit tombe (deux
+  copies superposées en fondu).
 - Étapes, une par palier : « Première station : rupture. » · « Deuxième station : rupture. » ·
   « On tourne. On perd du temps. » · « Et on finit par acheter au hasard. »
 
@@ -265,6 +272,7 @@ haut ; puis apparitions au défilement (`'top 78%'`, `toggleActions: 'play none 
   rupture : jamais la couleur seule), légende.
 - Un aperçu de tableau de bord monte depuis le bas (carte HTML) : tuiles « Stations à jour »,
   « Ruptures », « Alertes », petit graphique ; étiquette « Aperçu · données d'exemple ».
+- En remontant, chaque bloc (texte, carte, aperçu) s'efface juste avant la barre d'en-tête.
 
 **Mobile** — carte puis aperçu empilés. **Léger** — identique. **Réduit** — affichés sans animation.
 
@@ -281,11 +289,15 @@ haut ; puis apparitions au défilement (`'top 78%'`, `toggleActions: 'play none 
 
 | Timeline | Mouvement |
 | --- | --- |
-| 0 → 0,15 | **Volet orange** depuis la droite (`scaleX`, origine à droite) qui couvre l'écran |
-| 0,13 → 0,27 | Le volet se resserre en barre verticale (`scaleX`, `scaleY`) qui atterrit sur la hampe du premier « T » (mesurée en positions de mise en page) |
-| 0,27 → 0,5 | **Révélation lettre par lettre** : la barre se fond dans le T ; puis S, A, O, T, G, I, O, N montent de leurs masques, en alternance de part et d'autre ; le slogan suit |
-| 0,56 → 0,94 | **Zoom arrière** : l'espace en fondu, le mot monte et rapetisse ; le sud du Bénin (fondu de bord) rapetisse, puis la Terre de nuit : terres en points, le Bénin en orange, halo d'atmosphère (globe 3D en mode complet, image 2D en léger, même disque) |
-| 0,9 → 1 | Les actions et le QR code se posent en bas, sous la Terre |
+| avant | **La nuit monte avec la scène** : un panneau du même ciel que le décor recouvre la page claire des compagnies, sans écran vide |
+| 0 → 0,08 | Le décor passe à l'espace sous le panneau, qui s'efface : les étoiles apparaissent |
+| 0,04 → 0,14 | **Un trait de lumière orange** traverse l'écran depuis la droite, à hauteur de la hampe du T (épaisseur de la hampe) |
+| 0,15 → 0,28 | Le trait se resserre en barre verticale qui atterrit sur la hampe du premier « T » (mesurée en positions de mise en page) |
+| 0,28 → 0,5 | **Révélation lettre par lettre**, sur la nuit : la barre se fond dans le T ; puis S, A, O, T, G, I, O, N montent de leurs masques, en alternance de part et d'autre ; le slogan suit |
+| 0,58 → 0,94 | **Zoom arrière**, sans changer de fond : le mot monte et rapetisse ; le sud du Bénin (fondu de bord) rapetisse, puis la Terre de nuit : terres en points, le Bénin en orange, halo d'atmosphère (globe 3D en mode complet, image 2D en léger, même disque). Sa taille et sa place sont calculées entre le mot et les actions, halo compris : jamais de chevauchement |
+| 0,88 → 1 | Les actions et le QR code se posent en bas, sous la Terre |
+
+Fond : l'espace, noir avec une lueur chaude au ras de l'horizon (`--space`), jamais gris.
 
 **Mobile** — mot sur toute la largeur (`wdth` 75), QR code masqué (on est déjà sur le téléphone :
 bouton seul). `+=200%`. **Léger** — contour du Bénin et limbe de la Terre en SVG. **Réduit** — mot
@@ -301,8 +313,9 @@ complet, Bénin fixe, actions et QR code.
 - **Pied de page** : Politique de confidentialité (`/politique-confidentialite`), CGU (`/cgu`),
   Suppression de compte (`/suppression-compte`), Contact, « Version légère ». Ces trois adresses ne
   changent pas (Google OAuth et Google Play pointent dessus).
-- À l'arrivée des questions, l'espace et la Terre s'effacent en fondu vers le fond de page. Pas
-  d'épinglage.
+- Le final d'abord : à l'arrivée des questions (`'top bottom'` → `'top 55%'`), le final remonte en
+  s'effaçant et la Terre s'éloigne ; la FAQ ne commence qu'ensuite (les questions démarrent 45 svh
+  plus bas) et reste sur le même espace (textes clairs), jusqu'au pied de page. Pas d'épinglage.
 - Les pages légales sont rendues par le site (même source `docs/legal/*.md`, même analyseur que
   l'app), en page de texte sans animation ; adresses inchangées (et leurs variantes `.html`).
 
@@ -322,7 +335,13 @@ complet, Bénin fixe, actions et QR code.
   départ (croquis, bouteille et téléphone masqués, bandeau sous l'écran).
 - Sans processeur graphique (rendu WebGL logiciel), version légère d'emblée : la 3D bloquerait le
   fil principal (`lib/motion/gpu.ts`).
-- Scènes 2 à 8 créées d'un seul tenant, suivies d'un seul `ScrollTrigger.refresh()` ; pas de
+- Scènes 2 à 8 créées à l'approche du visiteur (IntersectionObserver, 1,5 écran) et détruites
+  au-delà de 3 écrans (`lib/motion/lazy-scenes.ts`) ; au chargement, seules l'ouverture et le
+  problème existent. Le rendu ne change pas : chaque enveloppe réserve en CSS sa longueur
+  d'épinglage (`--pin-screens` × `--pin-vh`, la hauteur de fenêtre de ScrollTrigger) ; une scène
+  pas encore créée laisse ses éléments dans leur état de départ (CSS des modes animés) ; détruite,
+  elle est tuée sans retour en arrière (elle garde son état) ; aucune n'est créée avant que les
+  précédentes l'aient été une fois (décors partagés justes après un saut). Pas de
   rafraîchissement au DOMContentLoaded ni au load. Les timelines ne sont invalidées que si la
   taille de la fenêtre a changé (`invalidateOnResize`), jamais à chaque rafraîchissement.
 - Chaque scène épinglée a son enveloppe `[data-pin]` dans la page, passée à ScrollTrigger comme
@@ -332,14 +351,19 @@ complet, Bénin fixe, actions et QR code.
   recomposés à chaque image écrits directement (`lib/motion/style.ts`), sans `gsap.set`.
 
 **Mesures** (`npm run lighthouse` sur le build de production servi par `scripts/preview.mjs`,
-compressé comme Caddy ; médiane de 3 passes, 2026-10-23) :
+compressé comme Caddy ; médiane de 3 passes, 2026-10-24) :
 
 | | Performance | Accessibilité | Bonnes pratiques | SEO | FCP | LCP | TBT | CLS |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Mobile | 76 (75, 76, 78) | 95 | 100 | 100 | 1,91 s | 2,18 s | 968 ms | 0 |
-| Ordinateur | 95 (95, 95, 95) | 96 | 100 | 100 | 0,44 s | 0,55 s | 189 ms | 0 |
+| Mobile | 86 (86, 85, 88) | 96 | 100 | 100 | 1,83 s | 2,33 s | 457 ms | 0 |
+| Ordinateur | 100 (100, 100, 100) | 96 | 100 | 100 | 0,44 s | 0,56 s | 47 ms | 0 |
 
-Lighthouse tourne sans processeur graphique : il mesure le mode léger. L'écart à 85 sur mobile
-vient du TBT : la création de toutes les scènes au démarrage (une tâche d'environ 0,7 s sur le
-téléphone simulé). L'accessibilité (95) compte des textes de scènes pas encore atteintes, lus sur
-le fond de page au lieu de leur fond de nuit ; l'audit axe scène par scène (E2E) est sans écart.
+Lighthouse tourne sans processeur graphique : il mesure le mode léger. Avant la création des
+scènes à l'approche, toutes étaient créées au démarrage : mobile 76, TBT 968 ms. L'accessibilité
+(96) compte des textes de scènes pas encore atteintes, lus sur le fond de page au lieu de leur
+fond de nuit ; l'audit axe scène par scène (E2E) est sans écart.
+
+**Rendu inchangé** : captures du parcours en mode léger (ordinateur et mobile, positions fixes de
+chaque scène) comparées pixel à pixel, création à l'approche contre création d'emblée, et défilement
+pas à pas contre sauts directs dans un ordre aléatoire : écarts limités au bandeau défilant et à
+des arrondis d'un pixel.

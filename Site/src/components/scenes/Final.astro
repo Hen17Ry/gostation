@@ -1,7 +1,8 @@
 ---
 /**
- * Scène 7 — Final : volet orange, la barre devient la hampe du T, GOSTATION lettre par lettre, puis
- * zoom arrière jusqu'au Bénin vu de l'espace (storyboard §2). QR code généré au build (uqr).
+ * Scène 7 — Final, sur la nuit : un trait orange traverse l'écran et devient la hampe du T, GOSTATION
+ * lettre par lettre, puis zoom arrière jusqu'au Bénin vu de l'espace (storyboard §2). QR code
+ * généré au build (uqr).
  */
 import { renderSVG } from 'uqr'
 
@@ -21,6 +22,7 @@ const qr = renderSVG(qrTarget, { border: 1 })
   data-theme="page"
   aria-labelledby="final-titre"
 >
+  <div class="final-night" data-final-night aria-hidden="true"></div>
   <div class="final-wipe" data-wipe data-theme="brand" aria-hidden="true"></div>
   <div class="final-stage" data-final-stage>
     <h2 id="final-titre" class="wordmark" aria-label="GoStation" data-wordmark>
@@ -68,6 +70,17 @@ const qr = renderSVG(qrTarget, { border: 1 })
     gap: 2.5rem;
     padding: calc(var(--header-height) + 4svh) max(1rem, 6vw) 4svh;
     text-align: center;
+  }
+  /* Modes animés : la nuit monte avec la scène et recouvre la page, puis cède la place au même
+     ciel dans le décor fixe (étoiles, Terre). */
+  .final-night {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: var(--space);
+  }
+  :global(html.js:not([data-motion='reduced'])) .final-night {
+    display: block;
   }
   .final-wipe {
     position: absolute;

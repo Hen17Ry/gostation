@@ -6,7 +6,7 @@
  */
 import { setAlpha } from './style'
 
-const weights = { orangeIn: 0, orangeOut: 1, nightIn: 0, emberIn: 0, darkOut: 1, spaceIn: 0, spaceOut: 1 }
+const weights = { orangeIn: 0, orangeOut: 1, nightIn: 0, emberIn: 0, darkOut: 1, spaceIn: 0 }
 export type BackdropWeights = typeof weights
 
 const layers = () => ({
@@ -26,7 +26,7 @@ export const backdrop = {
     set(els.orange, w.orangeIn * w.orangeOut)
     set(els.night, w.nightIn * w.darkOut)
     set(els.ember, w.emberIn * w.darkOut)
-    set(els.space, w.spaceIn * w.spaceOut)
+    set(els.space, w.spaceIn)
   },
 }
 

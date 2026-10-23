@@ -1,8 +1,9 @@
 /**
- * Scène 7 — Final (storyboard §2) : un volet orange couvre l'écran, se resserre en barre qui
- * devient la hampe du T, GOSTATION se révèle lettre par lettre ; puis zoom arrière : le sud du
- * Bénin, la Terre de nuit avec le Bénin en orange (globe 3D en mode complet), et les actions.
- * Scène 8 — Questions : l'espace s'efface en fondu vers le fond de page.
+ * Scène 7 — Final (storyboard §2), sur la nuit : la nuit monte avec la scène et recouvre la page,
+ * un trait orange traverse l'écran à hauteur de la hampe du T et s'y resserre, GOSTATION se révèle
+ * lettre par lettre ; puis zoom arrière, sans changer de fond : le sud du Bénin, la Terre de nuit
+ * avec le Bénin en orange (globe 3D en mode complet), et les actions, chacun à sa place.
+ * Scène 8 — Questions : le final remonte et la Terre s'efface ; la FAQ suit, sur le même ciel.
  */
 import { backdrop } from '../backdrop'
 import { gsap, invalidateOnResize } from '../engine'
@@ -12,9 +13,13 @@ import { end, pinned, theme } from './common'
 /** Ordre de révélation : du T vers l'extérieur, en alternance. */
 const ORDER = [3, 2, 4, 1, 5, 0, 6, 7, 8]
 
+/** Le mot, au bout du zoom arrière : remonté (fraction de l'écran) et réduit. */
+const STAGE = { desktop: { lift: 0.33, scale: 0.5 }, mobile: { lift: 0.31, scale: 0.78 } }
+
 export function final(rigs: Rigs, mm: gsap.MatchMedia) {
   const section = document.querySelector<HTMLElement>('[data-scene="final"]')
   if (!section) return
+  const night = section.querySelector<HTMLElement>('[data-final-night]')!
   const wipe = section.querySelector<HTMLElement>('[data-wipe]')!
   const stage = section.querySelector<HTMLElement>('[data-final-stage]')!
   const letters = [...section.querySelectorAll<HTMLElement>('[data-letter]')]
@@ -23,6 +28,9 @@ export function final(rigs: Rigs, mm: gsap.MatchMedia) {
   const region = document.querySelector<HTMLElement>('[data-space-region]')!
   const { earth } = rigs
   const t = letters[3]!
+
+  // Toute la scène se joue sur la nuit : barre d'en-tête sombre dès qu'elle la recouvre.
+  theme(section, 'night')
 
   /**
    * Rectangle de la hampe du T (repère de la section) : la barre y atterrit. Mesuré en positions de
@@ -39,45 +47,66 @@ export function final(rigs: Rigs, mm: gsap.MatchMedia) {
     }
   }
 
+  /**
+   * La Terre entre le mot (remonté, réduit) et les actions, avec du jeu de part et d'autre, halo
+   * compris : jamais de chevauchement, quel que soit l'écran. Rendu en échelle et décalage de la
+   * pose (rigs.ts : disque de 2,5 rayons ajusté au plus petit côté de la fenêtre).
+   */
+  const globe = (mobile: boolean) => {
+    const w = window.innerWidth
+    const h = window.innerHeight
+    const { lift, scale } = mobile ? STAGE.mobile : STAGE.desktop
+    const stageBottom = stage.offsetTop + (stage.offsetHeight * (1 + scale)) / 2 - h * lift
+    const gap = Math.max(20, h * 0.035)
+    const room = cta.offsetTop - stageBottom - gap * 2
+    const radius = Math.max(40, Math.min(room / 2 / 1.12, w * 0.42))
+    return { scale: radius / (Math.min(w, h) / 2.5), y: stageBottom + gap + room / 2 - h / 2 }
+  }
+
   mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
     const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2.4 : 2.8, (p) => theme(section, p < 0.62 ? 'page' : 'night'))
+    const { lift, scale } = mobile ? STAGE.mobile : STAGE.desktop
+    const tl = pinned(section)
     const W = () => section.clientWidth
     const H = () => section.clientHeight
+    const barY = () => stem().y + stem().height / 2 - H() / 2
 
     tl.set(letters, { yPercent: 110 }, 0)
       .set(t, { yPercent: 0, autoAlpha: 0 }, 0)
       .set([tagline, cta], { autoAlpha: 0 }, 0)
-      // Le volet orange couvre l'écran depuis la droite…
-      .fromTo(wipe, { scaleX: 0, autoAlpha: 1 }, { scaleX: 1, duration: 0.12, ease: 'power2.inOut' }, 0)
-      // … puis se resserre en barre, exactement sur la hampe du T.
+      // La nuit montée avec la scène cède la place au même ciel, dans le décor (les étoiles
+      // apparaissent) : le décor passe à l'espace dessous, invisible, puis le panneau s'efface.
+      .fromTo(backdrop.w, { spaceIn: 0 }, { spaceIn: 1, duration: 0.005, onUpdate: backdrop.apply }, 0)
+      .fromTo(night, { autoAlpha: 1 }, { autoAlpha: 0, duration: 0.07 }, 0.01)
+      // Un trait orange traverse l'écran depuis la droite, à hauteur de la hampe du T…
+      .fromTo(
+        wipe,
+        { autoAlpha: 1, scaleX: 0, scaleY: () => stem().width / H(), x: 0, y: barY },
+        { scaleX: 1, duration: 0.1, ease: 'power2.inOut' },
+        0.04,
+      )
+      // … puis se resserre exactement sur elle.
       .to(
         wipe,
         {
           scaleX: () => stem().width / W(),
           scaleY: () => stem().height / H(),
           x: () => stem().x + stem().width - W(),
-          y: () => stem().y + stem().height / 2 - H() / 2,
-          duration: 0.14,
+          y: barY,
+          duration: 0.13,
           ease: 'power3.inOut',
         },
-        0.13,
+        0.15,
       )
-      .to(t, { autoAlpha: 1, duration: 0.03 }, 0.27)
-      .to(wipe, { autoAlpha: 0, duration: 0.03 }, 0.28)
+      .to(t, { autoAlpha: 1, duration: 0.03 }, 0.28)
+      .to(wipe, { autoAlpha: 0, duration: 0.03 }, 0.29)
     ORDER.slice(1).forEach((i, k) => {
-      tl.to(letters[i]!, { yPercent: 0, duration: 0.05, ease: 'power3.out' }, 0.3 + k * 0.022)
+      tl.to(letters[i]!, { yPercent: 0, duration: 0.05, ease: 'power3.out' }, 0.31 + k * 0.022)
     })
     tl.fromTo(tagline, { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.05 }, 0.5)
 
-    // Zoom arrière : l'espace en fondu, le mot monte, le sud du Bénin puis la Terre.
-    tl.fromTo(backdrop.w, { spaceIn: 0 }, { spaceIn: 1, duration: 0.1, onUpdate: backdrop.apply }, 0.56)
-      .fromTo(
-        stage,
-        { y: 0, scale: 1 },
-        { y: () => -H() * (mobile ? 0.31 : 0.33), scale: mobile ? 0.78 : 0.5, duration: 0.16, ease: 'power2.inOut' },
-        0.6,
-      )
+    // Zoom arrière : le mot monte, le sud du Bénin puis la Terre, entre le mot et les actions.
+    tl.fromTo(stage, { y: 0, scale: 1 }, { y: () => -H() * lift, scale, duration: 0.16, ease: 'power2.inOut' }, 0.58)
       .fromTo(region, { autoAlpha: 0, scale: 1.6 }, { autoAlpha: 0.9, scale: 1, duration: 0.1 }, 0.6)
       .to(region, { scale: 0.45, duration: 0.14, ease: 'power1.in' }, 0.7)
       .to(region, { autoAlpha: 0, duration: 0.06 }, 0.78)
@@ -86,32 +115,36 @@ export function final(rigs: Rigs, mm: gsap.MatchMedia) {
         { opacity: 0, scale: 3.2, y: 0 },
         {
           opacity: 1,
-          scale: mobile ? 0.82 : 0.7,
-          y: () => H() * (mobile ? 0 : 0.045),
+          scale: () => globe(mobile).scale,
+          y: () => globe(mobile).y,
           duration: 0.2,
           ease: 'power2.out',
           onUpdate: earth.apply,
         },
         0.74,
       )
-      .fromTo(cta, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.06, ease: 'power2.out' }, 0.9)
+      .fromTo(cta, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.06, ease: 'power2.out' }, 0.88)
     end(tl)
   })
 
-  // Scène 8 : l'espace et la Terre s'effacent vers le fond de page.
-  const questions = document.querySelector('[data-scene="questions"]')
+  // Scène 8 : le final remonte et s'efface, la Terre aussi ; la FAQ n'arrive qu'ensuite (global.css :
+  // les questions commencent plus bas), sur le même ciel.
+  const questions = document.querySelector<HTMLElement>('[data-scene="questions"]')
   if (questions) {
+    theme(questions, 'night')
     invalidateOnResize(
       gsap.timeline({
         defaults: { ease: 'none' },
-        scrollTrigger: { trigger: questions, start: 'top bottom', end: 'top 35%', scrub: 0.6 },
+        scrollTrigger: { trigger: questions, start: 'top bottom', end: 'top 55%', scrub: 0.6 },
       }),
     )
-      .fromTo(backdrop.w, { spaceOut: 1 }, { spaceOut: 0, duration: 1, onUpdate: backdrop.apply }, 0)
+      .fromTo(section, { autoAlpha: 1 }, { autoAlpha: 0, duration: 0.8 }, 0)
+      // La Terre monte avec la page (0,45 écran, la plage du fondu) : actions et globe partent d'un
+      // bloc, sans se croiser.
       .fromTo(
         earth.poses.out,
         { opacity: 1, y: 0 },
-        { opacity: 0, y: () => -window.innerHeight * 0.3, duration: 0.8, onUpdate: earth.apply },
+        { opacity: 0, y: () => -window.innerHeight * 0.45, duration: 1, onUpdate: earth.apply },
         0,
       )
   }
