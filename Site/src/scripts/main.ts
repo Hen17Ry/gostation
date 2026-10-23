@@ -36,10 +36,17 @@ function animate(requested: Exclude<typeof initial, 'reduced'>) {
   }
   const motion = startEngine(mode)
   const rigs = createRigs(motion)
-  backdrop.apply()
-  rigs.phone.apply()
-  rigs.city.apply()
-  rigs.earth.apply()
+  // Un rafraîchissement de ScrollTrigger rend les timelines sans leurs rappels (jusqu'à leur fin,
+  // puis retour) : les décors partagés sont recomposés juste après, sinon une couche garderait la
+  // valeur d'un rendu intermédiaire.
+  const applyRigs = () => {
+    backdrop.apply()
+    rigs.phone.apply()
+    rigs.city.apply()
+    rigs.earth.apply()
+  }
+  applyRigs()
+  ScrollTrigger.addEventListener('refresh', applyRigs)
 
   opening(motion)
 
