@@ -123,7 +123,7 @@ lissage). « Timeline » = animation liée au défilement, de 0 (début de l'ép
 | t | Mouvement |
 | --- | --- |
 | 0 → 1,5 s | Le croquis se trace (DrawSVG) : axe de révolution et ligne de sol d'abord, puis la silhouette de la bouteille (pied, corps, soudure, collerette ajourée, robinet), enfin la cote de hauteur et l'étiquette « 10 kg » |
-| 0,3 → 1,1 s | Les lignes du titre montent dans leur masque (SplitText, lignes) |
+| 0 s | Le titre, le chapeau et les actions sont là dès le premier rendu (le titre est le LCP) : pas d'entrée animée |
 | 0,7 → 1,3 s | Le bandeau orange monte du bas ; le texte se met à défiler (≈ 40 px/s) |
 | 1,5 → 2,7 s | **Le croquis devient 3D** : la bouteille se « remplit » de bas en haut (balayage d'un uniform, liseré lumineux à la coupe) exactement dans la pose du croquis ; les traits sous le liseré s'effacent |
 | 2,7 s → | La bouteille tourne doucement (un tour en 16 s) ; la plaque « 10 KG », la collerette et le robinet font lire la rotation |
@@ -310,8 +310,36 @@ complet, Bénin fixe, actions et QR code.
 
 | Mesure | Cible |
 | --- | --- |
-| JS initial | < 150 Ko gzip (`npm run check:bundle`) : GSAP, ScrollTrigger, SplitText, DrawSVG, Lenis et les scènes 2D ; Three.js et MorphSVG à la demande |
+| JS initial | < 150 Ko gzip (`npm run check:bundle`) : GSAP, ScrollTrigger, DrawSVG, Lenis et les scènes 2D ; Three.js et MorphSVG à la demande |
 | LCP | < 2,5 s en 4G (le H1 en HTML, police d'affichage préchargée) |
 | Lighthouse mobile | ≥ 85 performance, ≥ 95 accessibilité, SEO et bonnes pratiques (médiane de 3 passes) |
 | Fluidité | 60 fps au défilement : ordinateur, Galaxy S10, Huawei Y8p (mode léger attendu) |
 | CSP | sans `unsafe-inline` : scripts et styles en ligne autorisés par empreinte (`dist/csp.txt`) ; les E2E échouent sur toute violation |
+
+**Démarrage** (ce qui tient le fil principal court) :
+
+- Le moteur démarre après le premier rendu complet ; le CSS d'avant le script donne l'état de
+  départ (croquis, bouteille et téléphone masqués, bandeau sous l'écran).
+- Sans processeur graphique (rendu WebGL logiciel), version légère d'emblée : la 3D bloquerait le
+  fil principal (`lib/motion/gpu.ts`).
+- Scènes 2 à 8 créées d'un seul tenant, suivies d'un seul `ScrollTrigger.refresh()` ; pas de
+  rafraîchissement au DOMContentLoaded ni au load. Les timelines ne sont invalidées que si la
+  taille de la fenêtre a changé (`invalidateOnResize`), jamais à chaque rafraîchissement.
+- Chaque scène épinglée a son enveloppe `[data-pin]` dans la page, passée à ScrollTrigger comme
+  `pinSpacer` : l'épinglage ne déplace jamais la scène dans le DOM (sans quoi Chrome oublie le
+  premier rendu du titre et repousse le LCP, et chaque rafraîchissement recrée le sous-arbre).
+- Déclencheurs portés par des timelines (mesure reportée au rafraîchissement unique) ; décors
+  recomposés à chaque image écrits directement (`lib/motion/style.ts`), sans `gsap.set`.
+
+**Mesures** (`npm run lighthouse` sur le build de production servi par `scripts/preview.mjs`,
+compressé comme Caddy ; médiane de 3 passes, 2026-10-23) :
+
+| | Performance | Accessibilité | Bonnes pratiques | SEO | FCP | LCP | TBT | CLS |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Mobile | 76 (75, 76, 78) | 95 | 100 | 100 | 1,91 s | 2,18 s | 968 ms | 0 |
+| Ordinateur | 95 (95, 95, 95) | 96 | 100 | 100 | 0,44 s | 0,55 s | 189 ms | 0 |
+
+Lighthouse tourne sans processeur graphique : il mesure le mode léger. L'écart à 85 sur mobile
+vient du TBT : la création de toutes les scènes au démarrage (une tâche d'environ 0,7 s sur le
+téléphone simulé). L'accessibilité (95) compte des textes de scènes pas encore atteintes, lus sur
+le fond de page au lieu de leur fond de nuit ; l'audit axe scène par scène (E2E) est sans écart.
