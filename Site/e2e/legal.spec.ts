@@ -18,7 +18,7 @@ for (const [path, title] of PAGES) {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText(title)
     }
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
-    expect(results.violations.map((v) => v.id)).toEqual([])
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`)).toEqual([])
   })
 }
 

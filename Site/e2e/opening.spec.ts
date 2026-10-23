@@ -98,7 +98,7 @@ test.describe('Ouverture', () => {
       const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       if (mode === 'full') builder.include('[data-scene="opening"]').include('[data-site-header]')
       const results = await builder.analyze()
-      expect(results.violations.map((v) => `${mode} ${v.id}: ${v.nodes.length}`)).toEqual([])
+      expect(results.violations.map((v) => `${mode} ${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`)).toEqual([])
     }
   })
 })
