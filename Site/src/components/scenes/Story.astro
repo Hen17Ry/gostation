@@ -1,0 +1,198 @@
+---
+/**
+ * Scènes 2 à 7 en version texte (storyboard §2) : c'est déjà la lecture sans JavaScript et la
+ * version réduite. Leur mise en scène animée arrive après validation de l'ouverture.
+ */
+import { downloadHref } from '@/lib/config'
+
+import Icon from '../Icon.astro'
+
+const scenes = [
+  {
+    id: 'probleme',
+    kicker: 'Le problème',
+    title: 'La bouteille est vide.',
+    steps: [
+      'Première station : rupture.',
+      'Deuxième station : rupture.',
+      'On tourne. On perd du temps.',
+      'Et on finit par acheter au hasard.',
+    ],
+  },
+  {
+    id: 'solution',
+    kicker: 'La solution',
+    title: 'Choisissez. GoStation cherche.',
+    steps: [
+      'Gaz, puis 10 kg.',
+      'La recherche s’élargit pas à pas : 500 m, 1 km, 2 km…',
+      'Seules s’allument les stations ouvertes, avec du stock mis à jour.',
+    ],
+  },
+  {
+    id: 'itineraire',
+    kicker: 'L’itinéraire',
+    title: 'Le trajet le plus rapide, sur les vraies routes.',
+    steps: ['Étapes en français, pas à pas.', 'Mis à jour il y a 12 min.', 'Gaz 10 kg : en stock. Vous y êtes.'],
+  },
+  {
+    id: 'gerants',
+    kicker: 'Pour les gérants',
+    title: 'Vos stocks à jour en un geste.',
+    steps: [
+      '+ et − pour les bouteilles, litres pour les carburants.',
+      'Rien n’a changé ? Un bouton suffit.',
+      'Un rappel toutes les 4 h, pendant vos horaires d’ouverture.',
+      'Gratuit pour les stations.',
+    ],
+  },
+  {
+    id: 'compagnies',
+    kicker: 'Pour les compagnies',
+    title: 'Tout votre réseau, d’un coup d’œil.',
+    steps: [
+      'Sur demande, un panneau dédié : les stocks de vos stations en temps réel, les ruptures, les alertes.',
+      'Vos données ne sont jamais partagées avec une autre compagnie.',
+    ],
+  },
+]
+---
+
+<div class="story">
+  {scenes.map((s) => (
+    <section id={s.id} class="story-scene" aria-labelledby={`${s.id}-titre`}>
+      <p class="kicker">{s.kicker}</p>
+      <h2 id={`${s.id}-titre`}>{s.title}</h2>
+      <ol class="steps">
+        {s.steps.map((step) => (
+          <li>{step}</li>
+        ))}
+      </ol>
+    </section>
+  ))}
+
+  <section id="telecharger" class="story-scene story-final" aria-labelledby="final-titre">
+    <h2 id="final-titre" class="wordmark">
+      GoStation
+    </h2>
+    <p class="final-tagline">Là où il y en a.</p>
+    <div class="final-actions">
+      <a class="btn btn-primary btn-lg" href={downloadHref} data-download>
+        <Icon name="download" />
+        <span>Télécharger l'app</span>
+      </a>
+    </div>
+  </section>
+</div>
+
+<footer class="site-footer">
+  <nav aria-label="Informations légales">
+    <ul>
+      <li>
+        <a href="/politique-confidentialite">Politique de confidentialité</a>
+      </li>
+      <li>
+        <a href="/cgu">Conditions d’utilisation</a>
+      </li>
+      <li>
+        <a href="/suppression-compte">Suppression de compte</a>
+      </li>
+    </ul>
+  </nav>
+  <p>© GoStation · Bénin</p>
+</footer>
+
+<style>
+  .story {
+    background: var(--night);
+    color: var(--night-foreground);
+  }
+
+  .story-scene {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: clamp(5rem, 16svh, 10rem) max(1rem, 6vw);
+  }
+
+  .kicker {
+    margin: 0 0 1rem;
+    color: var(--color-brand-400);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  h2 {
+    max-width: 18ch;
+    margin: 0;
+    font-size: clamp(2.25rem, 6vw, 5rem);
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+  }
+
+  .steps {
+    display: grid;
+    gap: 0.75rem;
+    max-width: 38rem;
+    margin: 2rem 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--night-muted);
+    font-size: clamp(1.0625rem, 1.4vw, 1.375rem);
+  }
+
+  .story-final {
+    text-align: center;
+  }
+  .wordmark {
+    max-width: none;
+    font-size: clamp(3.5rem, 15vw, 14rem);
+    font-stretch: 80%;
+    line-height: 0.9;
+    text-transform: uppercase;
+  }
+  .final-tagline {
+    margin: 1rem 0 0;
+    color: var(--color-brand-400);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(1.5rem, 3vw, 2.5rem);
+  }
+  .final-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 2.5rem;
+  }
+
+  .site-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 2rem max(1rem, 6vw) calc(2rem + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-neutral-800);
+    background: var(--night);
+    color: var(--night-muted);
+    font-size: 0.9375rem;
+  }
+  .site-footer ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .site-footer a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--night-foreground);
+    text-underline-offset: 3px;
+  }
+  .site-footer p {
+    margin: 0;
+  }
+</style>

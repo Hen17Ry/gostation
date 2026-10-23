@@ -1,0 +1,38 @@
+---
+/** Icônes Lucide (ISC), tracées en ligne : aucune requête, couleur héritée du texte. */
+const paths = {
+  download: ['M12 15V3', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'm7 10 5 5 5-5'],
+  'arrow-down': ['M12 5v14', 'm19 12-7 7-7-7'],
+  menu: ['M4 5h16', 'M4 12h16', 'M4 19h16'],
+  x: ['M18 6 6 18', 'm6 6 12 12'],
+  pause: ['M14 4h4v16h-4z', 'M6 4h4v16H6z'],
+  play: ['M6 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L7.5 3.64A1 1 0 0 0 6 4.5Z'],
+} as const
+
+type Props = { name: keyof typeof paths; class?: string }
+const { name, class: className } = Astro.props
+---
+
+<svg
+  class:list={['icon', className]}
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+  focusable="false"
+>
+  {paths[name].map((d) => (
+    <path d={d} />
+  ))}
+</svg>
+
+<style>
+  .icon {
+    width: 1.25em;
+    height: 1.25em;
+    flex: none;
+  }
+</style>

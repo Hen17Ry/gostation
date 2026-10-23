@@ -1,0 +1,92 @@
+---
+/**
+ * Bandeau orange défilant de l'ouverture. Le texte défilant est décoratif (aria-hidden, dupliqué
+ * par le script pour boucler) ; les lecteurs d'écran lisent une phrase complète, une seule fois.
+ */
+const items = ['Gaz 5 kg', '10 kg', '25 kg', 'Essence', 'Gasoil', 'En stock près de vous']
+---
+
+<div class="band" data-band>
+  <div class="band-bg" data-band-bg></div>
+  <div class="band-text" data-band-text>
+    <p class="sr-only">Gaz 5 kg, 10 kg et 25 kg, essence, gasoil : en stock près de vous.</p>
+    <div class="band-viewport" aria-hidden="true">
+      <div class="band-track" data-marquee-track>
+        <span class="band-group">
+          {items.map((item) => (
+            <>
+              <span class="band-item">{item}</span>
+              <span class="band-dot" />
+            </>
+          ))}
+        </span>
+      </div>
+    </div>
+  </div>
+  <slot />
+</div>
+
+<style>
+  .band {
+    position: absolute;
+    inset: auto 0 0;
+    height: var(--band-h);
+    color: var(--band-foreground);
+    /* Le fond s'étire jusqu'à couvrir l'écran à la fin de la scène : pas de découpe ici. */
+  }
+
+  .band-bg {
+    position: absolute;
+    inset: 0;
+    background: var(--band);
+    transform-origin: 50% 100%;
+    will-change: transform;
+  }
+
+  .band-text {
+    position: relative;
+    padding-top: var(--band-pad);
+  }
+
+  .band-viewport {
+    overflow: clip;
+  }
+
+  .band-track {
+    display: flex;
+    width: max-content;
+    will-change: transform;
+  }
+
+  .band-group {
+    display: flex;
+    flex: none;
+    align-items: center;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-stretch: 75%;
+    font-size: var(--band-font);
+    line-height: 1;
+    letter-spacing: -0.005em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .band-item {
+    padding-inline: 0.2em;
+  }
+
+  .band-dot {
+    width: 0.16em;
+    height: 0.16em;
+    margin-inline: 0.22em;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Sans mouvement : une ligne immobile, coupée au bord. */
+  :global(html:not(.js)) .band-track,
+  :global(html[data-motion='reduced']) .band-track {
+    transform: none;
+  }
+</style>

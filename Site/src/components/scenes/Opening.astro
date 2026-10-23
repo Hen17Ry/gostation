@@ -1,0 +1,212 @@
+---
+/** Scène 1 — Ouverture (docs/landing/storyboard.md §2). */
+import { downloadHref } from '@/lib/config'
+
+import Bottle from '../Bottle.astro'
+import Icon from '../Icon.astro'
+import Marquee from '../Marquee.astro'
+---
+
+<section id="ouverture" class="opening" aria-labelledby="ouverture-titre" data-scene="opening">
+  <div class="opening-copy" data-opening-copy>
+    <h1 id="ouverture-titre" class="opening-title reveal-fallback" data-opening-title>
+      <span class="title-a">Le gaz, l'essence, le gasoil.</span> <span class="title-b">Là où il y en a.</span>
+    </h1>
+    <p class="opening-lede reveal-fallback" data-opening-enter>
+      GoStation vous montre la station la plus proche qui a votre produit en stock, puis vous y guide.
+    </p>
+    <div class="opening-actions reveal-fallback" data-opening-enter>
+      <a class="btn btn-primary btn-lg" href={downloadHref} data-download>
+        <Icon name="download" />
+        <span>Télécharger l'app</span>
+      </a>
+      <a class="btn btn-ghost btn-lg" href="#probleme">
+        <span>Comment ça marche</span>
+        <Icon name="arrow-down" />
+      </a>
+    </div>
+    <p class="opening-note reveal-fallback" data-opening-enter>
+      Android · gratuit
+    </p>
+  </div>
+
+  <Bottle />
+
+  <Marquee>
+    <a class="scroll-hint" href="#probleme" data-scroll-hint>
+      <span>Faites défiler</span>
+      <Icon name="arrow-down" />
+    </a>
+    <button class="motion-toggle" type="button" hidden data-motion-toggle aria-label="Mettre les animations en pause">
+      <span class="motion-toggle-pause">
+        <Icon name="pause" />
+      </span>
+      <span class="motion-toggle-play">
+        <Icon name="play" />
+      </span>
+    </button>
+  </Marquee>
+</section>
+
+<style>
+  .opening {
+    --band-h: 30svh;
+    --band-pad: 3svh;
+    --band-font: min(12svh, 9vw);
+    --stage-h: min(54svh, 46vw);
+    position: relative;
+    height: 100svh;
+    min-height: 34rem;
+    overflow: clip;
+  }
+
+  .opening-copy {
+    position: absolute;
+    top: calc(var(--header-height) + max(2rem, 7svh));
+    left: max(1rem, 6vw);
+    z-index: 2;
+    width: min(44rem, 54vw);
+  }
+
+  .opening-title {
+    margin: 0;
+    font-size: min(6vw, 9.6svh);
+    line-height: 0.94;
+    letter-spacing: -0.025em;
+  }
+  .title-a,
+  .title-b {
+    display: block;
+  }
+  /* Orange 600 : 4,4:1 sur le fond clair, au-dessus des 3:1 exigés pour un titre de cette taille. */
+  .title-b {
+    color: var(--color-brand-600);
+  }
+  @media (prefers-color-scheme: dark) {
+    .title-b {
+      color: var(--color-brand-500);
+    }
+  }
+  /* SplitText : chaque ligne glisse dans son masque. */
+  .opening-title :global(.title-line) {
+    padding-bottom: 0.06em;
+  }
+
+  .opening-lede {
+    max-width: 30rem;
+    margin: 1.5rem 0 0;
+    color: var(--muted-foreground);
+    font-size: clamp(1.0625rem, 1.25vw, 1.25rem);
+    line-height: 1.5;
+  }
+
+  .opening-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+
+  .opening-note {
+    margin: 0.875rem 0 0;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+  }
+
+  /* Bouteille posée sur le bandeau : son pied (sol du cadre, 4,68 % au-dessus du bas) touche le
+     haut du bandeau. */
+  .opening :global(.bottle-stage) {
+    position: absolute;
+    right: max(1rem, 9vw);
+    bottom: calc(var(--band-h) - var(--stage-h) * 0.0468);
+    height: var(--stage-h);
+  }
+
+  /* Avant le script (modes animés) : titre et entrées masqués, bandeau sous l'écran. */
+  :global(html.js:not([data-motion='reduced'])) .opening-title {
+    visibility: hidden;
+  }
+  :global(html.js:not([data-motion='reduced'])) [data-opening-enter] {
+    opacity: 0;
+  }
+  :global(html.js:not([data-motion='reduced'])) .opening :global([data-band]) {
+    transform: translateY(101%);
+  }
+
+  .scroll-hint {
+    position: absolute;
+    left: max(1rem, 6vw);
+    bottom: max(0.75rem, 2svh);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    color: var(--band-foreground);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .scroll-hint:focus-visible {
+    outline-color: var(--band-foreground);
+  }
+
+  .motion-toggle {
+    position: absolute;
+    right: max(0.75rem, 2vw);
+    bottom: max(0.75rem, 2svh);
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    border: 1.5px solid color-mix(in oklch, var(--band-foreground) 55%, transparent);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--band-foreground);
+    cursor: pointer;
+  }
+  .motion-toggle:hover {
+    background: color-mix(in oklch, var(--band-foreground) 10%, transparent);
+  }
+  .motion-toggle:focus-visible {
+    outline-color: var(--band-foreground);
+  }
+  .motion-toggle[data-state='paused'] .motion-toggle-pause,
+  .motion-toggle:not([data-state='paused']) .motion-toggle-play {
+    display: none;
+  }
+  .motion-toggle span {
+    display: grid;
+  }
+
+  @media (max-width: 767px) {
+    .opening {
+      --band-h: 19svh;
+      --band-pad: 2.4svh;
+      --band-font: 15vw;
+      --stage-h: min(46svh, 92vw);
+    }
+    .opening-copy {
+      top: calc(var(--header-height) + 1.25rem);
+      right: 1rem;
+      left: 1rem;
+      width: auto;
+    }
+    .opening-title {
+      font-size: min(10.4vw, 6.4svh);
+    }
+    .opening-lede {
+      margin-top: 0.875rem;
+      font-size: 1rem;
+    }
+    /* Le bouton « Télécharger » de l'en-tête reste visible : pas de doublon sur petit écran. */
+    .opening-actions,
+    .opening-note {
+      display: none;
+    }
+    .opening :global(.bottle-stage) {
+      right: 0;
+      left: 0;
+      margin-inline: auto;
+    }
+  }
+</style>
