@@ -61,6 +61,22 @@ for ns in $servers; do
     fi
   done
 done
+# Messagerie : un seul enregistrement SPF à l'apex (deux SPF = « permerror » chez les destinataires,
+# les emails de Brevo partiraient en indésirables), qui autorise Brevo (envoi). Si le domaine reçoit
+# du courrier par Cloudflare Email Routing (contact@ → boîte personnelle, DEPLOY.md §17), ce même
+# SPF autorise aussi Cloudflare et les trois MX sont présents.
+for ns in $servers; do
+  spf="$(q TXT "$DOMAIN" @"$ns" | tr -d '"' | grep -i 'v=spf1' || true)"
+  count="$(printf '%s' "$spf" | grep -ci 'v=spf1' || true)"
+  [[ "$count" -eq 1 ]] || problem "$ns : $count enregistrement(s) SPF sur $DOMAIN (un seul attendu, fusionné)"
+  [[ "$spf" == *"include:${MAIL_SPF_SENDER:-spf.brevo.com}"* ]] || problem "$ns : le SPF n'autorise pas ${MAIL_SPF_SENDER:-spf.brevo.com} (envoi des emails)"
+  mx="$(q MX "$DOMAIN" @"$ns")"
+  if grep -qi 'mx.cloudflare.net' <<< "$mx"; then
+    [[ "$spf" == *"include:_spf.mx.cloudflare.net"* ]] || problem "$ns : MX Cloudflare mais SPF sans include:_spf.mx.cloudflare.net"
+    [[ "$(grep -ciE 'route[123]\.mx\.cloudflare\.net' <<< "$mx")" -eq 3 ]] || problem "$ns : MX Cloudflare incomplets (route1, route2 et route3 attendus)"
+  fi
+done
+
 distinct="$(printf '%s' "$serials" | sort -u | grep -c . || true)"
 [[ "$distinct" -le 1 ]] || problem "numéros de série différents selon les serveurs : $(printf '%s' "$serials" | sort -u | tr '\n' ' ')"
 
@@ -68,4 +84,4 @@ if [[ ${#problems[@]} -gt 0 ]]; then
   printf '✗ %s\n' "${problems[@]}"
   exit 1
 fi
-echo "✔ $DOMAIN cohérent sur $(echo "$servers" | wc -l) serveurs ($NAMES)"
+echo "✔ $DOMAIN cohérent sur $(echo "$servers" | wc -l) serveurs ($NAMES ; SPF unique)"
