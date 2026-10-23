@@ -139,10 +139,12 @@ export function final(rigs: Rigs, mm: gsap.MatchMedia) {
       }),
     )
       .fromTo(section, { autoAlpha: 1 }, { autoAlpha: 0, duration: 0.8 }, 0)
+      // La Terre monte avec la page (0,45 écran, la plage du fondu) : actions et globe partent d'un
+      // bloc, sans se croiser.
       .fromTo(
         earth.poses.out,
-        { opacity: 1, y: 0, scale: 1 },
-        { opacity: 0, y: () => -window.innerHeight * 0.18, scale: 0.92, duration: 1, onUpdate: earth.apply },
+        { opacity: 1, y: 0 },
+        { opacity: 0, y: () => -window.innerHeight * 0.45, duration: 1, onUpdate: earth.apply },
         0,
       )
   }
