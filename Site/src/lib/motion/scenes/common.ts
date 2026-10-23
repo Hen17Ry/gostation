@@ -33,6 +33,16 @@ export function pinned(section: HTMLElement, onUpdate?: (progress: number) => vo
   return invalidateOnResize(tl)
 }
 
+/**
+ * Fin de scène : le texte s'efface juste avant que la scène ne remonte, pour ne jamais passer sous
+ * l'en-tête. immediateRender: false : sans effet avant 0,96 (la scène peut aussi le faire entrer).
+ */
+export function leave(tl: gsap.core.Timeline, section: HTMLElement) {
+  const copy = section.querySelector('.scene-copy')
+  if (!copy) return
+  tl.fromTo(copy, { autoAlpha: 1, y: 0 }, { autoAlpha: 0, y: -20, duration: 0.04, immediateRender: false }, 0.96)
+}
+
 /** Termine la timeline exactement à 1 (les positions des étapes sont des fractions). */
 export const end = (tl: gsap.core.Timeline) => tl.set({}, {}, 1)
 

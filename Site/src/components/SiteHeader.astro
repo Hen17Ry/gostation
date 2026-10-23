@@ -112,9 +112,10 @@ const download = home && downloadHref.startsWith('#') ? `${home}${downloadHref}`
 
   /* Teintes de la barre selon ce qu'elle recouvre (data-tone, lib/motion/header-tone.ts) : verre
      clair ou sombre selon le thème du système sur les sections « page », verre sombre sur la nuit,
-     barre presque opaque sur l'orange (contraste net, jamais de mélange terne). */
+     barre presque opaque sur l'orange (contraste net, jamais de mélange terne). Toujours assez
+     opaque pour que rien de ce qui passe dessous ne se lise au travers : elle reste au-dessus. */
   .site-header {
-    --hb-alpha: 92%;
+    --hb-alpha: 95%;
     --hb-bg: color-mix(in oklch, var(--surface) var(--hb-alpha), transparent);
     --hb-border: color-mix(in oklch, var(--border) 70%, transparent);
     --hb-fg: var(--foreground);
@@ -126,12 +127,12 @@ const download = home && downloadHref.startsWith('#') ? `${home}${downloadHref}`
     padding: 0.625rem max(1rem, env(safe-area-inset-left));
     pointer-events: none;
   }
-  /* Mode complet : un peu plus de transparence, le flou fait le reste. */
+  /* Mode complet : à peine plus de transparence, le flou fait le reste. */
   :global(html[data-motion='full']) .site-header {
-    --hb-alpha: 74%;
+    --hb-alpha: 90%;
   }
   .site-header[data-tone='night'] {
-    --hb-bg: color-mix(in oklch, var(--color-neutral-900) 72%, transparent);
+    --hb-bg: color-mix(in oklch, var(--color-neutral-900) 90%, transparent);
     --hb-border: color-mix(in oklch, var(--color-white) 10%, transparent);
     --hb-fg: var(--color-neutral-50);
     --hb-muted: var(--color-neutral-300);

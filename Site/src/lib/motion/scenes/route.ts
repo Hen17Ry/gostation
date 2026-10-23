@@ -6,7 +6,7 @@
 import { city as data, fractionsOnPolyline, pathCenter } from '../../city'
 import { NAV_STEPS, type Screen } from '../../phone/painter'
 import type { Rigs } from '../rigs'
-import { end, local, pinned, steps } from './common'
+import { end, leave, local, pinned, steps } from './common'
 
 const DRAW = { from: 0.14, length: 0.7 }
 
@@ -105,6 +105,7 @@ export function route(rigs: Rigs, mm: gsap.MatchMedia) {
 
     const second = DRAW.from + DRAW.length * (marks[0] ?? 0.3)
     steps(tl, items, [0.04, second, 0.86])
+    leave(tl, section)
     end(tl)
   })
 }

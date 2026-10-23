@@ -6,7 +6,7 @@
 import type { Screen } from '../../phone/painter'
 import { backdrop } from '../backdrop'
 import type { Rigs } from '../rigs'
-import { end, local, pinned, steps } from './common'
+import { end, leave, local, pinned, steps } from './common'
 
 function screenAt(p: number): Screen {
   const tap = (x: number, y: number, a: number, b: number) => ({ x, y, t: local(p, a, b) })
@@ -52,6 +52,7 @@ export function managers(rigs: Rigs, mm: gsap.MatchMedia) {
     if (cta) tl.fromTo(cta, { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.05 }, 0.8)
 
     steps(tl, items, [0.22, 0.42, 0.58, 0.78])
+    leave(tl, section)
     end(tl)
   })
 }

@@ -237,10 +237,12 @@ export function opening(motion: Motion) {
         { scaleY: () => window.innerHeight / Math.max(1, band.offsetHeight), duration: 0.5, ease: 'power2.in' },
         0.42,
       )
-      .to(bandText, { yPercent: -50, autoAlpha: 0, duration: 0.3, ease: 'power1.in' }, 0.45)
+      .to(bandText, { yPercent: -50, autoAlpha: 0, duration: 0.2, ease: 'power1.in' }, 0.42)
       .to(state, { sink: 1, duration: 0.42, ease: 'power2.in', onUpdate: apply }, 0.45)
-      // Une fois l'écran couvert, le décor fixe prend le même orange (invisible sous le bandeau).
+      // Une fois l'écran couvert, le décor fixe prend le même orange (invisible sous le bandeau),
+      // puis le bandeau s'efface : la section remonte sans lui pendant que la nuit tombe (scène 2).
       .to(backdrop.w, { orangeIn: 1, duration: 0.06, onUpdate: backdrop.apply }, 0.92)
+      .to(band, { autoAlpha: 0, duration: 0.02 }, 0.98)
 
     return () => {
       pinTrigger = null

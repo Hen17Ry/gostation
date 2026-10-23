@@ -30,7 +30,7 @@ const targets: Target[] = [
 /** Points de passage : scène, avancement (de l'épinglage, ou de la hauteur), durée, capture. */
 const WAYPOINTS: [scene: string, fraction: number, ms: number, label?: string][] = [
   ['opening', 0.45, 2200, '04-rotation'],
-  ['opening', 0.97, 2000, '05-l-orange-envahit'],
+  ['opening', 0.97, 2000, '05-le-titre-arrive-avec-l-orange'],
   ['problem', 0.04, 1800, '06-le-titre-sur-l-orange'],
   ['problem', 0.2, 2000, '07-la-nuit-tombe'],
   ['problem', 0.62, 3200, '08-ruptures'],
@@ -44,12 +44,13 @@ const WAYPOINTS: [scene: string, fraction: number, ms: number, label?: string][]
   ['managers', 0.32, 1800, '16-le-rappel'],
   ['managers', 0.72, 2800, '17-rien-n-a-change'],
   ['companies', 0.35, 3000, '18-les-compagnies'],
-  ['final', 0.14, 2600, '19-le-volet'],
-  ['final', 0.42, 2400, '20-lettre-par-lettre'],
+  ['final', 0.1, 2600, '19-le-trait-de-lumiere'],
+  ['final', 0.42, 2400, '20-lettre-par-lettre-sur-la-nuit'],
   ['final', 0.74, 2600, '21-zoom-arriere'],
   ['final', 1, 2200, '22-le-benin-vu-de-l-espace'],
-  ['questions', 0.35, 2600, '23-questions'],
-  ['end', 1, 2200, '24-pied-de-page'],
+  ['questions', 0.12, 2000, '23-la-terre-s-eloigne'],
+  ['questions', 0.45, 2600, '24-questions'],
+  ['end', 1, 2200, '25-pied-de-page'],
 ]
 
 /** Capture en WebP (qualité 86) : légère pour le dépôt, fidèle pour la relecture. */
@@ -68,7 +69,7 @@ const positionOf = (page: Page, scene: string, fraction: number) =>
     ([scene, fraction]) => {
       if (scene === 'end') return document.documentElement.scrollHeight - innerHeight
       const el = document.querySelector(`[data-scene="${scene}"]`)!
-      const spacer = (el.closest('.pin-spacer') ?? el) as HTMLElement
+      const spacer = (el.closest('[data-pin]') ?? el) as HTMLElement
       const top = spacer.getBoundingClientRect().top + scrollY
       const length = Math.max(innerHeight, spacer.offsetHeight - innerHeight)
       return top + Number(fraction) * length

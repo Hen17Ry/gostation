@@ -72,6 +72,12 @@
   --night-muted: var(--color-neutral-400);
   --band: var(--color-brand-500);
   --band-foreground: var(--color-brand-950);
+  /* L'espace du final et des questions : noir, une lueur chaude au ras de l'horizon (pas de gris). */
+  --space: radial-gradient(
+    120% 90% at 50% 112%,
+    color-mix(in oklch, var(--color-brand-950) 34%, var(--color-black)),
+    var(--color-black) 62%
+  );
   --sketch: color-mix(in oklch, var(--foreground) 72%, transparent);
   --sketch-faint: color-mix(in oklch, var(--foreground) 32%, transparent);
   --header-height: 4rem;
@@ -110,6 +116,10 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+  /* Atteint au clavier, un élément s'arrête sous la barre d'en-tête, jamais dessous (WCAG 2.4.11). */
+  :is(a, button, summary, [tabindex]) {
+    scroll-margin-top: calc(var(--header-height) + 1.5rem);
   }
 
   ::selection {
@@ -246,6 +256,25 @@ html.js:not([data-motion='reduced']) [data-pin] {
 html.js:not([data-motion='reduced']),
 html.js:not([data-motion='reduced']) body {
   overflow-anchor: none;
+}
+/* Le problème chevauche la fin de l'ouverture (hauteur de sa section) : il remonte pendant que
+   l'orange envahit l'écran, son titre y apparaît (scenes/problem.ts), et son épinglage commence
+   à l'instant où celui de l'ouverture finit. Aucun aplat orange vide entre les deux. Rien à
+   cliquer dans la scène : les clics vont à l'ouverture qu'elle recouvre (bouton Pause du bandeau). */
+html.js:not([data-motion='reduced']) [data-pin='problem'] {
+  pointer-events: none;
+}
+html.js:not([data-motion='reduced']) [data-pin='problem'] > .scene {
+  margin-top: calc(-1 * max(100svh, 34rem));
+}
+/* Avant que la scène ne les fasse entrer : déjà à l'écran sur mobile (ouverture plus courte). */
+html.js:not([data-motion='reduced']) [data-pin='problem'] :is(.scene-copy, .scene-scrim) {
+  visibility: hidden;
+}
+/* Les questions arrivent une fois le final parti : la Terre s'efface sur ce premier espace
+   (scenes/final.ts), puis la FAQ suit, sur le même ciel. */
+html.js:not([data-motion='reduced']) [data-scene='questions'] {
+  padding-top: calc(45svh + clamp(5rem, 14svh, 8rem));
 }
 
 /* ── Scènes (storyboard §2) ─────────────────────────────────────────────────────────────────── */

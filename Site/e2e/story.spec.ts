@@ -52,9 +52,10 @@ test.describe('Le parcours', () => {
       await expect(page.locator('[data-final-cta]').getByRole('link', { name: "Télécharger l'app" })).toBeVisible()
       await expect.poll(tone).toBe('night')
 
-      // Scène 8 : les questions, sur le fond de page.
-      await scrollToScene(page, 'questions', 0.3)
-      await expect.poll(tone).toBe('page')
+      // Scène 8 : la Terre partie, les questions sur le même espace.
+      await scrollToScene(page, 'questions', 0.5)
+      await expect.poll(tone).toBe('night')
+      await expect(page.getByRole('heading', { name: 'Questions' })).toBeVisible()
     })
   }
 
@@ -84,6 +85,7 @@ test.describe('Le parcours', () => {
       expect(results.violations.map((v) => `${scene} ${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`)).toEqual([])
     }
   })
+
   test('scènes créées à l’approche, détruites au loin, sans bouger la mise en page', async ({ page }) => {
     test.setTimeout(90_000)
     await page.goto('/?mode=lite')

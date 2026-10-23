@@ -6,7 +6,7 @@
 import { city as data } from '../../city'
 import type { Screen } from '../../phone/painter'
 import type { Rigs } from '../rigs'
-import { end, local, pinned, steps } from './common'
+import { end, leave, local, pinned, steps } from './common'
 
 /** Écran du téléphone selon l'avancement de la scène (taps, paliers, résultats). */
 function screenAt(p: number): Screen {
@@ -82,6 +82,7 @@ export function solution(rigs: Rigs, mm: gsap.MatchMedia) {
     )
 
     steps(tl, items, [0.04, 0.32, 0.62, 0.8])
+    leave(tl, section)
     end(tl)
   })
 }
