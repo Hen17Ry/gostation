@@ -1,0 +1,117 @@
+---
+/**
+ * Mise en page des pages de texte (textes légaux) : en-tête, contenu, pied de page, sans décor ni
+ * animation (aucun moteur d'animation chargé). Seule la teinte de l'en-tête suit les sections.
+ */
+import textFont from '@/assets/fonts/geist-400-700.woff2?url'
+import SiteFooter from '@/components/SiteFooter.astro'
+import SiteHeader from '@/components/SiteHeader.astro'
+import { config, indexable } from '@/lib/config'
+import { palette } from '@/lib/tokens.generated'
+import '@/styles/global.css'
+
+type Props = { title: string; description: string; path: string }
+const { title, description, path } = Astro.props
+---
+
+<!doctype html>
+<html lang="fr" class="page-text">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={`${config.siteUrl}${path}`} />
+    {!indexable && <meta name="robots" content="noindex, nofollow" />}
+    <meta name="theme-color" content={palette.neutral[50]} media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content={palette.neutral[950]} media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href={textFont} as="font" type="font/woff2" crossorigin />
+  </head>
+  <body>
+    <SiteHeader home="/" />
+    <main id="contenu" tabindex="-1" class="text-page" data-theme="page">
+      <slot />
+    </main>
+    <SiteFooter />
+    <script>
+      import { headerTone } from '@/lib/motion/header-tone'
+
+      headerTone()
+    </script>
+  </body>
+</html>
+
+<style>
+  .text-page {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: calc(var(--header-height) + 3rem) max(1rem, 5vw) 5rem;
+    line-height: 1.65;
+  }
+  .text-page :global(h1) {
+    margin: 0 0 1.5rem;
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+  }
+  .text-page :global(h2) {
+    margin: 2.5rem 0 0.75rem;
+    font-size: 1.5rem;
+    line-height: 1.2;
+  }
+  .text-page :global(h3) {
+    margin: 1.75rem 0 0.5rem;
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    font-weight: 700;
+  }
+  .text-page :global(ol),
+  .text-page :global(ul) {
+    padding-left: 1.5rem;
+  }
+  .text-page :global(ol) {
+    list-style: decimal;
+  }
+  .text-page :global(ul) {
+    list-style: disc;
+  }
+  .text-page :global(li + li) {
+    margin-top: 0.25rem;
+  }
+  .text-page :global(a) {
+    color: var(--brand-text);
+    text-underline-offset: 3px;
+  }
+  .text-page :global(.note) {
+    margin: 1.5rem 0;
+    padding: 0.25rem 1.25rem;
+    border-left: 4px solid var(--primary);
+    border-radius: 0.5rem;
+    background: var(--primary-subtle);
+    color: var(--primary-subtle-foreground);
+  }
+  .text-page :global(.table) {
+    overflow-x: auto;
+    margin: 1.25rem 0;
+  }
+  .text-page :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+  .text-page :global(th),
+  .text-page :global(td) {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .text-page :global(th) {
+    background: var(--muted);
+  }
+  .text-page :global(code) {
+    font-size: 0.9em;
+  }
+</style>

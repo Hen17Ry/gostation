@@ -1,0 +1,365 @@
+---
+/** Scène 6 — Pour les compagnies : le réseau sur la carte, l'aperçu du panneau (storyboard §2). */
+import region from '@/data/region.json'
+import { mailtoHref, whatsappHref } from '@/lib/config'
+
+import Icon from '../Icon.astro'
+
+const label = { stock: 'En stock', low: 'Stock bas', rupture: 'Rupture' } as const
+const towns = ['Cotonou', 'Abomey-Calavi', 'Porto-Novo', 'Ouidah', 'Sèmè-Kpodji']
+  .map((name) => region.towns.find((t) => t.name === name))
+  .filter((t): t is (typeof region.towns)[number] => !!t)
+const tiles = [
+  { value: '7 / 9', label: 'Stations à jour', tone: 'good' },
+  { value: '2', label: 'Stocks bas', tone: 'warn' },
+  { value: '1', label: 'Rupture', tone: 'bad' },
+]
+const bars = [
+  { name: 'Cotonou · Akpakpa', value: 82 },
+  { name: 'Abomey-Calavi', value: 64 },
+  { name: 'Porto-Novo', value: 47 },
+  { name: 'Sèmè-Kpodji', value: 18 },
+]
+---
+
+<section
+  id="compagnies"
+  class="scene companies"
+  data-scene="companies"
+  data-theme="page"
+  aria-labelledby="compagnies-titre"
+>
+  <div class="companies-copy" data-companies-copy>
+    <p class="kicker companies-kicker">Pour les compagnies</p>
+    <h2 id="compagnies-titre">Tout votre réseau, d’un coup d’œil.</h2>
+    <p class="companies-lede">
+      Sur demande, un panneau dédié : les stocks de vos stations en temps réel, les ruptures, les alertes.
+    </p>
+    <p class="companies-note">
+      <Icon name="check" />
+      <span>Vos données ne sont jamais partagées avec une autre compagnie.</span>
+    </p>
+    <div class="companies-actions">
+      <a class="btn btn-primary btn-lg" href={mailtoHref}>
+        <Icon name="mail" />
+        <span>Nous contacter</span>
+      </a>
+      {whatsappHref && (
+        <a class="btn btn-ghost btn-lg" href={whatsappHref} rel="noopener noreferrer">
+          <Icon name="message" />
+          <span>WhatsApp</span>
+        </a>
+      )}
+    </div>
+  </div>
+
+  <div class="companies-visual">
+    <figure class="network" data-network>
+      <img
+        src="/maps/sud-benin.svg"
+        alt=""
+        width={region.width}
+        height={region.height}
+        loading="lazy"
+        decoding="async"
+      />
+      <svg viewBox={`0 0 ${region.width} ${region.height}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        {towns.map((t) => (
+          <text class="town" x={t.at[0]} y={t.at[1]! - 26} text-anchor="middle">
+            {t.name}
+          </text>
+        ))}
+        {region.network.map((s) => (
+          <g
+            class:list={['net-station', `is-${s.status}`]}
+            transform={`translate(${s.at[0]} ${s.at[1]})`}
+            data-net-station
+          >
+            <circle r="20" />
+            {s.status === 'stock' && <path d="M-8 0l5 5 10-10" />}
+            {s.status === 'low' && <path d="M0 -9v9M0 6v1" />}
+            {s.status === 'rupture' && <path d="M-7 -7l14 14M7 -7l-14 14" />}
+          </g>
+        ))}
+      </svg>
+      <figcaption class="network-legend">
+        <span class="legend is-stock">
+          <i></i>
+          {label.stock}
+        </span>
+        <span class="legend is-low">
+          <i></i>
+          {label.low}
+        </span>
+        <span class="legend is-rupture">
+          <i></i>
+          {label.rupture}
+        </span>
+      </figcaption>
+    </figure>
+
+    <div class="dashboard" data-dashboard role="group" aria-label="Aperçu du panneau, données d’exemple">
+      <div class="dashboard-head">
+        <span class="dashboard-title">Mon réseau</span>
+        <span class="dashboard-tag">Aperçu · données d’exemple</span>
+      </div>
+      <div class="dashboard-tiles">
+        {tiles.map((t) => (
+          <div class:list={['tile', `is-${t.tone}`]} data-tile>
+            <span class="tile-value">{t.value}</span>
+            <span class="tile-label">{t.label}</span>
+          </div>
+        ))}
+      </div>
+      <p class="dashboard-sub">Gaz 10 kg, stock par station</p>
+      <ul class="dashboard-bars">
+        {bars.map((b) => (
+          <li>
+            <span class="bar-name">{b.name}</span>
+            <span class="bar-track">
+              <span class:list={['bar-fill', b.value < 25 && 'is-low']} data-bar={b.value} />
+            </span>
+            <span class="bar-value">{b.value} %</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .companies {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: center;
+    max-width: 82rem;
+    margin-inline: auto;
+    padding: clamp(6rem, 18svh, 10rem) max(1rem, 6vw);
+    color: var(--foreground);
+  }
+  .companies h2 {
+    margin: 0;
+    font-size: clamp(2.25rem, min(5vw, 8svh), 4.5rem);
+    line-height: 0.98;
+    letter-spacing: -0.022em;
+  }
+  .companies-kicker {
+    color: var(--brand-text);
+  }
+  .companies-lede {
+    margin: 1.5rem 0 0;
+    color: var(--muted-foreground);
+    font-size: clamp(1.0625rem, 1.3vw, 1.25rem);
+  }
+  .companies-note {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    margin: 1.25rem 0 0;
+    font-weight: 600;
+  }
+  .companies-note :global(.icon) {
+    margin-top: 0.15em;
+    color: var(--success);
+  }
+  .companies-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+
+  .companies-visual {
+    display: grid;
+    gap: 1rem;
+  }
+  .network {
+    position: relative;
+    margin: 0;
+    aspect-ratio: 16 / 10;
+    border-radius: 1.5rem;
+    overflow: hidden;
+    background: var(--night);
+  }
+  .network img,
+  .network svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .town {
+    fill: var(--color-neutral-300);
+    font-family: var(--font-sans);
+    font-size: 24px;
+    font-weight: 600;
+  }
+  .net-station circle {
+    stroke: var(--color-neutral-950);
+    stroke-width: 3;
+  }
+  .net-station path {
+    fill: none;
+    stroke: var(--color-neutral-950);
+    stroke-width: 3.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .is-stock circle,
+  .legend.is-stock i {
+    fill: var(--success);
+    background: var(--success);
+  }
+  .is-low circle,
+  .legend.is-low i {
+    fill: var(--warning);
+    background: var(--warning);
+  }
+  .is-rupture circle,
+  .legend.is-rupture i {
+    fill: var(--destructive);
+    background: var(--destructive);
+  }
+  .network-legend {
+    position: absolute;
+    left: 1rem;
+    bottom: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0.5rem 0.875rem;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--night) 85%, transparent);
+    color: var(--color-neutral-100);
+    font-size: 0.8125rem;
+  }
+  .legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .legend i {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+  }
+
+  .dashboard {
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 1.25rem;
+    background: var(--card);
+    box-shadow: 0 24px 48px -24px color-mix(in oklch, var(--color-neutral-950) 30%, transparent);
+  }
+  .dashboard-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dashboard-title {
+    font-weight: 700;
+  }
+  .dashboard-tag {
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .dashboard-tiles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.625rem;
+    margin-top: 1rem;
+  }
+  .tile {
+    display: grid;
+    gap: 0.125rem;
+    padding: 0.75rem;
+    border-radius: 0.875rem;
+    background: var(--muted);
+  }
+  .tile-value {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile-label {
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+  }
+  .tile.is-warn .tile-value {
+    color: var(--brand-text);
+  }
+  .tile.is-bad .tile-value {
+    color: var(--destructive);
+  }
+  .dashboard-sub {
+    margin: 1.125rem 0 0.5rem;
+    color: var(--muted-foreground);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .dashboard-bars {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.875rem;
+  }
+  .dashboard-bars li {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr 3rem;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .bar-track {
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--muted);
+    overflow: hidden;
+  }
+  .bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--primary);
+    transform-origin: 0 50%;
+  }
+  .bar-fill.is-low {
+    background: var(--destructive);
+  }
+  .bar-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  [data-bar='82'] {
+    transform: scaleX(0.82);
+  }
+  [data-bar='64'] {
+    transform: scaleX(0.64);
+  }
+  [data-bar='47'] {
+    transform: scaleX(0.47);
+  }
+  [data-bar='18'] {
+    transform: scaleX(0.18);
+  }
+
+  @media (max-width: 899px) {
+    .companies {
+      grid-template-columns: 1fr;
+    }
+    .dashboard-bars li {
+      grid-template-columns: 7.5rem 1fr 2.75rem;
+    }
+  }
+</style>

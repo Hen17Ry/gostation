@@ -1,0 +1,41 @@
+---
+import Companies from '@/components/scenes/Companies.astro'
+import Final from '@/components/scenes/Final.astro'
+import Managers from '@/components/scenes/Managers.astro'
+import Opening from '@/components/scenes/Opening.astro'
+import Problem from '@/components/scenes/Problem.astro'
+import Questions from '@/components/scenes/Questions.astro'
+import Route from '@/components/scenes/Route.astro'
+import Solution from '@/components/scenes/Solution.astro'
+import Base from '@/layouts/Base.astro'
+---
+
+<Base
+  title="GoStation · Le gaz, l'essence, le gasoil. Là où il y en a."
+  description="Gaz (5, 10 et 25 kg), essence, gasoil : GoStation trouve la station la plus proche qui a votre produit en stock au Bénin, puis vous y guide. Gratuit, sur Android."
+>
+  {/* Scènes épinglées : chacune dans son enveloppe, que ScrollTrigger emploie comme pin-spacer
+       (lib/motion/scenes/common.ts). L'épinglage et ses rafraîchissements ne déplacent alors pas
+       la scène dans le DOM (le premier rendu du titre reste compté, aucun sous-arbre recréé) ;
+       sans animation, l'enveloppe est neutre. */}
+  <div data-pin>
+    <Opening />
+  </div>
+  <div data-pin>
+    <Problem />
+  </div>
+  <div data-pin>
+    <Solution />
+  </div>
+  <div data-pin>
+    <Route />
+  </div>
+  <div data-pin>
+    <Managers />
+  </div>
+  <Companies />
+  <div data-pin>
+    <Final />
+  </div>
+  <Questions />
+</Base>

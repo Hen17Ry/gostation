@@ -69,9 +69,12 @@ admin.{$DOMAIN} {
 	}
 }
 
-# Site public : politique de confidentialité, CGU, suppression de compte (lien exigé par Google
-# Play), générés depuis docs/legal/*.md. Adresses sans extension : /suppression-compte.
-# PUBLIC_EXTRA_HOSTS (www.<domaine>…) : servis aussi, et redirigés vers le domaine principal.
+# Site public (Site/, Astro statique) : l'histoire de GoStation, et les textes légaux aux adresses
+# exigées par Google OAuth et Google Play (/politique-confidentialite, /cgu, /suppression-compte ;
+# sans extension grâce à try_files). PUBLIC_EXTRA_HOSTS (www.<domaine>…) : servis aussi, et
+# redirigés vers le domaine principal. CSP sans unsafe-inline, générée au build
+# (Site/build/csp.mts → csp.txt) ; les autres en-têtes doivent rester identiques à SITE_HEADERS
+# (un test les compare).
 {$DOMAIN} {$PUBLIC_EXTRA_HOSTS} {
 	@extra not host {$DOMAIN}
 	redir @extra https://{$DOMAIN}{uri} permanent
@@ -83,21 +86,33 @@ admin.{$DOMAIN} {
 	header X-Robots-Tag {robots_tag}
 	respond /robots.txt "User-agent: *
 Disallow: {robots_disallow}
+Sitemap: https://{$DOMAIN}/sitemap-index.xml
 "
 	root * /srv/public
 	encode zstd gzip
 	header {
-		# Pages statiques sans script : seule la feuille de style en ligne est permise.
-		Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Content-Security-Policy "{file./srv/public/csp.txt}"
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
-		Referrer-Policy "no-referrer"
+		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
-		Cache-Control "public, max-age=3600"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
 		-Server
 	}
+	# Fichiers du build nommés par empreinte : cache d'un an ; pages, cartes et images : 10 min.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@other not path /assets/*
+	header @other Cache-Control "public, max-age=600"
 	try_files {path} {path}.html
-	file_server
+	file_server {
+		hide csp.txt
+	}
+	handle_errors 404 {
+		rewrite * /404.html
+		file_server
+	}
 }
 
 # GlitchTip (D90) : reçoit les rapports de plantage des SDK (API, worker, admin, app) et sert son

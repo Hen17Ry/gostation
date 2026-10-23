@@ -1,0 +1,177 @@
+---
+/**
+ * Pied de page : contact (email, WhatsApp), textes légaux (adresses fixes : Google OAuth et Google
+ * Play pointent dessus), choix de la version légère, crédits des données.
+ */
+import { config, mailtoHref, whatsappHref } from '@/lib/config'
+
+import Icon from './Icon.astro'
+import LogoMark from './LogoMark.astro'
+---
+
+<footer id="contact" class="site-footer" data-theme="night">
+  <div class="footer-top">
+    <div class="footer-brand">
+      <LogoMark />
+      <span class="footer-name">GoStation</span>
+      <p>Le gaz, l’essence, le gasoil. Là où il y en a.</p>
+    </div>
+    <div class="footer-contact">
+      <h2 class="footer-title">Contact</h2>
+      <a href={mailtoHref}>
+        <Icon name="mail" />
+        <span>{config.contactEmail}</span>
+      </a>
+      {whatsappHref && (
+        <a href={whatsappHref} rel="noopener noreferrer">
+          <Icon name="message" />
+          <span>WhatsApp</span>
+        </a>
+      )}
+    </div>
+    <nav class="footer-legal" aria-label="Informations légales">
+      <h2 class="footer-title">Informations</h2>
+      <a href="/politique-confidentialite">Politique de confidentialité</a>
+      <a href="/cgu">Conditions d’utilisation</a>
+      <a href="/suppression-compte">Suppression de compte</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <p>© GoStation · Bénin</p>
+    <p class="footer-credits">Cartes : © les contributeurs d’OpenStreetMap · Natural Earth</p>
+    <button class="footer-mode" type="button" hidden data-mode-toggle>
+      <Icon name="feather" />
+      <span data-mode-label>Version légère</span>
+    </button>
+  </div>
+</footer>
+
+<script>
+  // « Version légère » : choix mémorisé (lib/mode.ts le relit avant le premier rendu), puis rechargement.
+  import { MODE_STORAGE_KEY } from '@/lib/mode'
+
+  const button = document.querySelector<HTMLButtonElement>('[data-mode-toggle]')
+  const label = button?.querySelector('[data-mode-label]')
+  const mode = document.documentElement.dataset.motion
+  if (button && label && mode !== 'reduced') {
+    button.hidden = false
+    const lite = mode === 'lite'
+    label.textContent = lite ? 'Version complète' : 'Version légère'
+    button.addEventListener('click', () => {
+      try {
+        if (lite) localStorage.removeItem(MODE_STORAGE_KEY)
+        else localStorage.setItem(MODE_STORAGE_KEY, 'lite')
+      } catch {
+        // Stockage indisponible : le choix vaut pour ce chargement seulement.
+      }
+      const url = new URL(location.href)
+      url.searchParams.delete('mode')
+      if (!lite) url.searchParams.set('mode', 'lite')
+      location.assign(url)
+    })
+  }
+</script>
+
+<style>
+  .site-footer {
+    position: relative;
+    z-index: 2;
+    padding: clamp(3rem, 8svh, 5rem) max(1rem, 6vw) calc(1.5rem + env(safe-area-inset-bottom));
+    background: var(--night);
+    color: var(--color-neutral-300);
+  }
+  .footer-top {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 2.5rem;
+    max-width: 76rem;
+    margin-inline: auto;
+  }
+  .footer-brand {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.75rem;
+    align-items: center;
+    align-content: start;
+  }
+  .footer-name {
+    color: var(--color-neutral-50);
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+  }
+  .footer-brand p {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  .footer-title {
+    margin: 0 0 0.5rem;
+    color: var(--color-neutral-50);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .footer-contact,
+  .footer-legal {
+    display: grid;
+    align-content: start;
+    gap: 0.125rem;
+  }
+  .site-footer a {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--color-neutral-100);
+    text-decoration: none;
+  }
+  .site-footer a:hover {
+    color: var(--color-brand-300);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .footer-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    align-items: center;
+    max-width: 76rem;
+    margin: 2.5rem auto 0;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-neutral-800);
+    font-size: 0.875rem;
+  }
+  .footer-bottom p {
+    margin: 0;
+  }
+  .footer-credits {
+    color: var(--color-neutral-400);
+  }
+  .footer-mode {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-height: 2.75rem;
+    margin-left: auto;
+    padding: 0 1rem;
+    border: 1px solid var(--color-neutral-700);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-neutral-100);
+    font: inherit;
+    cursor: pointer;
+  }
+  .footer-mode:hover {
+    border-color: var(--color-neutral-500);
+  }
+  @media (max-width: 767px) {
+    .footer-top {
+      grid-template-columns: 1fr;
+    }
+    .footer-mode {
+      margin-left: 0;
+    }
+  }
+</style>

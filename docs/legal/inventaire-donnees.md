@@ -89,6 +89,7 @@ Les fichiers sont stockés dans SeaweedFS, stockage objet compatible S3 qui tour
 | Brouillon de saisie des stocks | MMKV | Jusqu'à l'envoi |
 | Copie « Mes données » | Cache de l'app, le temps du partage | Supprimée dès la fermeture de la feuille de partage |
 | Admin web : indicateur de session et date du dernier renouvellement, thème, colonnes affichées, barre latérale | `localStorage` (le jeton CSRF reste en mémoire et en cookie ; la session en cookie HttpOnly) | Indicateur effacé à la déconnexion ; préférences jusqu'à leur effacement |
+| Site public (gostation.bj) : choix « Version légère » (valeur fixe `lite`, aucun identifiant ni donnée personnelle) | `localStorage` `gs-motion`, posé seulement si le visiteur le choisit | Jusqu'à « Version complète » ou l'effacement du navigateur. Le site ne pose aucun cookie, ne mesure pas l'audience et ne charge rien d'un tiers ; « Nous contacter » ouvre la messagerie du visiteur (`mailto:`) ou WhatsApp (`wa.me`), à son initiative |
 
 ## 6. Sous-traitants et transferts hors du Bénin
 

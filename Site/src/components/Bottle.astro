@@ -1,0 +1,237 @@
+---
+/**
+ * Bouteille de la scène d'ouverture : croquis au trait (tracé par DrawSVG) et bouteille 2D pleine
+ * (modes léger et réduit, sans JavaScript). Les deux SVG viennent du même profil que la 3D
+ * (lib/bottle.ts), dans la même vue inclinée : ils se superposent exactement à la bouteille WebGL.
+ */
+import { FRAME, sketchStrokes, solidShapes, SVG_SCALE as K, toSvg, viewBox } from '@/lib/bottle'
+
+const strokes = sketchStrokes()
+const solid = solidShapes()
+const frameHeight = (FRAME.top - FRAME.bottom) * K
+const frameWidth = (FRAME.right - FRAME.left) * K
+const [plateX, plateY] = toSvg(solid.plateCenter)
+const [calloutPlateX, calloutPlateY] = toSvg(strokes.callouts.plate)
+const [calloutValveX, calloutValveY] = toSvg(strokes.callouts.valve)
+---
+
+<div class="bottle-stage" data-bottle-stage aria-hidden="true">
+  <div class="bottle-art" data-bottle-art>
+    <svg class="bottle-solid" data-bottle-solid viewBox={viewBox} focusable="false">
+      <defs>
+        <linearGradient id="bottle-paint" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" class="stop-brand-800"></stop>
+          <stop offset="0.12" class="stop-brand-600"></stop>
+          <stop offset="0.32" class="stop-brand-400"></stop>
+          <stop offset="0.46" class="stop-brand-500"></stop>
+          <stop offset="0.78" class="stop-brand-600"></stop>
+          <stop offset="0.94" class="stop-brand-800"></stop>
+          <stop offset="1" class="stop-brand-900"></stop>
+        </linearGradient>
+        <linearGradient id="bottle-paint-dark" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" class="stop-brand-900"></stop>
+          <stop offset="0.3" class="stop-brand-600"></stop>
+          <stop offset="0.55" class="stop-brand-600"></stop>
+          <stop offset="1" class="stop-brand-900"></stop>
+        </linearGradient>
+        <linearGradient id="bottle-steel" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" class="stop-neutral-600"></stop>
+          <stop offset="0.4" class="stop-neutral-200"></stop>
+          <stop offset="1" class="stop-neutral-500"></stop>
+        </linearGradient>
+        <clipPath id="bottle-fill-clip">
+          <rect data-solid-clip x={FRAME.left * K} y="0" width={frameWidth} height={frameHeight * 2}></rect>
+        </clipPath>
+      </defs>
+      <g clip-path="url(#bottle-fill-clip)">
+        <path d={solid.foot} fill="url(#bottle-paint-dark)"></path>
+        <path d={solid.body} fill="url(#bottle-paint)"></path>
+        <path d={solid.seam} class="solid-line"></path>
+        <path d={solid.shoulder} class="solid-line"></path>
+        <path d={solid.plate} class="solid-plate"></path>
+        <text x={plateX} y={plateY - 4} class="solid-plate-text" text-anchor="middle">
+          GAZ
+        </text>
+        <text x={plateX} y={plateY + 19} class="solid-plate-text solid-plate-text-big" text-anchor="middle">
+          10 KG
+        </text>
+        <path d={solid.collar} fill="url(#bottle-paint-dark)"></path>
+        <path d={solid.collarOpening} class="solid-hole"></path>
+        <path d={solid.valve} fill="url(#bottle-steel)"></path>
+        <path d={solid.window} class="solid-hole"></path>
+      </g>
+    </svg>
+
+    <svg class="bottle-sketch" data-bottle-sketch viewBox={viewBox} focusable="false">
+      <defs>
+        <linearGradient id="sketch-fade" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" class="stop-white"></stop>
+          <stop offset="0.47" class="stop-white"></stop>
+          <stop offset="0.53" class="stop-black"></stop>
+          <stop offset="1" class="stop-black"></stop>
+        </linearGradient>
+        <mask
+          id="sketch-mask"
+          maskUnits="userSpaceOnUse"
+          x={FRAME.left * K}
+          y={-frameHeight}
+          width={frameWidth}
+          height={frameHeight * 3}
+        >
+          <rect
+            data-sketch-mask
+            x={FRAME.left * K}
+            y="0"
+            width={frameWidth}
+            height={frameHeight * 2}
+            fill="url(#sketch-fade)"
+          ></rect>
+        </mask>
+      </defs>
+      <g mask="url(#sketch-mask)">
+        {strokes.construction.map((d) => (
+          <path d={d} data-stroke="construction" class="stroke-construction" />
+        ))}
+        {strokes.outline.map((d) => (
+          <path d={d} data-stroke="outline" class="stroke-outline" />
+        ))}
+        {strokes.detail.map((d) => (
+          <path d={d} data-stroke="detail" class="stroke-detail" />
+        ))}
+        <g data-stroke="note" class="note">
+          <path d={`M${calloutPlateX} ${calloutPlateY}L128 ${calloutPlateY - 32}H178`} class="stroke-note"></path>
+          <text x="178" y={calloutPlateY - 38} text-anchor="end">
+            Gaz 10 kg
+          </text>
+        </g>
+        <g data-stroke="note" class="note">
+          <path d={`M${calloutValveX} ${calloutValveY}L-120 ${calloutValveY - 22}H-178`} class="stroke-note"></path>
+          <text x="-178" y={calloutValveY - 28}>
+            Robinet
+          </text>
+        </g>
+      </g>
+    </svg>
+  </div>
+</div>
+
+<style>
+  /* Cadre 3,8 × 4 unités, sol à 90 % de la hauteur (FRAME, lib/bottle.ts ; vérifié par test). */
+  .bottle-stage {
+    aspect-ratio: 19 / 20;
+    pointer-events: none;
+  }
+
+  .bottle-art {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-origin: 50% 90%;
+  }
+
+  .bottle-art svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* Avant le script : croquis et bouteille masqués (le moteur les révèle) ; sans JS ni mouvement,
+     la bouteille 2D pleine est l'état final. */
+  :global(html.js:not([data-motion='reduced'])) .bottle-sketch {
+    visibility: hidden;
+  }
+  :global(html.js:not([data-motion='reduced'])) .bottle-solid {
+    visibility: hidden;
+  }
+  :global(html:not(.js)) .bottle-sketch,
+  :global(html[data-motion='reduced']) .bottle-sketch {
+    display: none;
+  }
+
+  .stroke-construction,
+  .stroke-outline,
+  .stroke-detail,
+  .stroke-note {
+    fill: none;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .stroke-construction {
+    stroke: var(--sketch-faint);
+    stroke-width: 1;
+    stroke-dasharray: none;
+  }
+  .stroke-outline {
+    stroke: var(--sketch);
+    stroke-width: 1.6;
+  }
+  .stroke-detail,
+  .stroke-note {
+    stroke: var(--sketch);
+    stroke-width: 1.1;
+  }
+  .note text {
+    fill: var(--muted-foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    letter-spacing: 0.01em;
+  }
+
+  .solid-line {
+    fill: none;
+    stroke: var(--color-brand-800);
+    stroke-width: 1.2;
+    opacity: 0.6;
+  }
+  .solid-plate {
+    fill: var(--color-neutral-50);
+    stroke: var(--color-brand-600);
+    stroke-width: 1.6;
+  }
+  .solid-plate-text {
+    fill: var(--color-brand-950);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 12px;
+  }
+  .solid-plate-text-big {
+    font-size: 27px;
+  }
+  .solid-hole {
+    fill: var(--color-brand-950);
+  }
+
+  .stop-brand-400 {
+    stop-color: var(--color-brand-400);
+  }
+  .stop-brand-500 {
+    stop-color: var(--color-brand-500);
+  }
+  .stop-brand-600 {
+    stop-color: var(--color-brand-600);
+  }
+  .stop-brand-800 {
+    stop-color: var(--color-brand-800);
+  }
+  .stop-brand-900 {
+    stop-color: var(--color-brand-900);
+  }
+  .stop-neutral-200 {
+    stop-color: var(--color-neutral-200);
+  }
+  .stop-neutral-500 {
+    stop-color: var(--color-neutral-500);
+  }
+  .stop-neutral-600 {
+    stop-color: var(--color-neutral-600);
+  }
+  .stop-white {
+    stop-color: var(--color-white);
+  }
+  .stop-black {
+    stop-color: var(--color-black);
+  }
+</style>

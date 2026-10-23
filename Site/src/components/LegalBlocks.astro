@@ -1,0 +1,85 @@
+---
+/** Rendu des blocs d'un texte légal (titres, paragraphes, encadrés, listes, tableaux). */
+import type { Block, Inline } from '../../../Mobile/src/features/legal/markdown'
+
+import { legalHref } from '@/lib/legal'
+
+type Props = { blocks: Block[] }
+const { blocks } = Astro.props
+---
+
+{blocks.map((b) => {
+  const inline = (text: Inline[]) =>
+    text.map((s) => {
+      let node: unknown = s.text
+      if (s.code) node = <code>{node}</code>
+      if (s.italic) node = <em>{node}</em>
+      if (s.bold) node = <strong>{node}</strong>
+      if (s.href) {
+        const href = legalHref(s.href)
+        node = /^https?:/.test(href) ? (
+          <a href={href} rel="noopener noreferrer">
+            {node}
+          </a>
+        ) : (
+          <a href={href}>{node}</a>
+        )
+      }
+      return node
+    })
+  switch (b.type) {
+    case 'heading':
+      return b.level === 1 ? (
+        <h1>{inline(b.text)}</h1>
+      ) : b.level === 2 ? (
+        <h2>{inline(b.text)}</h2>
+      ) : (
+        <h3>{inline(b.text)}</h3>
+      )
+    case 'paragraph':
+      return <p>{inline(b.text)}</p>
+    case 'note':
+      return (
+        <aside class="note">
+          <p>{inline(b.text)}</p>
+        </aside>
+      )
+    case 'list':
+      return b.ordered ? (
+        <ol>
+          {b.items.map((it) => (
+            <li>{inline(it)}</li>
+          ))}
+        </ol>
+      ) : (
+        <ul>
+          {b.items.map((it) => (
+            <li>{inline(it)}</li>
+          ))}
+        </ul>
+      )
+    case 'table':
+      return (
+        <div class="table" tabindex="0" role="region" aria-label="Tableau">
+          <table>
+            <thead>
+              <tr>
+                {b.header.map((c) => (
+                  <th scope="col">{inline(c)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((r) => (
+                <tr>
+                  {r.map((c) => (
+                    <td>{inline(c)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+  }
+})}

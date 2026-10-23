@@ -1,0 +1,73 @@
+---
+/**
+ * Le Bénin vu de l'espace (scène 7) : ciel, sud du Bénin (image), puis Afrique de l'Ouest et Bénin
+ * en projection orthographique (Natural Earth, domaine public). Le zoom arrière enchaîne ces vues
+ * par fondus et échelles modérées (chacune reste nette). En mode complet, un globe 3D prend le
+ * relais du disque 2D. Images chargées à l'approche de leur scène (data-src, scripts/main.ts).
+ */
+import region from '@/data/region.json'
+---
+
+<div class="space" data-space aria-hidden="true">
+  <div class="space-stars"></div>
+  <img
+    class="space-region"
+    data-space-region
+    data-src="/maps/sud-benin.svg"
+    alt=""
+    width={region.width}
+    height={region.height}
+    decoding="async"
+    loading="lazy"
+  />
+  <img
+    class="space-earth"
+    data-space-earth
+    data-src="/maps/terre.svg"
+    alt=""
+    width="1000"
+    height="1000"
+    decoding="async"
+    loading="lazy"
+  />
+</div>
+
+<style>
+  .space {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  .space-stars {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, var(--color-neutral-300), transparent),
+      radial-gradient(1px 1px at 72% 12%, var(--color-neutral-400), transparent),
+      radial-gradient(1.5px 1.5px at 38% 62%, var(--color-neutral-200), transparent),
+      radial-gradient(1px 1px at 86% 74%, var(--color-neutral-400), transparent),
+      radial-gradient(1px 1px at 22% 84%, var(--color-neutral-500), transparent),
+      radial-gradient(1px 1px at 58% 32%, var(--color-neutral-500), transparent);
+    background-size: 340px 340px;
+    opacity: 0.7;
+  }
+  .space-region {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* Même disque que le globe 3D : 2,5 rayons ajustés au plus petit côté de l'écran. */
+  .space-earth {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  /* Bords fondus : en rapetissant, la carte ne montre jamais son rectangle. */
+  .space-region {
+    mask-image: radial-gradient(closest-side, black 55%, transparent 100%);
+  }
+</style>

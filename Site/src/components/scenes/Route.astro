@@ -1,0 +1,52 @@
+---
+/** Scène 4 — L'itinéraire : le tracé, le zémidjan, l'arrivée (storyboard §2). */
+import CityMap from '../CityMap.astro'
+import PhoneStill from '../PhoneStill.astro'
+
+const steps = [
+  'Tournez à droite, rue de Ouidah.',
+  'Puis l’avenue de la République, étape par étape, en français.',
+  'Place de l’Étoile Rouge : vous y êtes. Gaz 10 kg en stock, mis à jour il y a 12 min.',
+]
+---
+
+<section
+  id="itineraire"
+  class="scene scene-pinned"
+  data-scene="route"
+  data-theme="night"
+  aria-labelledby="itineraire-titre"
+>
+  <div class="scene-scrim"></div>
+  <div class="scene-copy">
+    <p class="kicker">L’itinéraire</p>
+    <h2 id="itineraire-titre">Le trajet le plus rapide, sur les vraies routes.</h2>
+    <ol class="steps" data-steps>
+      {steps.map((s) => (
+        <li>{s}</li>
+      ))}
+    </ol>
+  </div>
+  <p class="map-credit">Carte : © les contributeurs d’OpenStreetMap</p>
+  <figure class="scene-figure">
+    <CityMap still="itineraire" class="figure-map" />
+    <PhoneStill screen="guidage" alt="" />
+  </figure>
+</section>
+
+<style>
+  .map-credit {
+    position: absolute;
+    right: max(1rem, 2vw);
+    bottom: 0.75rem;
+    z-index: 2;
+    margin: 0;
+    color: var(--color-neutral-400);
+    font-size: 0.75rem;
+  }
+  :global(html:not(.js)) .map-credit,
+  :global(html[data-motion='reduced']) .map-credit {
+    position: static;
+    margin: 0 max(1rem, 6vw) 1rem;
+  }
+</style>

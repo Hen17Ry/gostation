@@ -1,0 +1,328 @@
+/*
+ * GoStation — site public. Tokens générés depuis le design system de l'admin
+ * (tokens.generated.css, npm run gen:tokens) : les composants n'emploient que les rôles
+ * sémantiques et les primitives brand/neutral, jamais de couleur brute.
+ */
+@import 'tailwindcss';
+@import './tokens.generated.css';
+
+/* Mode sombre : celui du système (le site ne propose pas de bascule). */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('../assets/fonts/bricolage-grotesque-800-wdth.woff2') format('woff2');
+  font-weight: 800;
+  font-stretch: 75% 100%;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../assets/fonts/geist-400-700.woff2') format('woff2');
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+/* Repli métrique des polices (moins de décalage au chargement : CLS). */
+@font-face {
+  font-family: 'Bricolage Fallback';
+  src: local('Arial');
+  size-adjust: 96%;
+  ascent-override: 92%;
+  descent-override: 26%;
+}
+
+@theme static {
+  --font-display: 'Bricolage Grotesque', 'Bricolage Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+}
+
+/* Exposition Tailwind des rôles (bg-background, text-muted-foreground…). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-brand-text: var(--brand-text);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+}
+
+/* Rôles propres au site : la nuit des scènes 2 à 7 (identique dans les deux thèmes) et le bandeau. */
+:root {
+  --night: var(--color-neutral-950);
+  --night-foreground: var(--color-neutral-50);
+  --night-muted: var(--color-neutral-400);
+  --band: var(--color-brand-500);
+  --band-foreground: var(--color-brand-950);
+  --sketch: color-mix(in oklch, var(--foreground) 72%, transparent);
+  --sketch-faint: color-mix(in oklch, var(--foreground) 32%, transparent);
+  --header-height: 4rem;
+}
+
+@layer base {
+  html {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100svh;
+    overflow-x: clip;
+    font-size: 1rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-brand-200);
+    color: var(--color-brand-950);
+  }
+}
+
+/* Lenis : défilement lissé de la molette (classes posées par la bibliothèque). */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+.lenis [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Boutons (cibles ≥ 44 px, 48 px pour les actions principales) ──────────────────────────── */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 3rem;
+    padding-inline: 1.25rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      transform var(--duration-fast) var(--ease-out);
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .btn-primary:hover {
+    background: var(--primary-hover);
+  }
+  .btn-ghost {
+    border-color: var(--border-strong);
+    background: transparent;
+    color: var(--foreground);
+  }
+  .btn-ghost:hover {
+    background: var(--accent);
+  }
+  .btn-sm {
+    min-height: 2.75rem;
+    padding-inline: 1rem;
+  }
+  .btn-lg {
+    min-height: 3.5rem;
+    padding-inline: 1.625rem;
+    font-size: 1.0625rem;
+  }
+  .btn-icon {
+    width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+  }
+}
+
+/* ── Scènes (storyboard §2) ─────────────────────────────────────────────────────────────────── */
+@layer components {
+  .scene {
+    position: relative;
+  }
+  /* Scène épinglée : un écran ; la mise en scène vient du décor fixe (modes animés). */
+  .scene-pinned {
+    min-height: 100svh;
+  }
+  html.js:not([data-motion='reduced']) .scene-pinned {
+    height: 100svh;
+    overflow: clip;
+  }
+  .scene-copy {
+    position: relative;
+    z-index: 2;
+    max-width: 34rem;
+    padding: calc(var(--header-height) + 9svh) max(1rem, 6vw) 3rem;
+  }
+  .kicker {
+    margin: 0 0 1rem;
+    color: var(--color-brand-400);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .scene h2 {
+    margin: 0;
+    font-size: clamp(2.25rem, min(5vw, 8svh), 4.75rem);
+    line-height: 0.98;
+    letter-spacing: -0.022em;
+  }
+  .steps {
+    margin: 1.75rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: clamp(1.125rem, 1.5vw, 1.4rem);
+    line-height: 1.4;
+  }
+  .steps > li + li {
+    margin-top: 0.75rem;
+  }
+  /* Modes animés : une étape à la fois, au même endroit (fondu). */
+  html.js:not([data-motion='reduced']) .scene-pinned .steps {
+    display: grid;
+  }
+  html.js:not([data-motion='reduced']) .scene-pinned .steps > li {
+    grid-area: 1 / 1;
+    margin: 0;
+    opacity: 0;
+  }
+
+  /* Titre en deux couleurs superposées : sombre sur l'orange, clair sur la nuit (fondu). */
+  .duo {
+    display: grid;
+  }
+  .duo > * {
+    grid-area: 1 / 1;
+  }
+  .duo-dark {
+    color: var(--band-foreground);
+  }
+  html:not(.js) .duo-dark,
+  html[data-motion='reduced'] .duo-dark {
+    display: none;
+  }
+
+  /* Thèmes des sections : couleur propre en lecture réduite et sans JavaScript ; transparentes en
+     modes animés (le décor fixe fond les couleurs d'une scène à l'autre). */
+  .scene[data-theme='night'],
+  .scene[data-theme='brand'] {
+    background: var(--night);
+    color: var(--night-foreground);
+  }
+  html.js:not([data-motion='reduced']) .scene {
+    background: transparent;
+  }
+  .scene[data-theme='night'] .steps,
+  .scene[data-theme='brand'] .steps {
+    color: var(--color-neutral-300);
+  }
+
+  /* Illustration fixe de chaque scène (réduit, sans JavaScript) : la carte, et le téléphone dessus. */
+  .scene-figure {
+    position: relative;
+    max-width: 72rem;
+    margin: 0 max(1rem, 6vw) 4rem;
+    border-radius: 1.5rem;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    background: var(--night);
+  }
+  @media (max-width: 767px) {
+    .scene-figure {
+      aspect-ratio: 3 / 4;
+    }
+  }
+  html.js:not([data-motion='reduced']) .scene-figure {
+    display: none;
+  }
+
+  /* Voile de lecture sous le texte, au-dessus de la carte (modes animés). */
+  .scene-scrim {
+    display: none;
+  }
+  html.js:not([data-motion='reduced']) .scene-scrim {
+    display: block;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 1;
+    width: min(48rem, 62vw);
+    background: linear-gradient(90deg, color-mix(in oklch, var(--night) 88%, transparent) 30%, transparent);
+    pointer-events: none;
+  }
+
+  @media (max-width: 767px) {
+    .scene-copy {
+      padding-top: calc(var(--header-height) + 1.75rem);
+    }
+    html.js:not([data-motion='reduced']) .scene-scrim {
+      inset: 0 0 auto;
+      width: auto;
+      height: 52svh;
+      background: linear-gradient(180deg, color-mix(in oklch, var(--night) 90%, transparent) 55%, transparent);
+    }
+  }
+}

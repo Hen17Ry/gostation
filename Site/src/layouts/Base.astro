@@ -1,0 +1,109 @@
+---
+/**
+ * Mise en page commune : métadonnées, polices préchargées, choix du mode d'animation avant le
+ * premier rendu (script en ligne, autorisé par son empreinte dans la CSP), calques fixes (fond et
+ * canevas WebGL) sous le contenu.
+ */
+import displayFont from '@/assets/fonts/bricolage-grotesque-800-wdth.woff2?url'
+import textFont from '@/assets/fonts/geist-400-700.woff2?url'
+import Backdrop from '@/components/Backdrop.astro'
+import SiteFooter from '@/components/SiteFooter.astro'
+import SiteHeader from '@/components/SiteHeader.astro'
+import { config, indexable } from '@/lib/config'
+import { modeScript } from '@/lib/mode'
+import { palette } from '@/lib/tokens.generated'
+import '@/styles/global.css'
+
+type Props = { title: string; description: string; path?: string }
+const { title, description, path = '/' } = Astro.props
+const canonical = `${config.siteUrl}${path === '/' ? '' : path}`
+const ogImage = `${config.siteUrl}/og.png`
+
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': `${config.siteUrl}/#organisation`,
+      name: 'GoStation',
+      url: config.siteUrl,
+      logo: `${config.siteUrl}/favicon.svg`,
+      areaServed: { '@type': 'Country', name: 'Bénin' },
+    },
+    {
+      '@type': 'MobileApplication',
+      name: 'GoStation',
+      operatingSystem: 'Android',
+      applicationCategory: 'TravelApplication',
+      inLanguage: 'fr',
+      description,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'XOF' },
+      publisher: { '@id': `${config.siteUrl}/#organisation` },
+    },
+  ],
+}
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {!indexable && <meta name="robots" content="noindex, nofollow" />}
+    <meta name="theme-color" content={palette.neutral[50]} media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content={palette.neutral[950]} media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href={displayFont} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={textFont} as="font" type="font/woff2" crossorigin />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="fr_BJ" />
+    <meta property="og:site_name" content="GoStation" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="GoStation : le gaz, l'essence, le gasoil. Là où il y en a." />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script is:inline set:html={modeScript} />
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+  </head>
+  <body>
+    <SiteHeader />
+    <Backdrop />
+    <canvas class="webgl" data-webgl hidden aria-hidden="true"></canvas>
+    <main id="contenu" tabindex="-1">
+      <slot />
+    </main>
+    <SiteFooter />
+    <script>
+      import '@/scripts/main'
+    </script>
+  </body>
+</html>
+
+<style>
+  /* Calques : décor fixe (Backdrop), canevas WebGL fixe, puis le contenu qui défile (storyboard §1). */
+  .webgl {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+  }
+  main {
+    position: relative;
+    z-index: 2;
+  }
+  main:focus {
+    outline: none;
+  }
+</style>

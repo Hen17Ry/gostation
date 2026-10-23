@@ -1,0 +1,172 @@
+---
+/**
+ * Scène 7 — Final : volet orange, la barre devient la hampe du T, GOSTATION lettre par lettre, puis
+ * zoom arrière jusqu'au Bénin vu de l'espace (storyboard §2). QR code généré au build (uqr).
+ */
+import { renderSVG } from 'uqr'
+
+import { config, downloadHref, mailtoHref, whatsappHref } from '@/lib/config'
+
+import Icon from '../Icon.astro'
+
+const letters = [...'GOSTATION']
+const qrTarget = config.apkUrl || `${config.siteUrl}/#telecharger`
+const qr = renderSVG(qrTarget, { border: 1 })
+---
+
+<section
+  id="telecharger"
+  class="scene scene-pinned final"
+  data-scene="final"
+  data-theme="page"
+  aria-labelledby="final-titre"
+>
+  <div class="final-wipe" data-wipe data-theme="brand" aria-hidden="true"></div>
+  <div class="final-stage" data-final-stage>
+    <h2 id="final-titre" class="wordmark" aria-label="GoStation" data-wordmark>
+      {letters.map((l, i) => (
+        <span class="wm-mask" aria-hidden="true">
+          <span class="wm-letter" data-letter={i}>
+            {l}
+          </span>
+        </span>
+      ))}
+    </h2>
+    <p class="final-tagline" data-final-tagline>
+      Là où il y en a.
+    </p>
+  </div>
+  <div class="final-cta" data-final-cta>
+    <div class="final-actions">
+      <a class="btn btn-primary btn-lg" href={downloadHref} data-download>
+        <Icon name="download" />
+        <span>Télécharger l'app</span>
+      </a>
+      <a class="btn btn-ghost btn-lg final-ghost" href={mailtoHref}>
+        <Icon name="mail" />
+        <span>Nous contacter</span>
+      </a>
+      {whatsappHref && (
+        <a class="btn btn-ghost btn-lg final-ghost" href={whatsappHref} rel="noopener noreferrer">
+          <Icon name="message" />
+          <span>WhatsApp</span>
+        </a>
+      )}
+    </div>
+    <figure class="final-qr">
+      <div class="qr" set:html={qr} />
+      <figcaption>Scannez pour installer l’app sur Android</figcaption>
+    </figure>
+  </div>
+</section>
+
+<style>
+  .final {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 2.5rem;
+    padding: calc(var(--header-height) + 4svh) max(1rem, 6vw) 4svh;
+    text-align: center;
+  }
+  .final-wipe {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: var(--band);
+    transform-origin: 100% 50%;
+    visibility: hidden;
+  }
+  .final-stage {
+    position: relative;
+    z-index: 2;
+  }
+  .wordmark {
+    display: flex;
+    justify-content: center;
+    margin: 0;
+    color: var(--color-brand-500);
+    font-size: clamp(3.4rem, min(15.5vw, 26svh), 15rem);
+    font-stretch: 78%;
+    line-height: 0.86;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+  }
+  .wm-mask {
+    display: inline-block;
+    overflow: clip;
+    padding-block: 0.04em;
+  }
+  .wm-letter {
+    display: inline-block;
+  }
+  .final-tagline {
+    margin: 1.25rem 0 0;
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 3vw, 2.5rem);
+    font-weight: 800;
+  }
+  .final-cta {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    align-items: center;
+    justify-content: center;
+  }
+  .final-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+  .final-qr {
+    display: flex;
+    gap: 0.875rem;
+    align-items: center;
+    margin: 0;
+    text-align: left;
+  }
+  .final-qr figcaption {
+    max-width: 9rem;
+    font-size: 0.875rem;
+  }
+  .qr {
+    width: 6.5rem;
+    padding: 0.375rem;
+    border-radius: 0.75rem;
+    background: var(--color-white);
+  }
+  .qr :global(svg) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  /* Modes animés : les actions se posent en bas, sous la Terre, à la fin du zoom arrière. */
+  :global(html.js:not([data-motion='reduced'])) .final-cta {
+    position: absolute;
+    right: 0;
+    bottom: max(1.25rem, 4svh);
+    left: 0;
+    padding-inline: 1rem;
+  }
+  /* Sur un téléphone, on est déjà sur l'appareil : bouton seul, pas de QR code. */
+  @media (max-width: 767px), (pointer: coarse) {
+    .final-qr {
+      display: none;
+    }
+  }
+  /* Sur l'espace (fin de scène, modes animés) : texte clair. */
+  .final[data-theme='night'] .final-tagline,
+  .final[data-theme='night'] .final-qr {
+    color: var(--color-neutral-50);
+  }
+  .final[data-theme='night'] .final-ghost {
+    border-color: color-mix(in oklch, var(--color-white) 30%, transparent);
+    color: var(--color-neutral-50);
+  }
+  .final[data-theme='night'] .final-ghost:hover {
+    background: color-mix(in oklch, var(--color-white) 10%, transparent);
+  }
+</style>

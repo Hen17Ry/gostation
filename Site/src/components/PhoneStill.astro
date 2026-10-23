@@ -1,0 +1,48 @@
+---
+/**
+ * Téléphone fixe (version réduite, sans JavaScript) : image de l'écran produite par
+ * npm run gen:screens depuis le même dessin que l'animation.
+ */
+type Props = { screen: 'recherche' | 'resultats' | 'guidage' | 'arrivee' | 'stocks' | 'rappel'; alt: string }
+const { screen, alt } = Astro.props
+---
+
+<div class="phone-still">
+  <img src={`/screens/${screen}.webp`} alt={alt} width="360" height="780" loading="lazy" decoding="async" />
+</div>
+
+<style>
+  .phone-still {
+    position: relative;
+    width: min(16rem, 62vw);
+    aspect-ratio: 380 / 800;
+    padding: 2.6%;
+    border-radius: 13% / 6.2%;
+    background: var(--color-neutral-900);
+    box-shadow: inset 0 0 0 1.5px var(--color-neutral-700);
+  }
+  /* Posé sur la carte d'une illustration de scène : à droite (ordinateur), en bas (mobile). */
+  :global(.scene-figure) > .phone-still {
+    position: absolute;
+    top: 50%;
+    right: 4%;
+    width: auto;
+    height: 88%;
+    transform: translateY(-50%);
+  }
+  @media (max-width: 767px) {
+    :global(.scene-figure) > .phone-still {
+      top: auto;
+      right: 50%;
+      bottom: 4%;
+      height: 62%;
+      transform: translateX(50%);
+    }
+  }
+  .phone-still img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 11% / 5.2%;
+  }
+</style>

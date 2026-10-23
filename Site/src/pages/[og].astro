@@ -1,0 +1,117 @@
+---
+/**
+ * Source de l'image de partage (public/og.png, 1200 × 630), construite seulement par
+ * npm run gen:og (GEN_OG=1) : jamais publiée. Bouteille 2D, titre, bandeau, comme l'ouverture.
+ */
+import Bottle from '@/components/Bottle.astro'
+import LogoMark from '@/components/LogoMark.astro'
+import '@/styles/global.css'
+
+export function getStaticPaths() {
+  return process.env.GEN_OG ? [{ params: { og: 'og-source' } }] : []
+}
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>GoStation</title>
+  </head>
+  <body class="og">
+    <div class="og-brand">
+      <LogoMark />
+      <span>GoStation</span>
+    </div>
+    <h1 class="og-title">
+      Le gaz, l'essence, le&nbsp;gasoil.<span>Là où il y en a.</span>
+    </h1>
+    <p class="og-lede">La station la plus proche qui a votre produit en stock, au Bénin.</p>
+    <div class="og-bottle">
+      <Bottle />
+    </div>
+    <div class="og-band">Gaz 5 kg · 10 kg · 25 kg · Essence · Gasoil · En stock près de vous</div>
+  </body>
+</html>
+
+<style>
+  .og {
+    position: relative;
+    width: 1200px;
+    height: 630px;
+    margin: 0;
+    overflow: hidden;
+    background: var(--color-neutral-50);
+    color: var(--color-neutral-950);
+  }
+  .og-brand {
+    position: absolute;
+    top: 48px;
+    left: 64px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    font-family: var(--font-display);
+    font-size: 34px;
+    font-weight: 800;
+    font-stretch: 88%;
+  }
+  .og-brand :global(.logo-mark) {
+    width: 48px;
+    height: 48px;
+  }
+  .og-title {
+    position: absolute;
+    top: 138px;
+    left: 64px;
+    width: 680px;
+    margin: 0;
+    font-size: 76px;
+    line-height: 0.95;
+    letter-spacing: -0.025em;
+  }
+  .og-title span {
+    display: block;
+    color: var(--color-brand-600);
+  }
+  .og-lede {
+    position: absolute;
+    top: 392px;
+    left: 64px;
+    width: 560px;
+    margin: 0;
+    color: var(--color-neutral-600);
+    font-size: 26px;
+    line-height: 1.35;
+  }
+  .og-bottle {
+    position: absolute;
+    right: 60px;
+    bottom: 120px;
+    height: 470px;
+  }
+  .og-bottle :global(.bottle-stage) {
+    height: 100%;
+  }
+  .og-bottle :global(.bottle-sketch) {
+    display: none;
+  }
+  .og-band {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 142px;
+    padding: 26px 64px 0;
+    overflow: hidden;
+    background: var(--band);
+    color: var(--band-foreground);
+    font-family: var(--font-display);
+    font-size: 64px;
+    font-weight: 800;
+    font-stretch: 75%;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+</style>

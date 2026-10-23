@@ -1,0 +1,286 @@
+---
+/**
+ * En-tête flottant : marque, ancres de l'histoire, « Télécharger » toujours visible. Sous 900 px,
+ * les ancres passent dans un menu (<dialog> modal : focus piégé et Échap natifs).
+ */
+import { downloadHref } from '@/lib/config'
+
+import Icon from './Icon.astro'
+import LogoMark from './LogoMark.astro'
+
+/** `home` : préfixe des ancres hors de la page d'accueil (pages légales : « / »). */
+type Props = { home?: string }
+const { home = '' } = Astro.props
+const links = [
+  { href: `${home}#solution`, label: 'Comment ça marche' },
+  { href: `${home}#gerants`, label: 'Gérants' },
+  { href: `${home}#compagnies`, label: 'Compagnies' },
+  { href: `${home}#questions`, label: 'Questions' },
+]
+const download = home && downloadHref.startsWith('#') ? `${home}${downloadHref}` : downloadHref
+---
+
+<a class="skip-link" href="#contenu">
+  Aller au contenu
+</a>
+<header class="site-header" data-site-header>
+  <nav class="header-bar" aria-label="Navigation principale">
+    <a href="/" class="brand" aria-label="GoStation, accueil">
+      <LogoMark />
+      <span class="brand-name" aria-hidden="true">
+        GoStation
+      </span>
+    </a>
+    <ul class="header-links">
+      {links.map((l) => (
+        <li>
+          <a href={l.href}>{l.label}</a>
+        </li>
+      ))}
+    </ul>
+    <div class="header-actions">
+      <a class="btn btn-primary btn-sm" href={download} data-download>
+        <Icon name="download" />
+        <span>Télécharger</span>
+      </a>
+      <button
+        class="btn btn-ghost btn-icon menu-button"
+        type="button"
+        aria-haspopup="dialog"
+        aria-controls="menu"
+        aria-label="Ouvrir le menu"
+        data-menu-open
+      >
+        <Icon name="menu" />
+      </button>
+    </div>
+  </nav>
+</header>
+
+<dialog id="menu" class="menu" aria-label="Menu" data-menu>
+  <div class="menu-head">
+    <span class="brand">
+      <LogoMark />
+      <span class="brand-name">GoStation</span>
+    </span>
+    <button class="btn btn-ghost btn-icon" type="button" aria-label="Fermer le menu" data-menu-close>
+      <Icon name="x" />
+    </button>
+  </div>
+  <ul class="menu-links">
+    {links.map((l) => (
+      <li>
+        <a href={l.href} data-menu-link>
+          {l.label}
+        </a>
+      </li>
+    ))}
+  </ul>
+  <a class="btn btn-primary btn-lg menu-cta" href={download} data-menu-link>
+    <Icon name="download" />
+    <span>Télécharger l'app</span>
+  </a>
+</dialog>
+
+<script>
+  const menu = document.querySelector<HTMLDialogElement>('[data-menu]')
+  document.querySelector('[data-menu-open]')?.addEventListener('click', () => menu?.showModal())
+  document.querySelector('[data-menu-close]')?.addEventListener('click', () => menu?.close())
+  for (const link of document.querySelectorAll('[data-menu-link]')) link.addEventListener('click', () => menu?.close())
+  // Clic sur le fond (hors du panneau) : fermeture, comme Échap.
+  menu?.addEventListener('click', (event) => {
+    if (event.target === menu) menu.close()
+  })
+</script>
+
+<style>
+  .skip-link {
+    position: fixed;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 60;
+    padding: 0.75rem 1rem;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-weight: 600;
+    transform: translateY(-200%);
+  }
+  .skip-link:focus-visible {
+    transform: none;
+  }
+
+  /* Teintes de la barre selon ce qu'elle recouvre (data-tone, lib/motion/header-tone.ts) : verre
+     clair ou sombre selon le thème du système sur les sections « page », verre sombre sur la nuit,
+     barre presque opaque sur l'orange (contraste net, jamais de mélange terne). */
+  .site-header {
+    --hb-alpha: 92%;
+    --hb-bg: color-mix(in oklch, var(--surface) var(--hb-alpha), transparent);
+    --hb-border: color-mix(in oklch, var(--border) 70%, transparent);
+    --hb-fg: var(--foreground);
+    --hb-muted: var(--muted-foreground);
+    --hb-hover: var(--accent);
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 50;
+    padding: 0.625rem max(1rem, env(safe-area-inset-left));
+    pointer-events: none;
+  }
+  /* Mode complet : un peu plus de transparence, le flou fait le reste. */
+  :global(html[data-motion='full']) .site-header {
+    --hb-alpha: 74%;
+  }
+  .site-header[data-tone='night'] {
+    --hb-bg: color-mix(in oklch, var(--color-neutral-900) 72%, transparent);
+    --hb-border: color-mix(in oklch, var(--color-white) 10%, transparent);
+    --hb-fg: var(--color-neutral-50);
+    --hb-muted: var(--color-neutral-300);
+    --hb-hover: color-mix(in oklch, var(--color-white) 9%, transparent);
+  }
+  .site-header[data-tone='brand'] {
+    --hb-bg: color-mix(in oklch, var(--color-neutral-950) 92%, transparent);
+    --hb-border: transparent;
+    --hb-fg: var(--color-neutral-50);
+    --hb-muted: var(--color-neutral-300);
+    --hb-hover: color-mix(in oklch, var(--color-white) 9%, transparent);
+  }
+
+  .header-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    max-width: 76rem;
+    height: 3.5rem;
+    margin-inline: auto;
+    padding-inline: 0.5rem 0.375rem;
+    border: 1px solid var(--hb-border);
+    border-radius: 999px;
+    background: var(--hb-bg);
+    color: var(--hb-fg);
+    box-shadow: 0 8px 24px -12px color-mix(in oklch, var(--color-neutral-950) 25%, transparent);
+    pointer-events: auto;
+    transition:
+      background-color var(--duration-base) var(--ease-out),
+      border-color var(--duration-base) var(--ease-out),
+      color var(--duration-base) var(--ease-out);
+  }
+  /* Flou d'arrière-plan en mode complet seulement (coûteux sur les téléphones modestes). */
+  :global(html[data-motion='full']) .header-bar {
+    backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .header-bar :global(.btn-ghost) {
+    border-color: color-mix(in oklch, var(--hb-fg) 22%, transparent);
+    color: var(--hb-fg);
+  }
+  .header-bar :global(.btn-ghost:hover) {
+    background: var(--hb-hover);
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 2.75rem;
+    padding-inline: 0.25rem;
+    border-radius: 999px;
+    color: inherit;
+    text-decoration: none;
+  }
+  .brand-name {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-stretch: 88%;
+    font-size: 1.3rem;
+    letter-spacing: -0.01em;
+  }
+
+  .header-links {
+    display: none;
+    gap: 0.25rem;
+    margin: 0 auto;
+    padding: 0;
+    list-style: none;
+  }
+  .header-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding-inline: 0.875rem;
+    border-radius: 999px;
+    color: var(--hb-muted);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      color var(--duration-fast),
+      background-color var(--duration-fast);
+  }
+  .header-links a:hover {
+    background: var(--hb-hover);
+    color: var(--hb-fg);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 0.375rem;
+    margin-left: auto;
+  }
+
+  @media (min-width: 900px) {
+    .header-links {
+      display: flex;
+    }
+    .header-actions {
+      margin-left: 0;
+    }
+    .menu-button {
+      display: none;
+    }
+  }
+
+  .menu {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    padding: 0.75rem 1rem 1.5rem;
+    border: 0;
+    background: var(--background);
+    color: var(--foreground);
+  }
+  .menu[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  .menu::backdrop {
+    background: color-mix(in oklch, var(--color-neutral-950) 50%, transparent);
+  }
+  .menu-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.5rem;
+  }
+  .menu-links {
+    display: grid;
+    gap: 0.25rem;
+    margin: 2rem 0;
+    padding: 0;
+    list-style: none;
+  }
+  .menu-links a {
+    display: flex;
+    align-items: center;
+    min-height: 3.5rem;
+    color: var(--foreground);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 2rem;
+    letter-spacing: -0.015em;
+    text-decoration: none;
+  }
+  .menu-cta {
+    margin-top: auto;
+  }
+</style>

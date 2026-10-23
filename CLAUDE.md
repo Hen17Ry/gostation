@@ -62,6 +62,20 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 - **Captures** : `npm run screenshots` régénère `Web/docs/screenshots/` (chaque écran en clair et en sombre à 1440 px, les principaux aussi à 1024 px). Les écrans 2FA y utilisent des réponses simulées (jamais de vrai secret dans le dépôt).
 - **E2E** (D46) : pile isolée `scripts/e2e-stack.sh` (base `gostation_e2e`, Redis 15, API 8095), lancée et supprimée par Playwright ; jamais de compte de test dans la base de dev. `E2E_KEEP=1` garde la pile entre deux lancements.
 
+## Règles site public (gostation.bj, `Site/`)
+
+- **Histoire** : `docs/landing/storyboard.md` fait foi (texte, déclencheurs ScrollTrigger, versions mobile, légère et réduite) ; une scène se change d'abord là. Faits vrais seulement : aucun faux chiffre, témoignage ni partenaire, aucun logo de compagnie pétrolière ni de marque tierce.
+- **Trois modes** (`src/lib/mode.ts`, posé avant le premier rendu) : complet (3D), léger (2D, Three.js jamais téléchargé : mémoire ≤ 3 Go, peu de cœurs, économie de données, WebGL absent ou < 40 images/s mesurées), réduit (`prefers-reduced-motion` et sans JavaScript : état final, ni épinglage ni scrub). `?mode=full|lite|reduced` force un mode.
+- **Texte** : toute l'histoire en vrai HTML, lisible sans JavaScript ; le décor (SVG, WebGL, bandeau dupliqué) est `aria-hidden`. Mouvement automatique de plus de 5 s : bouton Pause (WCAG 2.2.2).
+- **Mouvement** : transform, opacité et uniforms WebGL seulement ; une seule boucle (ticker GSAP, Lenis synchronisé avec ScrollTrigger) ; un seul canevas WebGL rendu à la demande, pixel ratio ≤ 2 (1,5 sur mobile), en pause hors écran. Objets 3D faits dans le code (la bouteille partage son profil avec le croquis SVG, `src/lib/bottle.ts`).
+- **Budgets** : JS initial < 150 Ko gzip (`npm run check:bundle`), Three.js à la demande ; LCP < 2,5 s en 4G ; Lighthouse mobile ≥ 85 (performance) et ≥ 95 (accessibilité, SEO, bonnes pratiques).
+- **CSP** sans `unsafe-inline` : `build/csp.mts` calcule les empreintes des scripts et styles en ligne (`dist/csp.txt`) et refuse tout attribut `style=""` ou `on…=""`. Aucune ressource tierce (polices auto-hébergées, sous-ensembles de `scripts/subset-fonts.py`).
+- **Tokens** générés depuis `Web/src/styles/globals.css` (`npm run gen:tokens`), couleur brute refusée par ESLint. Titres en Bricolage Grotesque, texte en Geist.
+- **Une scène par élément** : les objets partagés (couleurs du fond, ville, téléphone, Terre) sont pilotés par des poses composées (`src/lib/motion/rigs.ts`, `backdrop.ts`) ; une scène n'anime jamais un élément qu'une autre anime, et utilise `fromTo` pour tout état de départ (scrub dans les deux sens).
+- **Données géographiques** générées une fois et commitées : `scripts/gen-city.py` (Cotonou depuis l'extrait OSM, stations fictives, trajets par notre OSRM), `scripts/gen-geo.py` (sud du Bénin, Natural Earth) ; écrans du téléphone fixes `npm run gen:screens`, image de partage `npm run gen:og`. Crédit « © les contributeurs d'OpenStreetMap » affiché.
+- **Contact** : aucun formulaire (le site ne collecte rien) ; `mailto:` (`PUBLIC_CONTACT_EMAIL`) et WhatsApp (`PUBLIC_WHATSAPP_NUMBER`, bouton masqué si vide). Téléchargement : `PUBLIC_APK_URL`. Variables figées à la build du proxy.
+- Les adresses `/politique-confidentialite`, `/cgu` et `/suppression-compte` ne changent jamais (Google OAuth et Google Play pointent dessus) : rendues par le site depuis `docs/legal/*.md` (avec leurs variantes `.html`), testées par `e2e/legal.spec.ts`.
+
 ## Rôles
 
 | Rôle | Client | Périmètre |
@@ -77,7 +91,8 @@ GoStation/
 ├── Backend/            API Go (cmd/api, internal/…, db/migrations, db/queries, sqlc.yaml)
 ├── Mobile/             Expo React Native — app unique user + manager : src/{app,features,components,api,i18n,lib,map,stores,theme}, modules/ (modules natifs locaux), scripts/, docs/ (design-system.md, screenshots/), .maestro/
 ├── Web/                Admin React (Vite) : src/{routes,features,components,api,i18n,lib,styles}, e2e/, docs/ (design-system.md, screenshots/)
-├── docs/               ARCHITECTURE.md, legal/ (inventaire, politique, CGU, registre, APDP, Play, questions au juriste : source unique des textes)
+├── Site/               Site public gostation.bj (Astro statique, GSAP, Three.js à la demande) : src/{pages,layouts,components,lib,styles,scripts}, build/csp.mts, e2e/
+├── docs/               ARCHITECTURE.md, landing/ (storyboard et captures du site public), legal/ (inventaire, politique, CGU, registre, APDP, Play, questions au juriste : source unique des textes)
 ├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), e2e-stack.sh, _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
 ├── Makefile            make help
@@ -91,6 +106,7 @@ GoStation/
 - **Carte** : MapLibre (mobile : `@maplibre/maplibre-react-native` v11 ; web : `maplibre-gl` v6), tuiles OpenFreeMap, OSRM v26.10 (extrait Bénin Geofabrik, profil car, algorithme MLD).
 - **Mobile** : Expo SDK 57 en **dev build** (MapLibre est natif, donc pas d'Expo Go), Hermes + New Architecture, TypeScript strict, React Compiler, Expo Router (routes typées), NativeWind 4 (Tailwind 3), Reanimated 4, Gesture Handler, @gorhom/bottom-sheet 5, FlashList 2, expo-image, expo-haptics, lucide-react-native, TanStack Query 5 (persisté dans MMKV v4), Zustand 5, react-hook-form + zod/mini, openapi-fetch, expo-secure-store, expo-location, expo-keep-awake, expo-speech, osrm-text-instructions, NetInfo, expo-notifications (9B). Tests : jest-expo + React Native Testing Library 14, Maestro, Flashlight. `ios/` et `android/` sont générés par CNG (`expo prebuild`) et ne sont pas commités.
 - **Web** : Vite 8, React 19 (React Compiler), TypeScript strict, Tailwind CSS 4, shadcn/ui (Radix) + composants 21st.dev, TanStack Router (routes fichiers) + Query + Table, react-hook-form + zod/mini, openapi-typescript + openapi-fetch, Recharts via shadcn Chart, maplibre-gl, motion, lucide-react, polices Geist auto-hébergées. Tests : Vitest + Testing Library, Playwright.
+- **Site** : Astro 7 (statique, îlots React seulement pour l'interactif), TypeScript strict, Tailwind CSS 4, GSAP 3.15 (ScrollTrigger, DrawSVG, MorphSVG), Lenis, Three.js r186 (chargé à la demande). Tests : Vitest, Playwright + axe-core.
 - **Outillage Go** (installé par `make tools`, versions figées dans le Makefile) : goose v3.28, sqlc v1.31, golangci-lint v2.14. Tests d'intégration avec testcontainers-go. Go 1.27 installé via snap (`/snap/bin/go`).
 - Les versions exactes sont figées par `go.mod` et les lockfiles. On reprend les versions fournies par les templates Expo et Vite à l'init.
 
@@ -162,7 +178,17 @@ npm run perf        # Flashlight (FPS, CPU, RAM) : recherche + défilement, navi
 npm run states      # états mis en scène sur la pile isolée (aucune station, fermée/signalée, hors connexion, localisation refusée, alerte de retour en stock, compte, guidage simulé, OSRM coupé) + captures
 npm run a11y        # audit d'accessibilité par écran (noms accessibles, cibles ≥ 48 dp) + captures en police ×1,5 → var/a11y/
 
-Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**), API E2E **8095** (worker **8096**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
+# Site public (dans Site/ ; aucune dépendance à l'API)
+npm install         # dépendances (versions figées par package-lock.json)
+npm run dev         # Astro sur 4321 ; ?mode=full|lite|reduced force un mode d'animation
+npm run build && npm run check:bundle   # astro check + build + dist/csp.txt, puis budget du JS initial (< 150 Ko gzip)
+npm run preview     # le build avec les en-têtes et la CSP de Caddy (4322)
+npm run lint        # ESLint + Prettier ;  npm test : Vitest ;  npm run gen:tokens : tokens depuis Web
+npm run e2e         # Playwright sur le build : modes, parcours complet, CSP, jointure du bandeau, pages légales, accessibilité (ordinateur et mobile)
+npm run record      # vidéos et captures du parcours → docs/landing/ (GPU de la machine ; vidéos hors dépôt)
+npm run gen:screens | gen:og   # écrans fixes du téléphone (après un build) ; image de partage
+
+Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**), site public **4321** (aperçu **4322**), API E2E **8095** (worker **8096**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 
 ## Algorithme de recherche (détail : ARCHITECTURE §4)
 
@@ -183,7 +209,7 @@ Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**,
 
 ### Commits et branches
 - [Conventional Commits](https://www.conventionalcommits.org) : `type(scope): description` à l'impératif, ≤ 72 caractères.
-  Types : `feat fix perf refactor test docs build ci chore revert`. Scopes : `backend mobile web infra db docs deps`. Rupture : `feat(backend)!:` + pied `BREAKING CHANGE:`.
+  Types : `feat fix perf refactor test docs build ci chore revert`. Scopes : `backend mobile web site infra db docs deps` (`site` : le site public, `Site/`). Rupture : `feat(backend)!:` + pied `BREAKING CHANGE:`.
 - Un changement logique par commit ; une migration goose dans son propre commit `feat(db): …`.
 - Branches : `main` protégée ; `feat/<scope>-<slug>`, `fix/<scope>-<slug>`. PR en squash merge, CI verte obligatoire.
 

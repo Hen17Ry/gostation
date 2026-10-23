@@ -1,0 +1,94 @@
+/* Généré par scripts/gen-tokens.mts depuis Web/src/styles/globals.css : ne pas modifier. */
+
+/* Primitives : orange GoStation (flamme → braise) et neutres chauds. La palette par défaut de
+   Tailwind est désactivée : aucune couleur brute ne se glisse dans un composant. */
+@theme static {
+  --color-*: initial;
+  --color-white: oklch(1 0 0);
+  --color-black: oklch(0 0 0);
+  --color-brand-50: oklch(0.982 0.016 74);
+  --color-brand-100: oklch(0.955 0.038 75);
+  --color-brand-200: oklch(0.905 0.077 70);
+  --color-brand-300: oklch(0.84 0.128 64);
+  --color-brand-400: oklch(0.765 0.17 54);
+  --color-brand-500: oklch(0.7 0.195 46);
+  --color-brand-600: oklch(0.58 0.19 39);
+  --color-brand-700: oklch(0.51 0.168 37);
+  --color-brand-800: oklch(0.445 0.14 36);
+  --color-brand-900: oklch(0.39 0.112 37);
+  --color-brand-950: oklch(0.26 0.075 36);
+  --color-neutral-50: oklch(0.985 0.002 75);
+  --color-neutral-100: oklch(0.967 0.003 75);
+  --color-neutral-200: oklch(0.923 0.004 70);
+  --color-neutral-300: oklch(0.869 0.006 65);
+  --color-neutral-400: oklch(0.708 0.008 60);
+  --color-neutral-500: oklch(0.556 0.009 58);
+  --color-neutral-600: oklch(0.47 0.009 56);
+  --color-neutral-700: oklch(0.371 0.008 55);
+  --color-neutral-800: oklch(0.269 0.006 55);
+  --color-neutral-900: oklch(0.205 0.005 55);
+  --color-neutral-950: oklch(0.145 0.004 55);
+}
+
+/* Rôles sémantiques, thème clair. */
+:root {
+  color-scheme: light dark;
+  --background: var(--color-neutral-50);
+  --foreground: var(--color-neutral-950);
+  --surface: var(--color-white);
+  --surface-sunken: var(--color-neutral-100);
+  --card: var(--color-white);
+  --card-foreground: var(--color-neutral-950);
+  --primary: var(--color-brand-600);
+  --primary-foreground: var(--color-white);
+  --primary-hover: var(--color-brand-700);
+  --primary-subtle: var(--color-brand-50);
+  --primary-subtle-foreground: var(--color-brand-800);
+  --brand-text: var(--color-brand-700);
+  --muted: var(--color-neutral-100);
+  --muted-foreground: var(--color-neutral-600);
+  --accent: var(--color-neutral-100);
+  --accent-foreground: var(--color-neutral-900);
+  --border: var(--color-neutral-200);
+  --border-strong: var(--color-neutral-300);
+  --input: oklch(0.64 0.008 60);
+  --ring: var(--color-brand-600);
+  --destructive: oklch(0.577 0.245 27.3);
+  --success: oklch(0.527 0.154 150);
+  --success-subtle: oklch(0.982 0.018 155.8);
+  --success-subtle-foreground: oklch(0.448 0.119 151.3);
+  --warning: oklch(0.769 0.188 70);
+  --info: oklch(0.546 0.245 262.9);
+}
+
+/* Rôles sémantiques, thème sombre (choisis pour le fond sombre, pas une inversion). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: var(--color-neutral-950);
+    --foreground: var(--color-neutral-50);
+    --surface: oklch(0.185 0.005 55);
+    --surface-sunken: oklch(0.125 0.004 55);
+    --card: oklch(0.185 0.005 55);
+    --card-foreground: var(--color-neutral-50);
+    --primary: var(--color-brand-500);
+    --primary-foreground: var(--color-brand-950);
+    --primary-hover: var(--color-brand-400);
+    --primary-subtle: oklch(0.26 0.06 40);
+    --primary-subtle-foreground: var(--color-brand-200);
+    --brand-text: var(--color-brand-400);
+    --muted: oklch(0.235 0.006 55);
+    --muted-foreground: var(--color-neutral-400);
+    --accent: oklch(0.255 0.006 55);
+    --accent-foreground: var(--color-neutral-50);
+    --border: oklch(0.285 0.006 55);
+    --border-strong: oklch(0.35 0.007 55);
+    --input: oklch(0.5 0.008 55);
+    --ring: var(--color-brand-400);
+    --destructive: oklch(0.704 0.191 22.2);
+    --success: oklch(0.723 0.219 149.6);
+    --success-subtle: oklch(0.266 0.065 152.9 / 0.55);
+    --success-subtle-foreground: oklch(0.871 0.15 154.4);
+    --warning: oklch(0.828 0.189 84.4);
+    --info: oklch(0.707 0.165 254.6);
+  }
+}
