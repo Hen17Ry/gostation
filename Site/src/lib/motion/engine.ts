@@ -4,13 +4,14 @@
  */
 import { gsap } from 'gsap'
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
+import { MotionPathPlugin } from 'gsap/MotionPathPlugin'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { SplitText } from 'gsap/SplitText'
 import Lenis from 'lenis'
 
 import { MODE_STORAGE_KEY, type MotionMode } from '../mode'
 
-gsap.registerPlugin(ScrollTrigger, SplitText, DrawSVGPlugin)
+gsap.registerPlugin(ScrollTrigger, SplitText, DrawSVGPlugin, MotionPathPlugin)
 
 export { DrawSVGPlugin, gsap, ScrollTrigger, SplitText }
 

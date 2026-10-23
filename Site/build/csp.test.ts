@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
-import { contentSecurityPolicy, inlineHashes, inlineViolations } from './csp.mts'
+import { contentSecurityPolicy, inlineHashes, inlineViolations, SITE_HEADERS } from './csp.mts'
 
 describe('CSP du site', () => {
   it('empreinte des scripts exécutables seulement (pas du JSON-LD ni des scripts externes)', () => {
@@ -23,5 +25,20 @@ describe('CSP du site', () => {
     expect(csp).not.toMatch(/https?:/)
     expect(csp).toContain("script-src 'self' 'sha256-x'")
     expect(csp).toContain("frame-ancestors 'none'")
+  })
+})
+
+describe('deploy/Caddyfile', () => {
+  const caddy = readFileSync(new URL('../../deploy/Caddyfile', import.meta.url), 'utf8')
+  const block = caddy.slice(caddy.indexOf('{$DOMAIN} {$PUBLIC_EXTRA_HOSTS} {'), caddy.indexOf('errors.{$DOMAIN}'))
+
+  it('pose les mêmes en-têtes que l’aperçu (SITE_HEADERS) et la CSP du build', () => {
+    for (const [name, value] of Object.entries(SITE_HEADERS)) expect(block).toContain(`${name} "${value}"`)
+    expect(block).toContain('Content-Security-Policy "{file./srv/public/csp.txt}"')
+    expect(block).toContain('hide csp.txt')
+  })
+
+  it('garde les adresses des textes légaux sans extension (Google OAuth, Google Play)', () => {
+    expect(block).toContain('try_files {path} {path}.html')
   })
 })

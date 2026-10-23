@@ -54,7 +54,10 @@ const ROLES = [
   'ring',
   'destructive',
   'success',
+  'success-subtle',
+  'success-subtle-foreground',
   'warning',
+  'info',
 ] as const
 
 function resolve(value: string, scope: Record<string, string>, depth = 0): string | null {
@@ -132,10 +135,16 @@ const hexPalette = (p: 'brand' | 'neutral') =>
     }),
   )
 
+// Rôles en hex (clair et sombre) : dessin en Canvas 2D (écran du téléphone) et WebGL.
+const hexRoles = (scope: Record<string, string>) =>
+  Object.fromEntries(ROLES.map((role) => [role, resolve(scope[role]!, scope)!.slice(0, 7)]))
+
 writeFileSync(
   `${root}src/lib/tokens.generated.ts`,
   `/* Généré par scripts/gen-tokens.mts depuis Web/src/styles/globals.css : ne pas modifier. */
 export const palette = ${JSON.stringify({ brand: hexPalette('brand'), neutral: hexPalette('neutral') }, null, 2)} as const
+
+export const roles = ${JSON.stringify({ light: hexRoles(light), dark: hexRoles({ ...light, ...dark }) }, null, 2)} as const
 `,
 )
 console.log(`✓ ${ROLES.length} rôles × 2 thèmes, 2 palettes`)

@@ -1,0 +1,31 @@
+---
+/** Textes légaux, aux adresses fixes (/politique-confidentialite, /cgu, /suppression-compte). */
+import LegalBlocks from '@/components/LegalBlocks.astro'
+import Page from '@/layouts/Page.astro'
+import { LEGAL_PAGES, readLegal } from '@/lib/legal'
+
+export function getStaticPaths() {
+  return LEGAL_PAGES.map((p) => ({ params: { legal: p.slug }, props: { file: p.file, slug: p.slug } }))
+}
+
+const { file, slug } = Astro.props
+const doc = readLegal(file)
+const title = doc.meta.title ?? 'GoStation'
+---
+
+<Page title={`${title} · GoStation`} description={`${title} de GoStation.`} path={`/${slug}`}>
+  {doc.meta.version && (
+    <p class="meta">
+      Version {doc.meta.version} · {doc.meta.updated}
+    </p>
+  )}
+  <LegalBlocks blocks={doc.blocks} />
+</Page>
+
+<style>
+  .meta {
+    margin: 0 0 0.5rem;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+  }
+</style>

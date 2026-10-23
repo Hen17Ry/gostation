@@ -1,0 +1,409 @@
+---
+/**
+ * Cotonou de nuit (scènes 2 à 4) : fond de carte en image (/maps/cotonou-nuit.svg, généré au build
+ * depuis OpenStreetMap) et calque SVG en ligne, dans le même repère, pour tout ce qui s'anime :
+ * errance et ruptures (scène 2), ondes de recherche et stations (scène 3), itinéraire, zémidjan et
+ * badge (scène 4). Les stations sont fictives ; le trajet suit les vraies routes (OSRM).
+ * `still` : version fixe, état final d'une scène (lecture réduite et sans JavaScript).
+ */
+import city from '@/data/city.json'
+import { results } from '@/lib/city'
+
+type Props = { still?: 'probleme' | 'solution' | 'itineraire'; class?: string }
+const { still, class: className } = Astro.props
+
+const [ux, uy] = city.user.at as [number, number]
+const rings = [
+  { meters: 500, label: '500 m' },
+  { meters: 1000, label: '1 km' },
+  { meters: 2000, label: '2 km' },
+].map((r) => ({ ...r, radius: r.meters / city.metersPerUnit }))
+const rank = new Map(results.map((s, i) => [s.id, i + 1]))
+const target = city.stations.find((s) => s.id === city.target)!
+const [tx, ty] = target.at as [number, number]
+const stops = city.wander.stops
+const wanted = [
+  'Cadjèhoun',
+  'Gbégamey',
+  'Dantokpa',
+  'Zongo',
+  'Ganhi',
+  'Vossa',
+  'Midombo',
+  'Agbodjèdo',
+  'Akpakpa-Dodomè',
+]
+const labels = wanted
+  .map((name) => city.places.find((p) => p.name === name))
+  .filter((p): p is (typeof city.places)[number] => !!p)
+const id = still ? `-${still}` : ''
+---
+
+<div
+  class:list={['city', still && 'city-still', className]}
+  data-city={still ? undefined : ''}
+  data-still={still}
+  aria-hidden="true"
+>
+  <img
+    class="city-map"
+    src={still ? '/maps/cotonou-nuit.svg' : undefined}
+    data-src={still ? undefined : '/maps/cotonou-nuit.svg'}
+    alt=""
+    width={city.width}
+    height={city.height}
+    decoding="async"
+    loading="lazy"
+  />
+  <svg class="city-overlay" viewBox={`0 0 ${city.width} ${city.height}`} preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <radialGradient id={`station-glow${id}`}>
+        <stop offset="0" class="glow-in"></stop>
+        <stop offset="1" class="glow-out"></stop>
+      </radialGradient>
+    </defs>
+
+    <g class="labels">
+      {labels.map((p) => (
+        <text x={p.at[0]} y={p.at[1]} text-anchor="middle">
+          {p.name}
+        </text>
+      ))}
+      <text class="water" x="1095" y="330" transform="rotate(-82 1095 330)">
+        Chenal de Cotonou
+      </text>
+      <text class="water" x="1300" y="60">
+        Lac Nokoué
+      </text>
+      <text class="water" x="1380" y="920">
+        Océan Atlantique
+      </text>
+    </g>
+
+    <!-- Scène 2 : l'errance d'une station à l'autre. -->
+    <g data-wander class:list={[still && still !== 'probleme' && 'is-hidden']}>
+      <path class="wander-path" d={city.wander.d} data-wander-path></path>
+      {stops.map(([x, y], i) => (
+        <g class="stop" data-stop={i} transform={`translate(${x} ${y})`}>
+          <circle r="9" class="stop-dot" />
+          <path d="M-6 -6L6 6M6 -6L-6 6" class="stop-cross" data-stop-cross />
+          <g class="stop-tag" data-stop-tag>
+            <rect x="-34" y="-40" width="68" height="22" rx="11" />
+            <text x="0" y="-25" text-anchor="middle">
+              Rupture
+            </text>
+          </g>
+        </g>
+      ))}
+      <g class="market" data-market transform={`translate(${city.market[0]} ${city.market[1]})`}>
+        <circle r="14" />
+        <text x="0" y="5" text-anchor="middle">
+          ?
+        </text>
+        <text class="market-label" x="0" y="34" text-anchor="middle">
+          Au hasard
+        </text>
+      </g>
+      <g class:list={['walker', still && 'is-hidden']} data-walker>
+        <rect x="-6" y="-11" width="12" height="18" rx="5" />
+        <rect x="-3.5" y="-15" width="7" height="5" rx="1.5" />
+      </g>
+    </g>
+
+    <!-- Scène 3 : l'onde de recherche, par paliers, et les stations. -->
+    <g data-search class:list={[still && still !== 'solution' && 'is-hidden']}>
+      {rings.map((r) => (
+        <g class="ring" data-ring={r.meters}>
+          <circle cx={ux} cy={uy} r={r.radius} class="ring-fill" />
+          <circle cx={ux} cy={uy} r={r.radius} class="ring-line" />
+          <g class="ring-label" transform={`translate(${ux} ${uy - r.radius})`}>
+            <rect x="-27" y="-12" width="54" height="24" rx="12" />
+            <text y="5" text-anchor="middle">
+              {r.label}
+            </text>
+          </g>
+        </g>
+      ))}
+      {city.stations.map((s) => (
+        <g
+          class:list={['station', `is-${s.status}`]}
+          data-station={s.id}
+          data-distance={s.distanceM}
+          transform={`translate(${s.at[0]} ${s.at[1]})`}
+        >
+          {s.status === 'stock' && <circle r="34" class="station-glow" fill={`url(#station-glow${id})`} />}
+          <circle r="8" class="station-dot" />
+          {rank.has(s.id) && (
+            <g class="station-rank">
+              <circle r="12" />
+              <text y="4.5" text-anchor="middle">
+                {rank.get(s.id)}
+              </text>
+            </g>
+          )}
+        </g>
+      ))}
+    </g>
+
+    <!-- Scène 4 : l'itinéraire, le zémidjan qui le suit, l'arrivée. -->
+    <g data-route class:list={[still !== 'itineraire' && still && 'is-hidden']}>
+      <path class="route-casing" d={city.route.d}></path>
+      <path class="route-line" d={city.route.d} data-route-path></path>
+      <g class="arrival" data-arrival transform={`translate(${tx} ${ty})`}>
+        <circle r="16" class="arrival-ring" data-arrival-ring />
+        <circle r="10" class="arrival-dot" />
+      </g>
+      <g class="badge" data-badge transform={`translate(${tx - 20} ${ty - 64})`}>
+        <rect x="-118" y="-20" width="236" height="40" rx="20" />
+        <circle cx="-94" cy="0" r="7" class="badge-clock" />
+        <path d="M-94 -4V0L-91 2" class="badge-hand" />
+        <text x="-78" y="5">
+          Mis à jour il y a 12 min
+        </text>
+      </g>
+      <g
+        class:list={['moto', still && still !== 'itineraire' && 'is-hidden']}
+        data-moto
+        transform={still === 'itineraire' ? `translate(${tx} ${ty + 26})` : undefined}
+      >
+        <rect x="-5" y="-17" width="10" height="34" rx="5" class="moto-body" />
+        <path d="M-11 -11H11" class="moto-bar" />
+        <circle r="6" cy="-1" class="moto-rider" />
+      </g>
+    </g>
+
+    <g class="user" transform={`translate(${ux} ${uy})`}>
+      <circle r="16" class="user-halo" />
+      <circle r="7" class="user-dot" />
+    </g>
+  </svg>
+</div>
+
+<style>
+  .city {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    /* Bords fondus dans la nuit : la carte peut rapetisser ou glisser sans montrer de coupure. */
+    mask-image: radial-gradient(130% 120% at 50% 50%, black 62%, transparent 100%);
+  }
+  .city-map,
+  .city-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .city-map {
+    object-fit: cover;
+  }
+  .is-hidden {
+    display: none;
+  }
+
+  .labels text {
+    fill: var(--color-neutral-500);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .labels .water {
+    fill: var(--color-neutral-600);
+    font-style: italic;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+
+  .wander-path {
+    fill: none;
+    stroke: var(--color-brand-400);
+    stroke-width: 3;
+    stroke-dasharray: 2 7;
+    stroke-linecap: round;
+  }
+  .stop-dot {
+    fill: var(--color-neutral-700);
+    stroke: var(--color-neutral-400);
+    stroke-width: 2;
+  }
+  .stop-cross {
+    fill: none;
+    stroke: var(--color-neutral-50);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+  }
+  .stop-tag rect {
+    fill: var(--destructive);
+  }
+  .stop-tag text,
+  .market text {
+    fill: var(--color-neutral-50);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+  .market circle {
+    fill: var(--color-neutral-700);
+    stroke: var(--color-neutral-400);
+    stroke-width: 2;
+  }
+  .market text {
+    font-size: 16px;
+  }
+  .market .market-label {
+    fill: var(--color-neutral-300);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .walker rect {
+    fill: var(--color-brand-500);
+    stroke: var(--color-neutral-950);
+    stroke-width: 1.5;
+  }
+
+  .ring-fill {
+    fill: var(--color-brand-500);
+    opacity: 0.07;
+  }
+  .ring-line {
+    fill: none;
+    stroke: var(--color-brand-400);
+    stroke-width: 2;
+    stroke-dasharray: 6 6;
+    vector-effect: non-scaling-stroke;
+  }
+  .ring-label rect {
+    fill: var(--color-brand-500);
+  }
+  .ring-label text {
+    fill: var(--color-brand-950);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+
+  .station-dot {
+    fill: var(--color-neutral-600);
+    stroke: var(--color-neutral-900);
+    stroke-width: 2;
+  }
+  .is-stock .station-dot {
+    fill: var(--color-brand-500);
+    stroke: var(--color-brand-200);
+  }
+  .glow-in {
+    stop-color: var(--color-brand-400);
+    stop-opacity: 0.55;
+  }
+  .glow-out {
+    stop-color: var(--color-brand-500);
+    stop-opacity: 0;
+  }
+  .station-rank circle {
+    fill: var(--color-brand-600);
+    stroke: var(--color-neutral-50);
+    stroke-width: 2;
+  }
+  .station-rank {
+    transform: translate(14px, -14px);
+  }
+  .station-rank text {
+    fill: var(--color-neutral-50);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .route-casing,
+  .route-line {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .route-casing {
+    stroke: var(--color-brand-950);
+    stroke-width: 11;
+    opacity: 0.8;
+  }
+  .route-line {
+    stroke: var(--color-brand-500);
+    stroke-width: 6;
+  }
+  .arrival-ring {
+    fill: none;
+    stroke: var(--color-brand-400);
+    stroke-width: 3;
+  }
+  .arrival-dot {
+    fill: var(--color-brand-500);
+    stroke: var(--color-neutral-50);
+    stroke-width: 3;
+  }
+  .badge rect {
+    fill: var(--color-neutral-50);
+  }
+  .badge text {
+    fill: var(--color-neutral-900);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .badge-clock {
+    fill: none;
+    stroke: var(--success);
+    stroke-width: 2;
+  }
+  .badge-hand {
+    fill: none;
+    stroke: var(--success);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .moto-body {
+    fill: var(--color-brand-500);
+    stroke: var(--color-neutral-950);
+    stroke-width: 1.5;
+  }
+  .moto-bar {
+    stroke: var(--color-neutral-200);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+  .moto-rider {
+    fill: var(--color-neutral-50);
+    stroke: var(--color-neutral-950);
+    stroke-width: 1.5;
+  }
+
+  .user-halo {
+    fill: var(--info);
+    opacity: 0.22;
+  }
+  .user-dot {
+    fill: var(--info);
+    stroke: var(--color-neutral-50);
+    stroke-width: 3;
+  }
+
+  /* Avant le script (modes animés) : les éléments de chaque scène attendent leur moment. */
+  :global(html.js:not([data-motion='reduced']))
+    [data-city]
+    :is(
+      .ring,
+      .station,
+      .stop-tag,
+      .stop-cross,
+      .market,
+      .walker,
+      .moto,
+      .badge,
+      .arrival,
+      .route-line,
+      .route-casing,
+      .wander-path
+    ) {
+    opacity: 0;
+  }
+</style>

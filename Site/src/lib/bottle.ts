@@ -21,8 +21,8 @@ export const COLLAR = { radius: 0.62, bottom: 2.66, top: 3.34, rim: 0.03 } as co
 /** Ajours de préhension de la collerette, devant et derrière (fraction de hauteur, demi-angle). */
 export const COLLAR_WINDOW = { from: 0.5, to: 0.82, halfAngle: (34 * Math.PI) / 180 } as const
 export const VALVE = { stemRadius: 0.1, stemTop: 3.1, wheelRadius: 0.17, wheelY: 3.14 } as const
-/** Plaque « 10 kg » sur le devant du corps (angle total, centre, hauteur). */
-export const PLATE = { angle: 0.84, y: 1.05, height: 0.56 } as const
+/** Étiquette « GAZ · 10 KG » sur le devant du corps (angle total, centre, hauteur). */
+export const PLATE = { angle: 1.06, y: 1.02, height: 0.66 } as const
 
 /** Hauteur totale (sommet du bord roulé de la collerette). */
 export const HEIGHT = COLLAR.top + COLLAR.rim

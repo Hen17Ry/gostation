@@ -18,5 +18,7 @@ export default defineConfig({
     plugins: [tailwindcss()],
     // Rien en data: (CSP stricte) : polices et scripts en fichiers.
     build: { assetsInlineLimit: 0 },
+    // Sources hors du site : textes légaux (docs/legal), analyseur de l'app, tokens du web.
+    server: { fs: { allow: ['..'] } },
   },
 })

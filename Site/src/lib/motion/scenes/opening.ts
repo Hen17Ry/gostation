@@ -2,8 +2,11 @@
  * Scène 1 — Ouverture (docs/landing/storyboard.md) : le croquis de la bouteille se trace, se
  * « remplit » et devient objet (3D en mode complet, 2D en mode léger), le bandeau monte et défile ;
  * au défilement, la bouteille pivote, puis le bandeau inonde l'écran et la bouteille s'y enfonce.
+ * Le passage est court : dès que l'orange couvre l'écran, le décor fixe prend le relais (même
+ * orange) et le titre de la scène 2 arrive dessus.
  */
 import { FRAME, SVG_SCALE, TILT } from '../../bottle'
+import { backdrop } from '../backdrop'
 import { gsap, ScrollTrigger, SplitText, type Motion } from '../engine'
 import { marquee } from '../marquee'
 
@@ -31,6 +34,7 @@ export function opening(motion: Motion) {
   const band = q('[data-band]')!
   const bandBg = q('[data-band-bg]')!
   const bandText = q('[data-band-text]')!
+  const shadow = q('[data-bottle-shadow]')
   const construction = qa('[data-stroke="construction"]')
   const outline = qa('[data-stroke="outline"]')
   const detail = qa('[data-stroke="detail"]')
@@ -52,7 +56,8 @@ export function opening(motion: Motion) {
     linesClass: 'title-line',
     autoSplit: true,
     onSplit: (self) => {
-      gsap.set(title, { visibility: 'visible' })
+      // « inherit » : le titre disparaît avec le bloc (opacité et visibilité), même pour les clics.
+      gsap.set(title, { visibility: 'inherit' })
       return gsap.from(self.lines, { yPercent: 108, duration: 1, stagger: 0.09, ease: 'expo.out', delay: 0.4 })
     },
   })
@@ -70,6 +75,7 @@ export function opening(motion: Motion) {
       bottle.model.uniforms.uFillY.value = fill.y
       bottle.stage.invalidate()
     }
+    if (shadow) gsap.set(shadow, { opacity: gsap.utils.clamp(0, 1, (fill.y + 0.3) / 0.6) })
   }
   applyFill()
   setClip(fill.y)
@@ -104,12 +110,17 @@ export function opening(motion: Motion) {
   const apply = () => {
     const lift = (-state.lift + state.sink * 1.9) * geo.unit
     const scale = state.scale * (1 - 0.5 * state.sink)
+    // Ombre de contact : plus petite et plus pâle quand la bouteille monte, absente quand elle s'enfonce.
+    if (shadow && fill.y > 0.3) {
+      const away = state.lift / 0.22
+      gsap.set(shadow, { opacity: (1 - 0.55 * away) * (1 - state.sink), scaleX: 1 - 0.25 * away })
+    }
     if (motion.mode === 'full' && bottle) {
       const { root, spin } = bottle.model
       root.position.set(geo.originX, -(sectionTop() + geo.originY + lift), 0)
       root.scale.setScalar(geo.unit * scale)
       spin.rotation.y = state.idle + state.turn
-      root.visible = state.sink < 0.999
+      bottle.stage.show(bottle.layer, state.sink < 0.999 && inView)
       bottle.stage.invalidate()
     } else {
       setArt.y(lift)
@@ -151,11 +162,7 @@ export function opening(motion: Motion) {
   // ── Passage au mode léger en cours de route ───────────────────────────────────────────────
   motion.onLite(() => {
     syncIdle()
-    if (bottle) {
-      bottle.stage.setActive(false)
-      bottle.model.root.visible = false
-    }
-    if (canvas) canvas.hidden = true
+    if (bottle) bottle.stage.show(bottle.layer, false)
     setClip(Math.max(fill.y, 0))
     gsap.to(solid, { autoAlpha: 1, duration: 0.5 })
     apply()
@@ -196,7 +203,6 @@ export function opening(motion: Motion) {
           .then(({ loadOpeningBottle }) => loadOpeningBottle(canvas, () => motion.degradeToLite('context-lost')))
           .then((b) => {
             bottle = b
-            canvas.hidden = false
             measure()
             apply()
             applyFill()
@@ -208,41 +214,51 @@ export function opening(motion: Motion) {
   intro.call(() => void ready.then(() => fillTo(1.3)), [], 1.6)
 
   // ── Défilement : épinglage et scrub ───────────────────────────────────────────────────────
-  const mobile = motion.isMobile
-  const scroll = gsap.timeline({
-    defaults: { ease: 'none' },
-    scrollTrigger: {
-      trigger: section,
-      start: 'top top',
-      end: () => `+=${window.innerHeight * (mobile ? 1 : 1.2)}`,
-      pin: true,
-      scrub: 0.8,
-      invalidateOnRefresh: true,
-      onRefresh: () => {
-        measure()
-        apply()
+  const mm = gsap.matchMedia()
+  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
+    const mobile = !!ctx.conditions?.mobile
+    const scroll = gsap.timeline({
+      defaults: { ease: 'none' },
+      scrollTrigger: {
+        trigger: section,
+        start: 'top top',
+        end: () => `+=${window.innerHeight * (mobile ? 0.8 : 1)}`,
+        pin: true,
+        scrub: 0.8,
+        invalidateOnRefresh: true,
+        onRefresh: () => {
+          measure()
+          apply()
+        },
+        onUpdate: apply,
+        onToggle: (self) => {
+          inView = self.isActive || self.progress < 1
+          if (bottle) bottle.stage.show(bottle.layer, inView && state.sink < 0.999)
+          syncIdle()
+          syncFloat()
+        },
       },
-      onUpdate: apply,
-      onToggle: (self) => {
-        inView = self.isActive || self.progress < 1
-        bottle?.stage.setActive(inView && motion.mode === 'full')
-        syncIdle()
-        syncFloat()
-      },
-    },
-  })
-  pinTrigger = scroll.scrollTrigger ?? null
+    })
+    pinTrigger = scroll.scrollTrigger ?? null
 
-  scroll
-    .to(copy, { y: -64, autoAlpha: 0, duration: 0.35 }, 0)
-    .to(state, { turn: (Math.PI * 2) / 3, lift: 0.22, scale: 1.06, duration: 0.5, onUpdate: apply }, 0)
-    .to(
-      bandBg,
-      { scaleY: () => window.innerHeight / Math.max(1, band.offsetHeight), duration: 0.45, ease: 'power2.in' },
-      0.55,
-    )
-    .to(bandText, { yPercent: -40, autoAlpha: 0, duration: 0.3, ease: 'power1.in' }, 0.62)
-    .to(state, { sink: 1, duration: 0.4, ease: 'power2.in', onUpdate: apply }, 0.6)
+    scroll
+      .to(copy, { y: -64, autoAlpha: 0, duration: 0.3 }, 0)
+      .to(state, { turn: (Math.PI * 2) / 3, lift: 0.22, scale: 1.06, duration: 0.42, onUpdate: apply }, 0)
+      // L'orange envahit l'écran, la bouteille s'y enfonce ; sans temps mort.
+      .to(
+        bandBg,
+        { scaleY: () => window.innerHeight / Math.max(1, band.offsetHeight), duration: 0.5, ease: 'power2.in' },
+        0.42,
+      )
+      .to(bandText, { yPercent: -50, autoAlpha: 0, duration: 0.3, ease: 'power1.in' }, 0.45)
+      .to(state, { sink: 1, duration: 0.42, ease: 'power2.in', onUpdate: apply }, 0.45)
+      // Une fois l'écran couvert, le décor fixe prend le même orange (invisible sous le bandeau).
+      .to(backdrop.w, { orangeIn: 1, duration: 0.06, onUpdate: backdrop.apply }, 0.92)
+
+    return () => {
+      pinTrigger = null
+    }
+  })
 
   marquee(band, motion)
 }

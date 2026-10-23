@@ -1,0 +1,101 @@
+---
+/**
+ * Téléphone en HTML (mode léger), et repère de placement du téléphone 3D (mode complet) : la boîte
+ * .phone est mesurée, le corps 3D reprend sa position et ses mouvements. Écran : un canevas peint
+ * par lib/phone/painter.ts, le même dessin que la texture de l'écran 3D.
+ */
+import LogoMark from './LogoMark.astro'
+---
+
+<div class="phone" data-phone aria-hidden="true">
+  <div class="phone-body" data-phone-body>
+    <div class="phone-face phone-front">
+      <canvas class="phone-screen" data-phone-screen width="720" height="1560"></canvas>
+      <span class="phone-island"></span>
+    </div>
+    <div class="phone-face phone-back">
+      <span class="phone-camera"></span>
+      <LogoMark class="phone-logo" />
+    </div>
+  </div>
+</div>
+
+<style>
+  .phone {
+    position: absolute;
+    top: 50%;
+    right: max(1rem, 9vw);
+    height: min(76svh, 46rem);
+    aspect-ratio: 380 / 800;
+    transform: translateY(-50%);
+    perspective: 1600px;
+  }
+  .phone-body {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+  }
+  .phone-face {
+    position: absolute;
+    inset: 0;
+    border-radius: 13% / 6.2%;
+    backface-visibility: hidden;
+    background: var(--color-neutral-900);
+    box-shadow:
+      inset 0 0 0 1.5px var(--color-neutral-700),
+      0 30px 60px -20px color-mix(in oklch, var(--color-neutral-950) 70%, transparent);
+  }
+  .phone-front {
+    padding: 2.6%;
+  }
+  .phone-screen {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 11% / 5.2%;
+    background: var(--color-neutral-100);
+  }
+  .phone-island {
+    position: absolute;
+    top: 3.6%;
+    left: 50%;
+    width: 26%;
+    height: 3.2%;
+    border-radius: 999px;
+    background: var(--color-neutral-950);
+    transform: translateX(-50%);
+  }
+  .phone-back {
+    display: grid;
+    place-items: center;
+    background: linear-gradient(160deg, var(--color-neutral-800), var(--color-neutral-950));
+    transform: rotateY(180deg);
+  }
+  .phone-back :global(.phone-logo) {
+    width: 22%;
+    height: auto;
+  }
+  .phone-camera {
+    position: absolute;
+    top: 4%;
+    left: 7%;
+    width: 30%;
+    aspect-ratio: 1;
+    border-radius: 28%;
+    background: var(--color-neutral-800);
+    box-shadow: inset 0 0 0 1.5px var(--color-neutral-600);
+  }
+
+  @media (max-width: 767px) {
+    .phone {
+      top: auto;
+      right: 0;
+      bottom: 3svh;
+      left: 0;
+      height: 44svh;
+      margin-inline: auto;
+      transform: none;
+    }
+  }
+</style>

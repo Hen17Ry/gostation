@@ -42,8 +42,10 @@ createServer((req, res) => {
   const file = resolve(req.url === '/' ? '/index.html' : req.url)
   const headers = { ...SITE_HEADERS, 'Content-Security-Policy': csp() }
   if (!file) {
-    res.writeHead(404, { ...headers, 'Content-Type': 'text/plain; charset=utf-8' })
-    return res.end('Introuvable')
+    // Comme Caddy (handle_errors 404) : la page 404 du site.
+    const notFound = join(dist, '404.html')
+    res.writeHead(404, { ...headers, 'Content-Type': types['.html'] })
+    return existsSync(notFound) ? createReadStream(notFound).pipe(res) : res.end('Introuvable')
   }
   res.writeHead(200, {
     ...headers,

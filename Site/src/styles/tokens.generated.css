@@ -55,7 +55,10 @@
   --ring: var(--color-brand-600);
   --destructive: oklch(0.577 0.245 27.3);
   --success: oklch(0.527 0.154 150);
+  --success-subtle: oklch(0.982 0.018 155.8);
+  --success-subtle-foreground: oklch(0.448 0.119 151.3);
   --warning: oklch(0.769 0.188 70);
+  --info: oklch(0.546 0.245 262.9);
 }
 
 /* Rôles sémantiques, thème sombre (choisis pour le fond sombre, pas une inversion). */
@@ -83,6 +86,9 @@
     --ring: var(--color-brand-400);
     --destructive: oklch(0.704 0.191 22.2);
     --success: oklch(0.723 0.219 149.6);
+    --success-subtle: oklch(0.266 0.065 152.9 / 0.55);
+    --success-subtle-foreground: oklch(0.871 0.15 154.4);
     --warning: oklch(0.828 0.189 84.4);
+    --info: oklch(0.707 0.165 254.6);
   }
 }

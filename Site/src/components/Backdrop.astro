@@ -1,0 +1,64 @@
+---
+/**
+ * Décor fixe des scènes animées (storyboard §1), sous le canevas WebGL et le texte : couleurs de
+ * fond (fondus, lib/motion/backdrop.ts), Cotonou de nuit, téléphone (mode léger), l'espace.
+ * Absent de la version réduite et de la page sans JavaScript, où chaque scène porte sa propre
+ * illustration fixe.
+ */
+import CityMap from './CityMap.astro'
+import PhoneDevice from './PhoneDevice.astro'
+import Space from './Space.astro'
+---
+
+<div class="backdrop" aria-hidden="true">
+  <div class="bd-layer bd-night" data-bd="night"></div>
+  <div class="bd-layer bd-ember" data-bd="ember"></div>
+  <div class="bd-layer bd-city" data-bd-city>
+    <CityMap />
+  </div>
+  <div class="bd-layer bd-orange" data-bd="orange"></div>
+  <div class="bd-layer bd-space" data-bd="space">
+    <Space />
+  </div>
+  <div class="bd-layer bd-phone" data-bd-phone>
+    <PhoneDevice />
+  </div>
+</div>
+
+<style>
+  /* Toujours sous le contenu (qui couvre l'écran) : il ne reçoit jamais de clic. Il reste
+     « touchable » pour que les outils d'accessibilité lisent la vraie couleur de fond du texte. */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background: var(--background);
+  }
+  .bd-layer {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    visibility: hidden;
+  }
+  .bd-night {
+    background: var(--night);
+  }
+  .bd-ember {
+    background: radial-gradient(110% 90% at 72% 58%, var(--color-brand-950), var(--night) 70%);
+  }
+  .bd-orange {
+    background: var(--band);
+  }
+  .bd-space {
+    background: radial-gradient(120% 100% at 50% 100%, var(--color-neutral-900), var(--color-black) 70%);
+  }
+  .bd-phone {
+    opacity: 1;
+    visibility: visible;
+  }
+  /* Version réduite et sans JavaScript : pas de décor fixe, chaque scène a son illustration. */
+  :global(html:not(.js)) .backdrop > :not(.bd-night):not(.bd-orange),
+  :global(html[data-motion='reduced']) .backdrop > :not(.bd-night):not(.bd-orange) {
+    display: none;
+  }
+</style>

@@ -7,7 +7,7 @@ import Icon from '../Icon.astro'
 import Marquee from '../Marquee.astro'
 ---
 
-<section id="ouverture" class="opening" aria-labelledby="ouverture-titre" data-scene="opening">
+<section id="ouverture" class="opening" aria-labelledby="ouverture-titre" data-scene="opening" data-theme="page">
   <div class="opening-copy" data-opening-copy>
     <h1 id="ouverture-titre" class="opening-title reveal-fallback" data-opening-title>
       <span class="title-a">Le gaz, l'essence, le gasoil.</span> <span class="title-b">Là où il y en a.</span>
@@ -33,9 +33,10 @@ import Marquee from '../Marquee.astro'
   <Bottle />
 
   <Marquee>
+    <span slot="shade" class="bottle-shadow" data-bottle-shadow></span>
     <a class="scroll-hint" href="#probleme" data-scroll-hint>
-      <span>Faites défiler</span>
       <Icon name="arrow-down" />
+      <span>Faites défiler</span>
     </a>
     <button class="motion-toggle" type="button" hidden data-motion-toggle aria-label="Mettre les animations en pause">
       <span class="motion-toggle-pause">
@@ -50,10 +51,11 @@ import Marquee from '../Marquee.astro'
 
 <style>
   .opening {
-    --band-h: 30svh;
-    --band-pad: 3svh;
-    --band-font: min(12svh, 9vw);
-    --stage-h: min(54svh, 46vw);
+    --band-font: min(10.5svh, 8.5vw);
+    --band-pad: 2.2svh;
+    --band-h: calc(var(--band-font) + var(--band-pad) + 4.25rem);
+    --stage-h: min(66svh, 50vw);
+    --stage-right: max(1rem, 6vw);
     position: relative;
     height: 100svh;
     min-height: 34rem;
@@ -65,12 +67,12 @@ import Marquee from '../Marquee.astro'
     top: calc(var(--header-height) + max(2rem, 7svh));
     left: max(1rem, 6vw);
     z-index: 2;
-    width: min(44rem, 54vw);
+    width: min(48rem, 46vw);
   }
 
   .opening-title {
     margin: 0;
-    font-size: min(6vw, 9.6svh);
+    font-size: min(5.4vw, 9svh);
     line-height: 0.94;
     letter-spacing: -0.025em;
   }
@@ -117,9 +119,26 @@ import Marquee from '../Marquee.astro'
      haut du bandeau. */
   .opening :global(.bottle-stage) {
     position: absolute;
-    right: max(1rem, 9vw);
+    right: var(--stage-right);
     bottom: calc(var(--band-h) - var(--stage-h) * 0.0468);
     height: var(--stage-h);
+  }
+
+  /* Ombre de contact : ellipse douce sous le pied, coupée au bord du bandeau (le sol). */
+  .bottle-shadow {
+    --shadow-w: calc(var(--stage-h) * 0.62);
+    --shadow-h: calc(var(--stage-h) * 0.12);
+    position: absolute;
+    top: calc(var(--shadow-h) * -0.5);
+    right: calc(var(--stage-right) + var(--stage-h) * 0.475 - var(--shadow-w) / 2);
+    width: var(--shadow-w);
+    height: var(--shadow-h);
+    border-radius: 50%;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklch, var(--color-brand-950) 50%, transparent),
+      transparent
+    );
   }
 
   /* Avant le script (modes animés) : titre et entrées masqués, bandeau sous l'écran. */
@@ -134,30 +153,24 @@ import Marquee from '../Marquee.astro'
   }
 
   .scroll-hint {
-    position: absolute;
-    left: max(1rem, 6vw);
-    bottom: max(0.75rem, 2svh);
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    min-height: 3rem;
+    min-height: 2.75rem;
     color: var(--band-foreground);
     font-size: 0.9375rem;
     font-weight: 600;
     text-decoration: none;
   }
-  .scroll-hint:focus-visible {
+  .scroll-hint:focus-visible,
+  .motion-toggle:focus-visible {
     outline-color: var(--band-foreground);
   }
-
   .motion-toggle {
-    position: absolute;
-    right: max(0.75rem, 2vw);
-    bottom: max(0.75rem, 2svh);
     display: grid;
     place-items: center;
-    width: 3rem;
-    height: 3rem;
+    width: 2.75rem;
+    height: 2.75rem;
     border: 1.5px solid color-mix(in oklch, var(--band-foreground) 55%, transparent);
     border-radius: 50%;
     background: transparent;
@@ -166,9 +179,6 @@ import Marquee from '../Marquee.astro'
   }
   .motion-toggle:hover {
     background: color-mix(in oklch, var(--band-foreground) 10%, transparent);
-  }
-  .motion-toggle:focus-visible {
-    outline-color: var(--band-foreground);
   }
   .motion-toggle[data-state='paused'] .motion-toggle-pause,
   .motion-toggle:not([data-state='paused']) .motion-toggle-play {
@@ -180,10 +190,9 @@ import Marquee from '../Marquee.astro'
 
   @media (max-width: 767px) {
     .opening {
-      --band-h: 19svh;
-      --band-pad: 2.4svh;
-      --band-font: 15vw;
-      --stage-h: min(46svh, 92vw);
+      --band-font: 14vw;
+      --band-pad: 1.8svh;
+      --stage-h: min(48svh, 94vw);
     }
     .opening-copy {
       top: calc(var(--header-height) + 1.25rem);
@@ -204,6 +213,11 @@ import Marquee from '../Marquee.astro'
       display: none;
     }
     .opening :global(.bottle-stage) {
+      right: 0;
+      left: 0;
+      margin-inline: auto;
+    }
+    .bottle-shadow {
       right: 0;
       left: 0;
       margin-inline: auto;

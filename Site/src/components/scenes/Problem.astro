@@ -1,0 +1,42 @@
+---
+/** Scène 2 — Le problème (storyboard §2). Le titre arrive sur l'orange, puis la nuit tombe. */
+import CityMap from '../CityMap.astro'
+
+const steps = [
+  'Première station : rupture.',
+  'Deuxième station : rupture.',
+  'On tourne. On perd du temps.',
+  'Et on finit par acheter au hasard.',
+]
+---
+
+<section
+  id="probleme"
+  class="scene scene-pinned"
+  data-scene="problem"
+  data-theme="brand"
+  aria-labelledby="probleme-titre"
+>
+  <div class="scene-scrim" data-scrim></div>
+  <div class="scene-copy">
+    <p class="kicker" data-kicker>
+      Le problème
+    </p>
+    <h2 id="probleme-titre" class="duo">
+      <span class="duo-light" data-duo-light>
+        Mais quand la bouteille est vide…
+      </span>
+      <span class="duo-dark" data-duo-dark aria-hidden="true">
+        Mais quand la bouteille est vide…
+      </span>
+    </h2>
+    <ol class="steps" data-steps>
+      {steps.map((s) => (
+        <li>{s}</li>
+      ))}
+    </ol>
+  </div>
+  <figure class="scene-figure">
+    <CityMap still="probleme" class="figure-map" />
+  </figure>
+</section>

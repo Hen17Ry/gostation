@@ -212,3 +212,132 @@ html.js:not(.motion-ready) .reveal-fallback {
     padding: 0;
   }
 }
+
+/* ── Scènes (storyboard §2) ─────────────────────────────────────────────────────────────────── */
+@layer components {
+  .scene {
+    position: relative;
+  }
+  /* Scène épinglée : un écran ; la mise en scène vient du décor fixe (modes animés). */
+  .scene-pinned {
+    min-height: 100svh;
+  }
+  html.js:not([data-motion='reduced']) .scene-pinned {
+    height: 100svh;
+    overflow: clip;
+  }
+  .scene-copy {
+    position: relative;
+    z-index: 2;
+    max-width: 34rem;
+    padding: calc(var(--header-height) + 9svh) max(1rem, 6vw) 3rem;
+  }
+  .kicker {
+    margin: 0 0 1rem;
+    color: var(--color-brand-400);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .scene h2 {
+    margin: 0;
+    font-size: clamp(2.25rem, min(5vw, 8svh), 4.75rem);
+    line-height: 0.98;
+    letter-spacing: -0.022em;
+  }
+  .steps {
+    margin: 1.75rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: clamp(1.125rem, 1.5vw, 1.4rem);
+    line-height: 1.4;
+  }
+  .steps > li + li {
+    margin-top: 0.75rem;
+  }
+  /* Modes animés : une étape à la fois, au même endroit (fondu). */
+  html.js:not([data-motion='reduced']) .scene-pinned .steps {
+    display: grid;
+  }
+  html.js:not([data-motion='reduced']) .scene-pinned .steps > li {
+    grid-area: 1 / 1;
+    margin: 0;
+    opacity: 0;
+  }
+
+  /* Titre en deux couleurs superposées : sombre sur l'orange, clair sur la nuit (fondu). */
+  .duo {
+    display: grid;
+  }
+  .duo > * {
+    grid-area: 1 / 1;
+  }
+  .duo-dark {
+    color: var(--band-foreground);
+  }
+  html:not(.js) .duo-dark,
+  html[data-motion='reduced'] .duo-dark {
+    display: none;
+  }
+
+  /* Thèmes des sections : couleur propre en lecture réduite et sans JavaScript ; transparentes en
+     modes animés (le décor fixe fond les couleurs d'une scène à l'autre). */
+  .scene[data-theme='night'],
+  .scene[data-theme='brand'] {
+    background: var(--night);
+    color: var(--night-foreground);
+  }
+  html.js:not([data-motion='reduced']) .scene {
+    background: transparent;
+  }
+  .scene[data-theme='night'] .steps,
+  .scene[data-theme='brand'] .steps {
+    color: var(--color-neutral-300);
+  }
+
+  /* Illustration fixe de chaque scène (réduit, sans JavaScript) : la carte, et le téléphone dessus. */
+  .scene-figure {
+    position: relative;
+    max-width: 72rem;
+    margin: 0 max(1rem, 6vw) 4rem;
+    border-radius: 1.5rem;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    background: var(--night);
+  }
+  @media (max-width: 767px) {
+    .scene-figure {
+      aspect-ratio: 3 / 4;
+    }
+  }
+  html.js:not([data-motion='reduced']) .scene-figure {
+    display: none;
+  }
+
+  /* Voile de lecture sous le texte, au-dessus de la carte (modes animés). */
+  .scene-scrim {
+    display: none;
+  }
+  html.js:not([data-motion='reduced']) .scene-scrim {
+    display: block;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 1;
+    width: min(48rem, 62vw);
+    background: linear-gradient(90deg, color-mix(in oklch, var(--night) 88%, transparent) 30%, transparent);
+    pointer-events: none;
+  }
+
+  @media (max-width: 767px) {
+    .scene-copy {
+      padding-top: calc(var(--header-height) + 1.75rem);
+    }
+    html.js:not([data-motion='reduced']) .scene-scrim {
+      inset: 0 0 auto;
+      width: auto;
+      height: 52svh;
+      background: linear-gradient(180deg, color-mix(in oklch, var(--night) 90%, transparent) 55%, transparent);
+    }
+  }
+}

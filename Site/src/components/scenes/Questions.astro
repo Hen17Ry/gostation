@@ -1,0 +1,131 @@
+---
+/** Scène 8 — Questions (faits vrais seulement), en <details> : accessibles sans script. */
+import { downloadHref } from '@/lib/config'
+
+const faq = [
+  {
+    q: 'Faut-il un compte ?',
+    a: 'Non pour chercher une station et y aller. Un compte (gratuit, email vérifié) sert à signaler un problème, garder vos stations favorites et recevoir une alerte quand un produit revient en stock.',
+  },
+  {
+    q: 'Ma position est-elle enregistrée ?',
+    a: 'Jamais. Elle sert le temps de la recherche ou de l’itinéraire, puis elle est oubliée : ni en base, ni dans les journaux. Sans localisation, vous pouvez choisir un point sur la carte.',
+  },
+  {
+    q: 'Les stocks sont-ils fiables ?',
+    a: 'Ils sont saisis par les gérants des stations, et l’app affiche toujours depuis quand. Au-delà de 24 h sans mise à jour, la station sort des résultats. Les utilisateurs peuvent aussi signaler une rupture ou une station fermée.',
+  },
+  {
+    q: 'Quels produits ?',
+    a: 'Le gaz domestique (bouteilles de 5, 10 et 25 kg), l’essence et le gasoil.',
+  },
+  {
+    q: 'Comment inscrire ma station ?',
+    a: 'Dans l’app, choisissez l’espace gérant : votre compte, les informations de la station (dont l’IFU) et un justificatif. Notre équipe vérifie le dossier, puis vous saisissez vos horaires et vos stocks. C’est gratuit pour les stations.',
+  },
+  {
+    q: 'Et sur iPhone ?',
+    a: 'Pour l’instant, GoStation est disponible sur Android.',
+  },
+]
+---
+
+<section
+  id="questions"
+  class="scene questions"
+  data-scene="questions"
+  data-theme="page"
+  aria-labelledby="questions-titre"
+>
+  <h2 id="questions-titre">Questions</h2>
+  <div class="faq">
+    {faq.map((item) => (
+      <details class="faq-item">
+        <summary>
+          <span>{item.q}</span>
+          <span class="faq-sign" aria-hidden="true" />
+        </summary>
+        <p>{item.a}</p>
+      </details>
+    ))}
+  </div>
+  <p class="questions-more">
+    Une autre question ? <a href="#contact">Écrivez-nous</a>, ou{' '}
+    <a href={downloadHref} data-download>
+      essayez l’app
+    </a>
+    .
+  </p>
+</section>
+
+<style>
+  .questions {
+    max-width: 52rem;
+    margin-inline: auto;
+    padding: clamp(5rem, 14svh, 8rem) max(1rem, 6vw) clamp(4rem, 10svh, 6rem);
+    color: var(--foreground);
+  }
+  .questions h2 {
+    margin: 0 0 2rem;
+    font-size: clamp(2.25rem, 5vw, 3.75rem);
+    line-height: 1;
+  }
+  .faq {
+    border-top: 1px solid var(--border);
+  }
+  .faq-item {
+    border-bottom: 1px solid var(--border);
+  }
+  .faq-item summary {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 3.75rem;
+    padding: 0.75rem 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+  }
+  .faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-sign {
+    position: relative;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+  }
+  .faq-sign::before,
+  .faq-sign::after {
+    content: '';
+    position: absolute;
+    inset: 50% 0 auto;
+    height: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: transform var(--duration-base) var(--ease-out);
+  }
+  .faq-sign::after {
+    transform: rotate(90deg);
+  }
+  .faq-item[open] .faq-sign::after {
+    transform: rotate(0deg);
+  }
+  .faq-item p {
+    max-width: 44rem;
+    margin: 0 0 1.25rem;
+    color: var(--muted-foreground);
+    line-height: 1.6;
+  }
+  .questions-more {
+    margin: 2rem 0 0;
+    color: var(--muted-foreground);
+  }
+  .questions-more a {
+    color: var(--brand-text);
+    font-weight: 600;
+    text-underline-offset: 3px;
+  }
+</style>

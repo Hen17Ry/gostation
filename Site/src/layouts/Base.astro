@@ -6,6 +6,8 @@
  */
 import displayFont from '@/assets/fonts/bricolage-grotesque-800-wdth.woff2?url'
 import textFont from '@/assets/fonts/geist-400-700.woff2?url'
+import Backdrop from '@/components/Backdrop.astro'
+import SiteFooter from '@/components/SiteFooter.astro'
 import SiteHeader from '@/components/SiteHeader.astro'
 import { config, indexable } from '@/lib/config'
 import { modeScript } from '@/lib/mode'
@@ -75,12 +77,12 @@ const structuredData = {
   </head>
   <body>
     <SiteHeader />
-    <div class="backdrop" aria-hidden="true"></div>
+    <Backdrop />
     <canvas class="webgl" data-webgl hidden aria-hidden="true"></canvas>
     <main id="contenu" tabindex="-1">
       <slot />
     </main>
-    <slot name="after" />
+    <SiteFooter />
     <script>
       import '@/scripts/main'
     </script>
@@ -88,13 +90,7 @@ const structuredData = {
 </html>
 
 <style>
-  /* Calques : fond fixe, canevas WebGL fixe, puis le contenu qui défile (storyboard §1). */
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    background: var(--background);
-  }
+  /* Calques : décor fixe (Backdrop), canevas WebGL fixe, puis le contenu qui défile (storyboard §1). */
   .webgl {
     position: fixed;
     inset: 0;

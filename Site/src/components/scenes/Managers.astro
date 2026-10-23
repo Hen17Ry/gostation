@@ -1,0 +1,56 @@
+---
+/** Scène 5 — Le gérant : le téléphone pivote, stocks en un geste, rappel (storyboard §2). */
+import { downloadHref } from '@/lib/config'
+
+import Icon from '../Icon.astro'
+import PhoneStill from '../PhoneStill.astro'
+
+const steps = [
+  'Un rappel toutes les 4 h, pendant vos horaires d’ouverture.',
+  '+ et − pour les bouteilles, litres pour les carburants.',
+  'Rien n’a changé ? Un bouton suffit.',
+  'Gratuit pour les stations.',
+]
+---
+
+<section
+  id="gerants"
+  class="scene scene-pinned"
+  data-scene="managers"
+  data-theme="night"
+  aria-labelledby="gerants-titre"
+>
+  <div class="scene-copy">
+    <p class="kicker">Pour les gérants</p>
+    <h2 id="gerants-titre">Vos stocks à jour en un geste.</h2>
+    <ol class="steps" data-steps>
+      {steps.map((s) => (
+        <li>{s}</li>
+      ))}
+    </ol>
+    <a class="btn btn-primary btn-lg managers-cta" href={downloadHref} data-download data-managers-cta>
+      <Icon name="store" />
+      <span>Inscrire ma station</span>
+    </a>
+  </div>
+  <figure class="scene-figure scene-figure-phones">
+    <PhoneStill screen="stocks" alt="" />
+    <PhoneStill screen="rappel" alt="" />
+  </figure>
+</section>
+
+<style>
+  .managers-cta {
+    margin-top: 2rem;
+  }
+  /* Lecture réduite et sans JavaScript seulement (en mode animé, les figures sont masquées). */
+  :global(html:not(.js)) .scene-figure-phones,
+  :global(html[data-motion='reduced']) .scene-figure-phones {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    aspect-ratio: auto;
+    padding: 2rem 0;
+    background: radial-gradient(110% 90% at 70% 60%, var(--color-brand-950), var(--night) 70%);
+  }
+</style>

@@ -1,6 +1,12 @@
 ---
+import Companies from '@/components/scenes/Companies.astro'
+import Final from '@/components/scenes/Final.astro'
+import Managers from '@/components/scenes/Managers.astro'
 import Opening from '@/components/scenes/Opening.astro'
-import Story from '@/components/scenes/Story.astro'
+import Problem from '@/components/scenes/Problem.astro'
+import Questions from '@/components/scenes/Questions.astro'
+import Route from '@/components/scenes/Route.astro'
+import Solution from '@/components/scenes/Solution.astro'
 import Base from '@/layouts/Base.astro'
 ---
 
@@ -9,5 +15,11 @@ import Base from '@/layouts/Base.astro'
   description="Gaz (5, 10 et 25 kg), essence, gasoil : GoStation trouve la station la plus proche qui a votre produit en stock au Bénin, puis vous y guide. Gratuit, sur Android."
 >
   <Opening />
-  <Story />
+  <Problem />
+  <Solution />
+  <Route />
+  <Managers />
+  <Companies />
+  <Final />
+  <Questions />
 </Base>

@@ -52,7 +52,7 @@ const [calloutValveX, calloutValveY] = toSvg(strokes.callouts.valve)
         <text x={plateX} y={plateY - 4} class="solid-plate-text" text-anchor="middle">
           GAZ
         </text>
-        <text x={plateX} y={plateY + 17} class="solid-plate-text solid-plate-text-big" text-anchor="middle">
+        <text x={plateX} y={plateY + 19} class="solid-plate-text solid-plate-text-big" text-anchor="middle">
           10 KG
         </text>
         <path d={solid.collar} fill="url(#bottle-paint-dark)"></path>
@@ -187,20 +187,18 @@ const [calloutValveX, calloutValveY] = toSvg(strokes.callouts.valve)
     opacity: 0.6;
   }
   .solid-plate {
-    fill: none;
-    stroke: var(--color-brand-900);
-    stroke-width: 1.2;
-    opacity: 0.55;
+    fill: var(--color-neutral-50);
+    stroke: var(--color-brand-600);
+    stroke-width: 1.6;
   }
   .solid-plate-text {
-    fill: var(--color-brand-900);
-    opacity: 0.85;
+    fill: var(--color-brand-950);
     font-family: var(--font-display);
     font-weight: 800;
-    font-size: 10px;
+    font-size: 12px;
   }
   .solid-plate-text-big {
-    font-size: 22px;
+    font-size: 27px;
   }
   .solid-hole {
     fill: var(--color-brand-950);

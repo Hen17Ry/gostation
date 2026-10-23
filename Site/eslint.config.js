@@ -27,6 +27,15 @@ export default tseslint.config(
     },
   },
   {
+    // Zone de défilement d'un tableau : focusable au clavier (role="region"), comme le veut axe.
+    rules: { 'astro/jsx-a11y/no-noninteractive-tabindex': ['error', { roles: ['region'] }] },
+  },
+  {
+    // Palette des cartes : miroir de celle de l'app (vérifiée par map-palette.test.ts), un fichier de tokens.
+    files: ['src/lib/map-palette.ts'],
+    rules: { 'no-restricted-syntax': 'off' },
+  },
+  {
     files: [
       'e2e/**/*.ts',
       'playwright.config.ts',

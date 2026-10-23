@@ -1,0 +1,19 @@
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('../../src/assets/fonts/bricolage-grotesque-800-wdth.woff2') format('woff2');
+  font-weight: 800;
+  font-stretch: 75% 100%;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('../../src/assets/fonts/geist-400-700.woff2') format('woff2');
+  font-weight: 400 700;
+}
+body {
+  margin: 0;
+  background: #222;
+}
+canvas {
+  width: 360px;
+  margin: 8px;
+}

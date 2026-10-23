@@ -1,0 +1,35 @@
+---
+/** Scène 3 — La solution : le téléphone, l'onde de recherche par paliers (storyboard §2). */
+import CityMap from '../CityMap.astro'
+import PhoneStill from '../PhoneStill.astro'
+
+const steps = [
+  'Gaz, puis 10 kg. On lance la recherche.',
+  'Elle s’élargit pas à pas : 500 m, 1 km, 2 km…',
+  'Seules s’allument les stations ouvertes, avec du stock mis à jour.',
+  'Trois stations trouvées, classées par temps de trajet.',
+]
+---
+
+<section
+  id="solution"
+  class="scene scene-pinned"
+  data-scene="solution"
+  data-theme="night"
+  aria-labelledby="solution-titre"
+>
+  <div class="scene-scrim"></div>
+  <div class="scene-copy">
+    <p class="kicker">La solution</p>
+    <h2 id="solution-titre">Choisissez. GoStation cherche.</h2>
+    <ol class="steps" data-steps>
+      {steps.map((s) => (
+        <li>{s}</li>
+      ))}
+    </ol>
+  </div>
+  <figure class="scene-figure">
+    <CityMap still="solution" class="figure-map" />
+    <PhoneStill screen="resultats" alt="" />
+  </figure>
+</section>

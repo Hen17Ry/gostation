@@ -62,7 +62,12 @@ test.describe('Ouverture', () => {
     await expect(page.getByText('GoStation vous montre la station la plus proche')).toBeVisible()
     await expect(page.locator('[data-bottle-solid]')).toBeVisible()
     await expect(page.getByText('Gaz 5 kg, 10 kg et 25 kg, essence, gasoil : en stock près de vous.')).toBeAttached()
-    for (const h of ['La bouteille est vide.', 'Choisissez. GoStation cherche.', 'Vos stocks à jour en un geste.']) {
+    for (const h of [
+      'Mais quand la bouteille est vide…',
+      'Choisissez. GoStation cherche.',
+      'Vos stocks à jour en un geste.',
+      'Tout votre réseau, d’un coup d’œil.',
+    ]) {
       await expect(page.getByRole('heading', { name: h })).toBeVisible()
     }
     await context.close()
@@ -88,9 +93,11 @@ test.describe('Ouverture', () => {
     for (const mode of ['reduced', 'full']) {
       await page.goto(`/?mode=${mode}`)
       await page.waitForTimeout(mode === 'full' ? 4500 : 300)
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-        .analyze()
+      // Modes animés : sections transparentes sur un décor fixe, qu'axe ne voit que sous la scène
+      // affichée ; chaque scène est analysée à son tour dans story.spec.ts.
+      const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      if (mode === 'full') builder.include('[data-scene="opening"]').include('[data-site-header]')
+      const results = await builder.analyze()
       expect(results.violations.map((v) => `${mode} ${v.id}: ${v.nodes.length}`)).toEqual([])
     }
   })
