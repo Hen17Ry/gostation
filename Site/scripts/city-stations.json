@@ -1,0 +1,24 @@
+{
+  "_comment": "Points fictifs en unités de la carte (1 unité ≈ 6,9 m), recalés sur la route la plus proche par OSRM. status : stock (en stock), rupture, closed (fermée). Aucune vraie station.",
+  "user": [820, 610],
+  "stations": [
+    { "id": "r1", "xy": [850, 655], "status": "rupture" },
+    { "id": "c1", "xy": [740, 552], "status": "closed" },
+    { "id": "r2", "xy": [920, 565], "status": "rupture" },
+    { "id": "s1", "xy": [1000, 470], "status": "stock", "name": "Station démo · Dantokpa", "quantity": 14 },
+    { "id": "s2", "xy": [636, 540], "status": "stock", "name": "Station démo · Étoile rouge", "quantity": 9 },
+    { "id": "s3", "xy": [930, 770], "status": "stock", "name": "Station démo · Zongo", "quantity": 21 },
+    { "id": "r3", "xy": [700, 760], "status": "rupture" },
+    { "id": "f1", "xy": [1230, 560], "status": "stock" },
+    { "id": "f2", "xy": [480, 450], "status": "rupture" },
+    { "id": "f3", "xy": [360, 860], "status": "stock" },
+    { "id": "f4", "xy": [1310, 700], "status": "closed" },
+    { "id": "f5", "xy": [560, 300], "status": "stock" },
+    { "id": "f6", "xy": [1420, 610], "status": "rupture" },
+    { "id": "f7", "xy": [230, 600], "status": "stock" },
+    { "id": "f8", "xy": [1150, 300], "status": "stock" },
+    { "id": "f9", "xy": [860, 330], "status": "rupture" }
+  ],
+  "wander": ["r1", "r2", "r3"],
+  "market": [560, 700]
+}
