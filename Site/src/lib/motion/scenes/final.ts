@@ -41,7 +41,7 @@ export function final(rigs: Rigs, mm: gsap.MatchMedia) {
 
   mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
     const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2.4 : 2.8, (p) => theme(section, p < 0.62 ? 'page' : 'night'))
+    const tl = pinned(section, (p) => theme(section, p < 0.62 ? 'page' : 'night'))
     const W = () => section.clientWidth
     const H = () => section.clientHeight
 

@@ -9,7 +9,7 @@ import { FRAME, SVG_SCALE, TILT } from '../../bottle'
 import { backdrop } from '../backdrop'
 import { gsap, invalidateOnResize, ScrollTrigger, type Motion } from '../engine'
 import { marquee } from '../marquee'
-import { spacerOf } from './common'
+import { pinScreens, spacerOf } from './common'
 
 type Bottle3D = import('../../webgl/opening-bottle').OpeningBottle
 
@@ -202,14 +202,13 @@ export function opening(motion: Motion) {
 
   // ── Défilement : épinglage et scrub ───────────────────────────────────────────────────────
   const mm = gsap.matchMedia()
-  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
-    const mobile = !!ctx.conditions?.mobile
+  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, () => {
     const scroll = gsap.timeline({
       defaults: { ease: 'none' },
       scrollTrigger: {
         trigger: section,
         start: 'top top',
-        end: () => `+=${window.innerHeight * (mobile ? 0.8 : 1)}`,
+        end: () => `+=${window.innerHeight * pinScreens(section)}`,
         pin: true,
         pinSpacer: spacerOf(section),
         scrub: 0.8,

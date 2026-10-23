@@ -5,22 +5,29 @@ import { gsap, invalidateOnResize } from '../engine'
 /** Enveloppe de la scène dans la page (pages/index.astro), employée comme pin-spacer. */
 export const spacerOf = (section: HTMLElement) => section.closest<HTMLElement>('[data-pin]') ?? undefined
 
+/** Longueur d'épinglage en écrans, lue dans le CSS (global.css : --pin-screens, mobile compris). */
+export const pinScreens = (section: HTMLElement) => {
+  const spacer = spacerOf(section)
+  return (spacer && parseFloat(getComputedStyle(spacer).getPropertyValue('--pin-screens'))) || 1
+}
+
 /**
  * Timeline d'une scène épinglée, de durée 1 (positions en fraction du passage) : épinglée sur un
- * écran, liée au défilement avec un léger amorti.
+ * écran, liée au défilement avec un léger amorti. onUpdate pilote souvent un objet partagé (écran
+ * du téléphone) : au rafraîchissement, seule la scène en cours l'applique.
  */
-export function pinned(section: HTMLElement, screens: number, onUpdate?: (progress: number) => void) {
+export function pinned(section: HTMLElement, onUpdate?: (progress: number) => void) {
   const tl = gsap.timeline({
     defaults: { ease: 'none' },
     scrollTrigger: {
       trigger: section,
       start: 'top top',
-      end: () => `+=${window.innerHeight * screens}`,
+      end: () => `+=${window.innerHeight * pinScreens(section)}`,
       pin: true,
       pinSpacer: spacerOf(section),
       scrub: 0.9,
       onUpdate: onUpdate && ((self) => onUpdate(self.progress)),
-      onRefresh: onUpdate && ((self) => onUpdate(self.progress)),
+      onRefresh: onUpdate && ((self) => self.isActive && onUpdate(self.progress)),
     },
   })
   return invalidateOnResize(tl)

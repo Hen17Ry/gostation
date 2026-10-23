@@ -198,6 +198,50 @@ html.lenis body {
   }
 }
 
+/*
+ * Longueur d'épinglage de chaque scène, en écrans (source unique : lib/motion/scenes/common.ts la
+ * lit). Modes animés : l'enveloppe la réserve d'emblée, en hauteur de fenêtre --pin-vh (posée par
+ * le moteur à chaque rafraîchissement de ScrollTrigger, comme ses calculs) : la mise en page est
+ * la même avant, pendant et après l'épinglage, et que la scène soit créée ou non.
+ */
+[data-pin='opening'] {
+  --pin-screens: 1;
+}
+[data-pin='problem'],
+[data-pin='managers'] {
+  --pin-screens: 2.4;
+}
+[data-pin='solution'] {
+  --pin-screens: 3;
+}
+[data-pin='route'] {
+  --pin-screens: 2.6;
+}
+[data-pin='final'] {
+  --pin-screens: 2.8;
+}
+@media (max-width: 767px) {
+  [data-pin='opening'] {
+    --pin-screens: 0.8;
+  }
+  [data-pin='problem'],
+  [data-pin='managers'] {
+    --pin-screens: 2;
+  }
+  [data-pin='solution'] {
+    --pin-screens: 2.6;
+  }
+  [data-pin='route'] {
+    --pin-screens: 2.2;
+  }
+  [data-pin='final'] {
+    --pin-screens: 2.4;
+  }
+}
+html.js:not([data-motion='reduced']) [data-pin] {
+  padding-bottom: calc(var(--pin-screens) * var(--pin-vh, 100vh));
+}
+
 /* ── Scènes (storyboard §2) ─────────────────────────────────────────────────────────────────── */
 @layer components {
   .scene {

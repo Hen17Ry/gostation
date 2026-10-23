@@ -16,25 +16,27 @@ import Base from '@/layouts/Base.astro'
 >
   {/* Scènes épinglées : chacune dans son enveloppe, que ScrollTrigger emploie comme pin-spacer
        (lib/motion/scenes/common.ts). L'épinglage et ses rafraîchissements ne déplacent alors pas
-       la scène dans le DOM (le premier rendu du titre reste compté, aucun sous-arbre recréé) ;
-       sans animation, l'enveloppe est neutre. */}
-  <div data-pin>
+       la scène dans le DOM (le premier rendu du titre reste compté, aucun sous-arbre recréé), et
+       l'enveloppe réserve en CSS la longueur d'épinglage de sa scène (global.css) : la page a sa
+       hauteur finale avant toute animation, que la scène soit créée ou non
+       (lib/motion/lazy-scenes.ts). Sans animation, l'enveloppe est neutre. */}
+  <div data-pin="opening">
     <Opening />
   </div>
-  <div data-pin>
+  <div data-pin="problem">
     <Problem />
   </div>
-  <div data-pin>
+  <div data-pin="solution">
     <Solution />
   </div>
-  <div data-pin>
+  <div data-pin="route">
     <Route />
   </div>
-  <div data-pin>
+  <div data-pin="managers">
     <Managers />
   </div>
   <Companies />
-  <div data-pin>
+  <div data-pin="final">
     <Final />
   </div>
   <Questions />

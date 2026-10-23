@@ -29,7 +29,7 @@ export function managers(rigs: Rigs, mm: gsap.MatchMedia) {
 
   mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
     const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2 : 2.4, (p) => phone.setScreen(screenAt(p)))
+    const tl = pinned(section, (p) => phone.setScreen(screenAt(p)))
 
     tl.fromTo(backdrop.w, { emberIn: 0 }, { emberIn: 1, duration: 0.2, onUpdate: backdrop.apply }, 0)
       .fromTo(city.poses.out, { opacity: 1 }, { opacity: 0, duration: 0.14, onUpdate: city.apply }, 0)

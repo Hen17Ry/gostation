@@ -58,7 +58,7 @@ export function route(rigs: Rigs, mm: gsap.MatchMedia) {
     const mobile = !!ctx.conditions?.mobile
     const focus: [number, number] = mobile ? [0.5, 0.42] : [0.47, 0.56]
     const zoom = mobile ? 1.3 : 1.6
-    const tl = pinned(section, mobile ? 2.2 : 2.6, (p) => phone.setScreen(screenAt(p)))
+    const tl = pinned(section, (p) => phone.setScreen(screenAt(p)))
 
     tl.fromTo(
       city.poses.cam,

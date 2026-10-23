@@ -27,9 +27,9 @@ export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
   const DRAW = { from: 0.2, length: 0.66 }
   const at = (f: number) => DRAW.from + DRAW.length * f
 
-  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
-    const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2 : 2.4, (p) => theme(section, p < 0.12 ? 'brand' : 'night'))
+  // Points de rupture : la durée d'épinglage change (global.css), la scène est recréée.
+  mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, () => {
+    const tl = pinned(section, (p) => theme(section, p < 0.12 ? 'brand' : 'night'))
 
     // Le titre reste un temps sur l'orange, puis la nuit tombe comme un coucher de soleil : l'orange
     // s'attarde et s'assombrit de plus en plus vite (fondu, jamais une coupure). La nuit est posée
