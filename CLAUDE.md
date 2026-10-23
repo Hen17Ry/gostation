@@ -71,7 +71,10 @@ Détails techniques (modèle de données, endpoints, algorithme) : [`docs/ARCHIT
 - **Budgets** : JS initial < 150 Ko gzip (`npm run check:bundle`), Three.js à la demande ; LCP < 2,5 s en 4G ; Lighthouse mobile ≥ 85 (performance) et ≥ 95 (accessibilité, SEO, bonnes pratiques).
 - **CSP** sans `unsafe-inline` : `build/csp.mts` calcule les empreintes des scripts et styles en ligne (`dist/csp.txt`) et refuse tout attribut `style=""` ou `on…=""`. Aucune ressource tierce (polices auto-hébergées, sous-ensembles de `scripts/subset-fonts.py`).
 - **Tokens** générés depuis `Web/src/styles/globals.css` (`npm run gen:tokens`), couleur brute refusée par ESLint. Titres en Bricolage Grotesque, texte en Geist.
-- Les adresses `/politique-confidentialite`, `/cgu` et `/suppression-compte` ne changent jamais (Google OAuth et Google Play pointent dessus).
+- **Une scène par élément** : les objets partagés (couleurs du fond, ville, téléphone, Terre) sont pilotés par des poses composées (`src/lib/motion/rigs.ts`, `backdrop.ts`) ; une scène n'anime jamais un élément qu'une autre anime, et utilise `fromTo` pour tout état de départ (scrub dans les deux sens).
+- **Données géographiques** générées une fois et commitées : `scripts/gen-city.py` (Cotonou depuis l'extrait OSM, stations fictives, trajets par notre OSRM), `scripts/gen-geo.py` (sud du Bénin, Natural Earth) ; écrans du téléphone fixes `npm run gen:screens`, image de partage `npm run gen:og`. Crédit « © les contributeurs d'OpenStreetMap » affiché.
+- **Contact** : aucun formulaire (le site ne collecte rien) ; `mailto:` (`PUBLIC_CONTACT_EMAIL`) et WhatsApp (`PUBLIC_WHATSAPP_NUMBER`, bouton masqué si vide). Téléchargement : `PUBLIC_APK_URL`. Variables figées à la build du proxy.
+- Les adresses `/politique-confidentialite`, `/cgu` et `/suppression-compte` ne changent jamais (Google OAuth et Google Play pointent dessus) : rendues par le site depuis `docs/legal/*.md` (avec leurs variantes `.html`), testées par `e2e/legal.spec.ts`.
 
 ## Rôles
 
@@ -89,7 +92,7 @@ GoStation/
 ├── Mobile/             Expo React Native — app unique user + manager : src/{app,features,components,api,i18n,lib,map,stores,theme}, modules/ (modules natifs locaux), scripts/, docs/ (design-system.md, screenshots/), .maestro/
 ├── Web/                Admin React (Vite) : src/{routes,features,components,api,i18n,lib,styles}, e2e/, docs/ (design-system.md, screenshots/)
 ├── Site/               Site public gostation.bj (Astro statique, GSAP, Three.js à la demande) : src/{pages,layouts,components,lib,styles,scripts}, build/csp.mts, e2e/
-├── docs/               ARCHITECTURE.md, landing/ (storyboard, vidéos et captures du site public), legal/ (inventaire, politique, CGU, registre, APDP, Play, questions au juriste : source unique des textes)
+├── docs/               ARCHITECTURE.md, landing/ (storyboard et captures du site public), legal/ (inventaire, politique, CGU, registre, APDP, Play, questions au juriste : source unique des textes)
 ├── scripts/            osrm-prepare.sh, check-infra.sh, env.sh, with-env.sh, explain-search.sh, explain-stats.sh, bench.sh (+ bench/search.js k6), e2e-stack.sh, _lib.sh
 ├── docker-compose.yml  PostGIS, Redis, OSRM, Mailpit + asynqmon (profil « dev »), API + worker (profil « api »)
 ├── Makefile            make help
@@ -181,8 +184,9 @@ npm run dev         # Astro sur 4321 ; ?mode=full|lite|reduced force un mode d'a
 npm run build && npm run check:bundle   # astro check + build + dist/csp.txt, puis budget du JS initial (< 150 Ko gzip)
 npm run preview     # le build avec les en-têtes et la CSP de Caddy (4322)
 npm run lint        # ESLint + Prettier ;  npm test : Vitest ;  npm run gen:tokens : tokens depuis Web
-npm run e2e         # Playwright sur le build : modes, CSP, sans JavaScript, accessibilité (ordinateur et mobile)
-npm run record      # vidéos et captures du parcours → docs/landing/ (GPU de la machine)
+npm run e2e         # Playwright sur le build : modes, parcours complet, CSP, jointure du bandeau, pages légales, accessibilité (ordinateur et mobile)
+npm run record      # vidéos et captures du parcours → docs/landing/ (GPU de la machine ; vidéos hors dépôt)
+npm run gen:screens | gen:og   # écrans fixes du téléphone (après un build) ; image de partage
 
 Ports hôte (liés à 127.0.0.1, surchargeables dans `.env`) : PostGIS **5440**, Redis **6390**, OSRM **5000**, API **8080**, Mailpit **1025** (SMTP) / **8025** (web), asynqmon **8090**, Vite **5173** (preview **4173**), site public **4321** (aperçu **4322**), API E2E **8095** (worker **8096**). Le worker expose ses sondes sur **8081** (`WORKER_HEALTH_ADDR`, non publié par Docker). Les ports 5432 et 6379 sont déjà pris sur la machine de dev.
 

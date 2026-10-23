@@ -40,7 +40,7 @@ flowchart LR
 
 | Site | Contenu |
 |---|---|
-| `https://<domaine>` | Site public : politique de confidentialité, CGU, **suppression de compte** (`/suppression-compte`, lien pour Google Play) |
+| `https://<domaine>` | Site public (`Site/`, Astro statique) : l'histoire de GoStation et le téléchargement de l'app ; politique de confidentialité, CGU, **suppression de compte** (`/suppression-compte`, lien pour Google Play), adresses inchangées. CSP sans `unsafe-inline` générée au build (`csp.txt`) ; variables `PUBLIC_APK_URL`, `PUBLIC_CONTACT_EMAIL`, `PUBLIC_WHATSAPP_NUMBER` figées à la build du proxy |
 | `https://api.<domaine>` | API (en-têtes de sécurité posés par l'API) |
 | `https://admin.<domaine>` | Admin web (build statique, CSP stricte de `Web/dist/csp.txt`) |
 | `https://errors.<domaine>` | GlitchTip (rapports de plantage, D90) ; l'IP des clients ne lui parvient pas |
@@ -345,6 +345,19 @@ Mis en place le 2026-10-22 ; piloté depuis le poste d'exploitation par `scripts
 - **Limite de connexions SSH**, en amont aussi : après 4 ou 5 connexions ouvertes en peu de temps, le port 22 ne répond plus pendant ~5 min (ni ufw ni fail2ban n'y sont pour rien). `scripts/staging.sh` garde une connexion maître 10 min (`ControlPersist`), que toutes ses commandes réutilisent ; pour une longue session : `ssh -fNM -o ControlPath="$HOME/.ssh/cm-gostation-%r@%h:%p" -o ControlPersist=6h deploy@45.93.21.86`.
 - **Image cloud-init** : `PasswordAuthentication yes` dans `50-cloud-init.conf`, d'où le fichier `00-gostation.conf` (§3).
 - **DNS** : déplacé le 2026-10-22 de Wayhost vers **Cloudflare** (`dave.ns.cloudflare.com`, `fay.ns.cloudflare.com`), toutes les entrées en **« DNS uniquement »** (jamais « Proxied » : Cloudflare verrait tout le trafic et Caddy n'accepte `X-Forwarded-For` que de lui-même). La zone Wayhost était incohérente : la délégation du `.bj` et les NS de la zone différaient, et `ns1.netim.net` servait une ancienne version sans `api`, `admin` ni `errors` ; les résolveurs qui l'interrogeaient ne trouvaient plus ces noms (le téléphone de test n'envoyait plus ses rapports de plantage). 14 entrées : A et AAAA de `@`, `www`, `api`, `admin`, `errors` ; SPF (`v=spf1 include:spf.brevo.com ~all`), DMARC (`_dmarc`), DKIM de Brevo (`brevo1._domainkey`, `brevo2._domainkey` en CNAME). Contrôle : `make check-dns` (aussi dans la surveillance). Après un changement de serveurs, les résolveurs gardent l'ancienne réponse négative jusqu'à une heure.
+
+### Messagerie : contact@gostation.bj
+
+Les emails du site et de l'app **partent** par Brevo (SPF `include:spf.brevo.com`, DKIM `brevo1`/`brevo2`, DMARC). Pour **recevoir** à `contact@gostation.bj` sans boîte dédiée, Cloudflare Email Routing (gratuit) redirige vers la boîte de l'exploitant. Règle d'or : **un seul enregistrement SPF**, qui autorise les deux (deux SPF = « permerror » : les emails de Brevo partiraient en indésirables). `make check-dns` le vérifie (SPF unique avec Brevo ; si des MX Cloudflare existent, les trois MX et l'include Cloudflare).
+
+1. Cloudflare › gostation.bj › **Email** › Email Routing › *Get started*. À l'étape des enregistrements, ne pas laisser l'assistant **ajouter** un second SPF : accepter les trois MX (`route1`, `route2`, `route3.mx.cloudflare.net`) et le DKIM de Cloudflare s'il est proposé (`cf2024-1._domainkey`).
+2. DNS › modifier l'enregistrement TXT existant de `@` (ne pas en créer un autre) : `v=spf1 include:spf.brevo.com include:_spf.mx.cloudflare.net ~all`. Si l'assistant a créé un TXT `v=spf1 include:_spf.mx.cloudflare.net ~all`, le **supprimer**.
+3. Email Routing › *Destination addresses* : ajouter la boîte de destination, cliquer le lien de vérification reçu.
+4. *Routing rules* › *Custom address* : `contact` → *Send to an email* → la boîte vérifiée. Activer.
+5. Contrôles : `dig +short TXT gostation.bj` (une seule ligne `v=spf1 …` avec les deux include), `dig +short MX gostation.bj` (trois MX Cloudflare), `make check-dns` vert. Envoyer un message de test depuis une autre adresse ; vérifier les indésirables au premier envoi.
+6. Répondre en tant que contact@ (facultatif) : Gmail › Paramètres › Comptes › *Envoyer des e-mails en tant que* › SMTP `smtp-relay.brevo.com:587` avec l'identifiant SMTP Brevo et une clé SMTP dédiée : l'envoi reste autorisé par le SPF et signé par le DKIM de Brevo.
+
+Les DNS sont « DNS uniquement » (jamais « Proxied ») ; les MX n'ont pas d'option de proxy.
 
 ### Ajouter www
 

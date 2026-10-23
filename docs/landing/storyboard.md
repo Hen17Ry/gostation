@@ -38,14 +38,24 @@ GOSTATION → zoom arrière jusqu'au Bénin vu de l'espace.**
 
 ### Calques (du fond vers l'avant)
 
-1. **Fond fixe** (`.backdrop`, plein écran) : couleurs de scène et grandes illustrations SVG (ville,
-   carte, Bénin). Animé en transform et opacité seulement.
+1. **Fond fixe** (`Backdrop.astro`, plein écran) : couleurs de scène (orange, nuit, braise, espace,
+   fondus entre elles), Cotonou de nuit, téléphone en HTML (mode léger), l'espace. Animé en
+   transform et opacité seulement.
 2. **Canevas WebGL fixe** (un seul, transparent, `pointer-events: none`) : bouteille, téléphone,
    globe. Mode complet uniquement.
 3. **Contenu HTML** qui défile : tout le texte de l'histoire, les boutons, le bandeau, les
    étiquettes posées sur la carte.
 
 Le texte reste toujours au-dessus de la 3D : lisible, sélectionnable, traduit par le navigateur.
+
+**Une scène par élément.** Les objets partagés (couleurs du fond, ville, téléphone, Terre) sont
+pilotés par des « poses » : chaque scène anime la sienne (entrée, cadrage, pivot, sortie), l'objet
+affiché est leur composition (`lib/motion/rigs.ts`, `backdrop.ts`). Aucune scène n'anime un élément
+qu'une autre anime : on peut défiler dans les deux sens ou sauter d'un lien, l'état reste juste.
+
+**Barre d'en-tête** : sa teinte suit ce qu'elle recouvre (`data-theme` des sections : verre clair
+ou sombre selon le système sur « page », verre sombre sur la nuit, barre presque opaque sur
+l'orange ; le bandeau qui envahit l'écran porte lui-même `brand`).
 
 ### Trois modes, une seule histoire
 
@@ -101,7 +111,12 @@ lissage). « Timeline » = animation liée au défilement, de 0 (début de l'ép
   (ancre vers la scène 2). Mention : « Android · gratuit ».
 - Bandeau défilant : `GAZ 5 KG · 10 KG · 25 KG · ESSENCE · GASOIL · EN STOCK PRÈS DE VOUS ·`
   (lu une seule fois par les lecteurs d'écran : « Gaz 5 kg, 10 kg et 25 kg, essence, gasoil : en
-  stock près de vous. »).
+  stock près de vous. »). Chaque jeu finit par son séparateur ; la boucle décale exactement du pas
+  mesuré entre deux jeux, après le chargement des polices et à chaque changement de taille (test
+  visuel de la jointure : `e2e/seam.spec.ts`). Sous le texte, sur un filet : « Faites défiler » à
+  gauche, Pause à droite ; le bandeau est compact, sans vide orange.
+- Bouteille : plus grande que le titre n'est large, ombre de contact sur le bandeau, lumière de
+  contour, peinture au vernis usé (rugosité variable, éclats discrets), étiquette « GAZ · 10 KG ».
 
 **Ce qui bouge (au chargement, ~2,8 s, avant tout défilement)**
 
@@ -113,14 +128,15 @@ lissage). « Timeline » = animation liée au défilement, de 0 (début de l'ép
 | 1,5 → 2,7 s | **Le croquis devient 3D** : la bouteille se « remplit » de bas en haut (balayage d'un uniform, liseré lumineux à la coupe) exactement dans la pose du croquis ; les traits sous le liseré s'effacent |
 | 2,7 s → | La bouteille tourne doucement (un tour en 16 s) ; la plaque « 10 KG », la collerette et le robinet font lire la rotation |
 
-**Défilement** — `trigger: #ouverture`, `start: 'top top'`, `end: '+=120%'`, `pin: true`,
-`scrub: 0.8`.
+**Défilement** — `trigger: #ouverture`, `start: 'top top'`, `end: '+=100%'` (mobile `+=80%`),
+`pin: true`, `scrub: 0.8`. Passage court : chaque instant montre quelque chose.
 
 | Timeline | Mouvement |
 | --- | --- |
-| 0 → 0,35 | Titre, chapeau et actions montent de 60 px et s'effacent ; la bouteille pivote de 120° et monte de 6 % |
+| 0 → 0,3 | Titre, chapeau et actions montent de 64 px et s'effacent ; la bouteille pivote de 120° et monte |
 | tout le long | Le bandeau accélère avec la vitesse de défilement (dans le sens du défilement) et s'incline (`skewX` ±8°) : notre « flou de vitesse » en transform |
-| 0,55 → 1 | **Le bandeau inonde l'écran** : son fond s'étire vers le haut (`scaleY`, origine en bas) jusqu'à couvrir la page ; le texte du bandeau monte et s'efface ; la bouteille descend et rapetisse vers le bas de l'écran (elle deviendra le point qui erre en scène 2) |
+| 0,42 → 0,92 | **Le bandeau inonde l'écran** : son fond s'étire vers le haut (`scaleY`, origine en bas) ; son texte monte et s'efface ; la bouteille s'enfonce et rapetisse ; l'ombre de contact s'efface |
+| 0,92 → 1 | Sous le bandeau qui couvre tout, le décor fixe prend le même orange : la section peut partir, l'orange reste, et le titre de la scène 2 arrive dessus |
 
 **Mobile** — colonne : titre en haut (3 lignes), bouteille au centre (36 svh), bandeau de 22 svh
 (texte à 15 vw) ; actions sous le titre, bouton de 48 px. Épinglage `+=100%`.
@@ -134,9 +150,10 @@ aucun épinglage.
 
 ### Scène 2 — Le problème
 
-**Texte** (kicker « Le problème »)
+**Texte** (kicker « Le problème », qui apparaît avec la nuit)
 
-- H2 : « La bouteille est vide. »
+- H2 : « Mais quand la bouteille est vide… » : il monte sur l'orange laissé par l'ouverture (texte
+  sombre), puis passe en clair quand la nuit tombe (deux copies superposées en fondu).
 - Étapes, une par palier : « Première station : rupture. » · « Deuxième station : rupture. » ·
   « On tourne. On perd du temps. » · « Et on finit par acheter au hasard. »
 
@@ -145,10 +162,10 @@ aucun épinglage.
 
 | Timeline | Mouvement |
 | --- | --- |
-| 0 → 0,12 | L'orange de la scène 1 s'assombrit vers la nuit (fondu de calques du fond) ; la ville apparaît du noir : ville stylisée **inspirée de Cotonou** (lagune qui coupe la ville, deux ponts, littoral en bas, grands axes et carrefours), lumières des rues en points ambrés |
-| 0,1 → 0,9 | Un trajet erre (DrawSVG scrubbé, tirets orange 400) ; la bouteille, devenue un petit repère, le suit (MotionPath) |
-| à chaque station atteinte (≈ 0,3 · 0,5 · 0,7) | Le picto de la station se barre (deux traits tracés), l'étiquette « Rupture » se pose (échelle 1,3 → 1, opacité) ; l'étape de texte correspondante entre |
-| 0,85 → 1 | Le trajet s'efface à 30 % ; la caméra (groupe SVG) recule légèrement : on prépare la recherche |
+| 0 → 0,15 | L'orange s'efface en fondu sur la nuit ; Cotonou apparaît : **la vraie ville**, dessinée au build depuis OpenStreetMap (grands axes, chenal, lac Nokoué, océan, avec la palette sombre de la carte de l'app), lampadaires en points ambrés, quelques quartiers nommés. Stations fictives posées sur les routes |
+| 0,15 → 0,86 | Un trajet erre sur les vraies routes (OSRM ; DrawSVG scrubbé, tirets orange 400) ; un petit repère (la bouteille vide) le suit (MotionPath) |
+| à chaque station atteinte (position calculée sur le tracé) | Le picto de la station se barre (deux traits tracés), l'étiquette « Rupture » se pose (échelle 1,4 → 1) ; l'étape de texte correspondante entre |
+| 0,86 → 1 | Arrivée « Au hasard » (un point d'interrogation) : « Et on finit par acheter au hasard. » |
 
 **Mobile** — même carte recadrée en portrait (`preserveAspectRatio="xMidYMid slice"`, ville
 centrée sur la lagune) ; les étapes en bas, dans une carte translucide. `+=200%`.
@@ -173,8 +190,8 @@ centrée sur la lagune) ; les étapes en bas, dans une carte translucide. `+=200
 | --- | --- |
 | 0 → 0,2 | **Un téléphone 3D entre** par la droite en pivotant (`rotation.y` −35° → −12°) ; son écran (texture dessinée en Canvas 2D, rafraîchie seulement aux changements d'état) montre « Que cherchez-vous ? » et trois choix |
 | 0,2 → 0,3 | Toucher sur « Gaz » (onde de toucher, puce orange), puis les tailles apparaissent ; toucher sur « 10 kg » |
-| 0,3 → 0,8 | Sur la carte, depuis la position de l'utilisateur, **l'onde radar s'élargit par paliers** comme le vrai algorithme (500 m, 1 km, 2 km, 5 km) : à chaque palier, l'anneau s'arrête, son libellé s'affiche, les stations du disque se révèlent. Celles en rupture ou fermées restent grises ; **seules les stations en stock s'allument** (halo orange). On s'arrête au premier palier qui en compte trois |
-| 0,8 → 1 | L'écran du téléphone affiche la liste des résultats (nom fictif, temps de trajet, « mis à jour il y a 12 min ») |
+| 0,3 → 0,8 | Sur la carte, depuis la position de l'utilisateur, **l'onde radar s'élargit par paliers** comme le vrai algorithme (500 m, 1 km, 2 km) : à chaque palier, l'anneau s'arrête, son libellé s'affiche, les stations du disque se révèlent. Celles en rupture ou fermées restent grises ; **seules les stations en stock s'allument** (halo orange). On s'arrête au premier palier qui en compte trois. Le téléphone montre la même onde sur la carte claire de l'app |
+| 0,8 → 1 | L'écran du téléphone affiche la liste des résultats, classés par temps de trajet OSRM (« Station démo · Étoile rouge », 1,7 km, 2 min, 9 bouteilles, « mis à jour il y a 12 min ») ; les rangs 1, 2, 3 se posent sur la carte |
 
 **Mobile** — carte en fond ; téléphone dans la moitié basse (55 % de largeur), texte en haut.
 `+=260%`.
@@ -198,7 +215,7 @@ allumées ; étapes en liste.
 | Timeline | Mouvement |
 | --- | --- |
 | 0 → 0,15 | La carte zoome vers la station choisie (groupe SVG, échelle 1 → 2,2) ; le téléphone glisse sur le côté |
-| 0,1 → 0,85 | **Le tracé se dessine** (DrawSVG scrubbé) et un **zémidjan** (moto vue de dessus) le suit au rythme du défilement (MotionPath, orientation automatique) ; l'écran du téléphone affiche l'étape en cours (« Tournez à droite… ») |
+| 0,14 → 0,84 | **Le tracé se dessine** (le vrai trajet OSRM : rue de Ouidah, avenue de la République, place de l'Étoile Rouge) et un **zémidjan** (moto vue de dessus) le suit au rythme du défilement (MotionPath, orientation automatique) ; l'écran du téléphone affiche l'étape en cours et la distance qui décroît |
 | 0,85 → 1 | Arrivée : l'épingle de la station pulse une fois, le badge « Mis à jour il y a 12 min » se pose à côté |
 
 **Mobile** — même chose en portrait ; le téléphone passe en bas de l'écran, réduit. `+=200%`.
@@ -219,10 +236,11 @@ allumées ; étapes en liste.
 
 | Timeline | Mouvement |
 | --- | --- |
-| 0 → 0,2 | **Le téléphone pivote** (demi-tour sur Y, comme la voiture de la référence) et revient face à nous sur l'écran Stocks du gérant ; la carte s'éteint, fond braise (orange 950 → neutre 950) |
-| 0,2 → 0,45 | Toucher sur « + » de « Gaz 10 kg » : le compteur passe de 13 à 14 ; « Essence » : pavé numérique, « 1 200 L » |
-| 0,45 → 0,7 | Toucher sur « **Rien n'a changé** » : coche, « Stocks confirmés » |
-| 0,7 → 1 | Une notification descend en haut de l'écran : « Vos stocks datent de 4 h. » avec « Mettre à jour » et « Rien n'a changé » (les vraies actions du rappel) |
+| 0 → 0,24 | **Le téléphone fait un tour complet** sur Y (on voit son dos et le logo à mi-course, comme la voiture de la référence) et revient sur l'écran Stocks du gérant ; la ville s'éteint, fond braise |
+| 0,22 → 0,4 | Le rappel des 4 h descend : « Vos stocks sont-ils à jour ? » avec « Mettre à jour » et « Rien n'a changé » (les vraies actions) ; toucher sur « Mettre à jour » |
+| 0,44 → 0,5 | Toucher sur « + » de « Gaz 10 kg » : 13 → 14 |
+| 0,6 → 0,66 | Toucher sur « **Rien n'a changé** » : « Stocks confirmés · à l'instant » |
+| 0,78 → 1 | « Gratuit pour les stations. » et « Inscrire ma station » |
 
 **Mobile** — téléphone centré, texte au-dessus puis en dessous. `+=200%`. **Léger** — téléphone
 HTML, mêmes états. **Réduit** — écran Stocks fixe, les quatre points en liste.
@@ -234,13 +252,17 @@ HTML, mêmes états. **Réduit** — écran Stocks fixe, les quatre points en li
 - H2 : « Tout votre réseau, d'un coup d'œil. »
 - « Sur demande, un panneau dédié : les stocks de vos stations en temps réel, les ruptures, les
   alertes. » · « Vos données ne sont jamais partagées avec une autre compagnie. »
-- Action : « Nous contacter » (formulaire de contact).
+- Actions : « Nous contacter » (`mailto:` vers `PUBLIC_CONTACT_EMAIL`, contact@gostation.bj) et
+  WhatsApp (`wa.me`, `PUBLIC_WHATSAPP_NUMBER` ; bouton masqué tant qu'aucun numéro n'est configuré).
+  Aucun formulaire : le site ne collecte rien.
 
-**Ce qui bouge** — pas d'épinglage. `trigger: #compagnies`, `start: 'top 70%'`, `toggleActions:
-'play none none reverse'`.
+**Ce qui bouge** — pas d'épinglage. À l'arrivée de la section (`'top bottom'` → `'top 30%'`,
+scrub), la nuit et la braise s'effacent en fondu vers le fond de page, le téléphone s'en va vers le
+haut ; puis apparitions au défilement (`'top 78%'`, `toggleActions: 'play none none reverse'`).
 
-- La carte recule (vue régionale) : les stations d'un réseau fictif s'allument une à une, couleur et
-  pictogramme selon le stock (en stock, faible, rupture : jamais la couleur seule).
+- Carte du sud du Bénin (OpenStreetMap, de Ouidah à Porto-Novo, lac Nokoué) : les stations d'un
+  réseau fictif s'allument une à une, couleur et pictogramme selon le stock (en stock, stock bas,
+  rupture : jamais la couleur seule), légende.
 - Un aperçu de tableau de bord monte depuis le bas (carte HTML) : tuiles « Stations à jour »,
   « Ruptures », « Alertes », petit graphique ; étiquette « Aperçu · données d'exemple ».
 
@@ -260,10 +282,10 @@ HTML, mêmes états. **Réduit** — écran Stocks fixe, les quatre points en li
 | Timeline | Mouvement |
 | --- | --- |
 | 0 → 0,15 | **Volet orange** depuis la droite (`scaleX`, origine à droite) qui couvre l'écran |
-| 0,15 → 0,3 | Le volet se resserre en barre verticale (`scaleX` → largeur d'une hampe) qui se place sur le premier « T » |
-| 0,3 → 0,55 | **Révélation lettre par lettre** : la barre devient la hampe du T, la traverse glisse ; puis S, A, O, T, G, I, O, N naissent en alternance de part et d'autre (masques, SplitText en caractères) |
-| 0,55 → 0,95 | **Zoom arrière** : le mot monte et rapetisse ; sous lui, la ville → Cotonou → le Bénin (contour réel, points des stations) → la Terre de nuit, le Bénin en point orange sur la côte ouest-africaine, halo d'atmosphère (3D en mode complet, SVG en léger) |
-| 0,95 → 1 | Les actions et le QR code apparaissent sur l'espace |
+| 0,13 → 0,27 | Le volet se resserre en barre verticale (`scaleX`, `scaleY`) qui atterrit sur la hampe du premier « T » (mesurée en positions de mise en page) |
+| 0,27 → 0,5 | **Révélation lettre par lettre** : la barre se fond dans le T ; puis S, A, O, T, G, I, O, N montent de leurs masques, en alternance de part et d'autre ; le slogan suit |
+| 0,56 → 0,94 | **Zoom arrière** : l'espace en fondu, le mot monte et rapetisse ; le sud du Bénin (fondu de bord) rapetisse, puis la Terre de nuit : terres en points, le Bénin en orange, halo d'atmosphère (globe 3D en mode complet, image 2D en léger, même disque) |
+| 0,9 → 1 | Les actions et le QR code se posent en bas, sous la Terre |
 
 **Mobile** — mot sur toute la largeur (`wdth` 75), QR code masqué (on est déjà sur le téléphone :
 bouton seul). `+=200%`. **Léger** — contour du Bénin et limbe de la Terre en SVG. **Réduit** — mot
@@ -279,7 +301,10 @@ complet, Bénin fixe, actions et QR code.
 - **Pied de page** : Politique de confidentialité (`/politique-confidentialite`), CGU (`/cgu`),
   Suppression de compte (`/suppression-compte`), Contact, « Version légère ». Ces trois adresses ne
   changent pas (Google OAuth et Google Play pointent dessus).
-- Pas d'épinglage ; apparition en fondu court (≤ 400 ms) au défilement, rien en version réduite.
+- À l'arrivée des questions, l'espace et la Terre s'effacent en fondu vers le fond de page. Pas
+  d'épinglage.
+- Les pages légales sont rendues par le site (même source `docs/legal/*.md`, même analyseur que
+  l'app), en page de texte sans animation ; adresses inchangées (et leurs variantes `.html`).
 
 ## 3. Budgets et vérifications
 
