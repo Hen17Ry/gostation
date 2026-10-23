@@ -40,8 +40,8 @@ export function managers(rigs: Rigs, mm: gsap.MatchMedia) {
         {
           rotY: 360,
           x: mobile ? 0 : () => -window.innerWidth * 0.03,
-          y: mobile ? () => -window.innerHeight * 0.1 : 0,
-          scale: mobile ? 1.22 : 1.1,
+          y: mobile ? () => -window.innerHeight * 0.04 : 0,
+          scale: mobile ? 1.04 : 1.1,
           duration: 0.24,
           ease: 'power2.inOut',
           onUpdate: phone.apply,

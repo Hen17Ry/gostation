@@ -27,25 +27,32 @@ export function problem(rigs: Rigs, mm: gsap.MatchMedia) {
     return [m?.e ?? 0, m?.f ?? 0]
   })
   const fractions = fractionsAlong(path, stopPoints)
-  const DRAW = { from: 0.15, length: 0.71 }
+  const DRAW = { from: 0.2, length: 0.66 }
   const at = (f: number) => DRAW.from + DRAW.length * f
 
   mm.add({ mobile: '(max-width: 767px)', desktop: '(min-width: 768px)' }, (ctx) => {
     const mobile = !!ctx.conditions?.mobile
-    const tl = pinned(section, mobile ? 2 : 2.4, (p) => theme(section, p < 0.07 ? 'brand' : 'night'))
+    const tl = pinned(section, mobile ? 2 : 2.4, (p) => theme(section, p < 0.12 ? 'brand' : 'night'))
 
-    // L'orange s'efface sur la nuit, la ville apparaît : un fondu, jamais une coupure.
-    tl.fromTo(backdrop.w, { orangeOut: 1 }, { orangeOut: 0, duration: 0.15, onUpdate: backdrop.apply }, 0)
-      .fromTo(backdrop.w, { nightIn: 0 }, { nightIn: 1, duration: 0.12, onUpdate: backdrop.apply }, 0)
+    // Le titre reste un temps sur l'orange, puis la nuit tombe comme un coucher de soleil : l'orange
+    // s'attarde et s'assombrit de plus en plus vite (fondu, jamais une coupure). La nuit est posée
+    // dessous d'emblée, invisible sous l'orange.
+    tl.fromTo(backdrop.w, { nightIn: 0 }, { nightIn: 1, duration: 0.02, onUpdate: backdrop.apply }, 0)
+      .fromTo(
+        backdrop.w,
+        { orangeOut: 1 },
+        { orangeOut: 0, duration: 0.14, ease: 'power2.in', onUpdate: backdrop.apply },
+        0.06,
+      )
       .fromTo(
         city.poses.in,
         { opacity: 0, scale: 1.08 },
-        { opacity: 1, scale: 1, duration: 0.22, ease: 'power1.out', onUpdate: city.apply },
-        0.03,
+        { opacity: 1, scale: 1, duration: 0.2, ease: 'power1.out', onUpdate: city.apply },
+        0.1,
       )
-      .fromTo(duoDark, { autoAlpha: 1 }, { autoAlpha: 0, duration: 0.1 }, 0.02)
-      .fromTo(kicker, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.05 }, 0.1)
-      .fromTo(scrim, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.08 }, 0.07)
+      .fromTo(duoDark, { autoAlpha: 1 }, { autoAlpha: 0, duration: 0.07, ease: 'power1.in' }, 0.09)
+      .fromTo(kicker, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.05 }, 0.15)
+      .fromTo(scrim, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.08 }, 0.12)
       // Le trajet erre ; le petit repère (la bouteille vide) le suit.
       .fromTo(path, { drawSVG: '0%', autoAlpha: 1 }, { drawSVG: '100%', duration: DRAW.length }, DRAW.from)
       .fromTo(walker, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.02 }, DRAW.from)

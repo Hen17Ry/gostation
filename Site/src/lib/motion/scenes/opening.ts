@@ -112,7 +112,7 @@ export function opening(motion: Motion) {
     const scale = state.scale * (1 - 0.5 * state.sink)
     // Ombre de contact : plus petite et plus pâle quand la bouteille monte, absente quand elle s'enfonce.
     if (shadow && fill.y > 0.3) {
-      const away = state.lift / 0.22
+      const away = state.lift / 0.1
       gsap.set(shadow, { opacity: (1 - 0.55 * away) * (1 - state.sink), scaleX: 1 - 0.25 * away })
     }
     if (motion.mode === 'full' && bottle) {
@@ -243,7 +243,7 @@ export function opening(motion: Motion) {
 
     scroll
       .to(copy, { y: -64, autoAlpha: 0, duration: 0.3 }, 0)
-      .to(state, { turn: (Math.PI * 2) / 3, lift: 0.22, scale: 1.06, duration: 0.42, onUpdate: apply }, 0)
+      .to(state, { turn: (Math.PI * 2) / 3, lift: 0.1, scale: 1.03, duration: 0.42, onUpdate: apply }, 0)
       // L'orange envahit l'écran, la bouteille s'y enfonce ; sans temps mort.
       .to(
         bandBg,
